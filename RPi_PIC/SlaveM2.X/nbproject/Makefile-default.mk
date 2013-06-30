@@ -44,12 +44,18 @@ OBJECTDIR=build/${CND_CONF}/${IMAGE_TYPE}
 # Distribution Directory
 DISTDIR=dist/${CND_CONF}/${IMAGE_TYPE}
 
+# Source Files Quoted if spaced
+SOURCEFILES_QUOTED_IF_SPACED=../xlcd/putsxlcd.c ../xlcd/setcgram.c ../xlcd/openxlcd.c ../xlcd/setddram.c ../xlcd/writdata.c ../xlcd/readaddr.c ../xlcd/readdata.c ../xlcd/busyxlcd.c ../xlcd/putrxlcd.c ../xlcd/wcmdxlcd.c ../SlaveM2.c
+
 # Object Files Quoted if spaced
 OBJECTFILES_QUOTED_IF_SPACED=${OBJECTDIR}/_ext/760475324/putsxlcd.o ${OBJECTDIR}/_ext/760475324/setcgram.o ${OBJECTDIR}/_ext/760475324/openxlcd.o ${OBJECTDIR}/_ext/760475324/setddram.o ${OBJECTDIR}/_ext/760475324/writdata.o ${OBJECTDIR}/_ext/760475324/readaddr.o ${OBJECTDIR}/_ext/760475324/readdata.o ${OBJECTDIR}/_ext/760475324/busyxlcd.o ${OBJECTDIR}/_ext/760475324/putrxlcd.o ${OBJECTDIR}/_ext/760475324/wcmdxlcd.o ${OBJECTDIR}/_ext/1472/SlaveM2.o
 POSSIBLE_DEPFILES=${OBJECTDIR}/_ext/760475324/putsxlcd.o.d ${OBJECTDIR}/_ext/760475324/setcgram.o.d ${OBJECTDIR}/_ext/760475324/openxlcd.o.d ${OBJECTDIR}/_ext/760475324/setddram.o.d ${OBJECTDIR}/_ext/760475324/writdata.o.d ${OBJECTDIR}/_ext/760475324/readaddr.o.d ${OBJECTDIR}/_ext/760475324/readdata.o.d ${OBJECTDIR}/_ext/760475324/busyxlcd.o.d ${OBJECTDIR}/_ext/760475324/putrxlcd.o.d ${OBJECTDIR}/_ext/760475324/wcmdxlcd.o.d ${OBJECTDIR}/_ext/1472/SlaveM2.o.d
 
 # Object Files
 OBJECTFILES=${OBJECTDIR}/_ext/760475324/putsxlcd.o ${OBJECTDIR}/_ext/760475324/setcgram.o ${OBJECTDIR}/_ext/760475324/openxlcd.o ${OBJECTDIR}/_ext/760475324/setddram.o ${OBJECTDIR}/_ext/760475324/writdata.o ${OBJECTDIR}/_ext/760475324/readaddr.o ${OBJECTDIR}/_ext/760475324/readdata.o ${OBJECTDIR}/_ext/760475324/busyxlcd.o ${OBJECTDIR}/_ext/760475324/putrxlcd.o ${OBJECTDIR}/_ext/760475324/wcmdxlcd.o ${OBJECTDIR}/_ext/1472/SlaveM2.o
+
+# Source Files
+SOURCEFILES=../xlcd/putsxlcd.c ../xlcd/setcgram.c ../xlcd/openxlcd.c ../xlcd/setddram.c ../xlcd/writdata.c ../xlcd/readaddr.c ../xlcd/readdata.c ../xlcd/busyxlcd.c ../xlcd/putrxlcd.c ../xlcd/wcmdxlcd.c ../SlaveM2.c
 
 
 CFLAGS=
