@@ -21,7 +21,7 @@
  */
 
 /*
-Driver: "experimental" daq_gert in progress ...
+Driver: "experimental" daq_gert in progress ... for 3.18+ kernels
  * 
  * 
  *  Added daq_gert.o to the COMEDI_MISC_DRIVERS
@@ -76,7 +76,7 @@ WiringPI
 
 Devices: [] GERTBOARD (daq_gert)
 Status: inprogress (DIO 95%) (AI 80%) AO (80%) (My code cleanup 55%)
-Updated: Fri, 18 Jan 2013 12:07:20 +0000
+Updated: Fri, 25 Feb 2015 12:07:20 +0000
 
 The DAQ-GERT appears in Comedi as a  digital I/O subdevice (0) with
 17 or 21 channels, a analog input subdevice (1) with 2 single-ended channels,
@@ -423,7 +423,7 @@ static int bcm2708_process_transfer(struct bcm2708_spi *bs,
         stp = spi->controller_state;
     }
 
-    INIT_COMPLETION(bs->done);
+    reinit_completion(&bs->done);
     bs->tx_buf = xfer->tx_buf;
     bs->rx_buf = xfer->rx_buf;
     bs->len = xfer->len;
@@ -587,7 +587,7 @@ static void bcm2708_spi_cleanup(struct spi_device *spi) {
     }
 }
 
-static int __devinit bcm2708_spi_probe(struct platform_device *pdev) {
+static int bcm2708_spi_probe(struct platform_device *pdev) {
     struct resource *regs;
     int irq, err = -ENOMEM;
     struct clk *clk;
@@ -690,7 +690,7 @@ out_clk_put:
     return err;
 }
 
-static int __devexit bcm2708_spi_remove(struct platform_device *pdev) {
+static int bcm2708_spi_remove(struct platform_device *pdev) {
     struct spi_master *master = platform_get_drvdata(pdev);
     struct bcm2708_spi *bs = spi_master_get_devdata(master);
 
@@ -720,7 +720,7 @@ static struct platform_driver bcm2708_spi_driver = {
         .owner = THIS_MODULE,
     },
     .probe = bcm2708_spi_probe,
-    .remove = __devexit_p(bcm2708_spi_remove),
+    .remove = bcm2708_spi_remove,
 };
 
 /*
@@ -1326,7 +1326,7 @@ static int daqgert_ao_config(struct comedi_device *dev,
 }
 
 static int daqgert_attach(struct comedi_device *dev, struct comedi_devconfig *it) {
-    const struct daqgert_board *thisboard = comedi_board(dev);
+    const struct daqgert_board *thisboard = dev->board_ptr;
     struct comedi_subdevice *s;
     int ret, num_subdev = 1, i, d;
 
