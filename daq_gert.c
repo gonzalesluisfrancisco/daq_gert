@@ -594,6 +594,7 @@ static int bcm2708_spi_transfer(struct spi_device *spi, struct spi_message *msg)
 	if (bs->stopping)
 		return -ESHUTDOWN;
 
+dev_info(&spi->dev, "bcm2708_spi_transfer start\n");
 	list_for_each_entry(xfer, &msg->transfers, transfer_list)
 	{
 		if (!(xfer->tx_buf || xfer->rx_buf) && xfer->len) {
@@ -609,6 +610,7 @@ static int bcm2708_spi_transfer(struct spi_device *spi, struct spi_message *msg)
 					spi->chip_select, spi->mode,
 					xfer->bits_per_word ? xfer->bits_per_word :
 					spi->bits_per_word);
+dev_info(&spi->dev, "bcm2708_spi_transfer setup_state done\n");
 		if (ret)
 			return ret;
 	}
@@ -640,25 +642,28 @@ static int bcm2708_spi_probe(struct platform_device *pdev)
 	struct spi_master *master;
 	struct bcm2708_spi *bs;
 
+dev_info(&pdev->dev, "GertBoard Detection bcm2708_spi_probe start\n");
 	regs = platform_get_resource(pdev, IORESOURCE_MEM, 0);
 	if (!regs) {
 		dev_err(&pdev->dev, "could not get IO memory\n");
 		return -ENXIO;
 	}
 
+dev_info(&pdev->dev, "GertBoard Detection bcm2708_spi_probe start irq\n");
 	irq = platform_get_irq(pdev, 0);
 	if (irq < 0) {
 		dev_err(&pdev->dev, "could not get IRQ\n");
 		return irq;
 	}
 
+dev_info(&pdev->dev, "GertBoard Detection bcm2708_spi_probe start clk\n");
 	clk = clk_get(&pdev->dev, NULL);
 	if (IS_ERR(clk)) {
 		dev_err(&pdev->dev, "could not find clk: %ld\n", PTR_ERR(clk));
 		return PTR_ERR(clk);
 	}
 
-
+dev_info(&pdev->dev, "GertBoard Detection bcm2708_spi_probe start master\n");
 	master = spi_alloc_master(&pdev->dev, sizeof (*bs));
 	if (!master) {
 		dev_err(&pdev->dev, "spi_alloc_master() failed\n");
@@ -676,6 +681,7 @@ static int bcm2708_spi_probe(struct platform_device *pdev)
 	master->dev.of_node = pdev->dev.of_node;
 	platform_set_drvdata(pdev, master);
 
+dev_info(&pdev->dev, "platform_set_drvdata done\n");
 	bs = spi_master_get_devdata(master);
 
 	spin_lock_init(&bs->lock);
@@ -683,6 +689,7 @@ static int bcm2708_spi_probe(struct platform_device *pdev)
 	init_completion(&bs->done);
 	INIT_WORK(&bs->work, bcm2708_work);
 
+dev_info(&pdev->dev, "INIT_WORK done\n");
 	bs->base = ioremap(regs->start, resource_size(regs));
 	if (!bs->base) {
 		dev_err(&pdev->dev, "could not remap memory\n");
@@ -707,6 +714,7 @@ static int bcm2708_spi_probe(struct platform_device *pdev)
 	}
 
 	/* initialize the hardware */
+dev_info(&pdev->dev, "GertBoard Detection bcm2708_spi_probe start clk_prepare\n");
 	clk_prepare_enable(clk);
 	bcm2708_wr(bs, SPI_CS, SPI_CS_REN | SPI_CS_CLEAR_RX | SPI_CS_CLEAR_TX);
 
@@ -1352,7 +1360,9 @@ static int daqgert_ai_config(struct comedi_device *dev,
 
 	int pin, detect_code;
 	/* SPI data transfers, send a few dummys for config info */
+dev_info(dev->class_dev, "comedi_do_one_message start\n");
 	comedi_do_one_message(CMD_DUMMY_CFG, CSnA, 1);
+dev_info(dev->class_dev, "comedi_do_one_message end\n");
 	comedi_do_one_message(CMD_DUMMY_CFG, CSnA, 1);
 	comedi_do_one_message(CMD_DUMMY_CFG, CSnA, 1);
 	if ((comedi_ctl.rx_buff[0]&0b11000000) != 0b01000000) {
@@ -1443,6 +1453,7 @@ static int daqgert_attach(struct comedi_device *dev, struct comedi_devconfig *it
 	/* Call SPI setup routines */
 	platform_driver_probe(&bcm2708_spi_driver, bcm2708_spi_probe);
 
+        dev_info(dev->class_dev, "GertBoard Detection Completed\n");
 	dev->board_name = thisboard->name;
 	ret = comedi_alloc_subdevices(dev, num_subdev);
 	if (ret)
@@ -1466,7 +1477,9 @@ static int daqgert_attach(struct comedi_device *dev, struct comedi_devconfig *it
 		/* daq_gert ai */
 		s = &dev->subdevices[1];
 		s->private = &pic_info_pic18; /* SPI adc slave conv delay */
+ dev_info(dev->class_dev, "daqgert_ai_config started\n");
 		num_ai_chan = daqgert_ai_config(dev, s); /* config SPI ports for ai use */
+ dev_info(dev->class_dev, "daqgert_ai_config done\n");
 		s->type = COMEDI_SUBD_AI;
 		/* we support single-ended (ground)  */
 		s->subdev_flags = SDF_READABLE | SDF_GROUND;
@@ -1486,7 +1499,9 @@ static int daqgert_attach(struct comedi_device *dev, struct comedi_devconfig *it
 
 		/* daq-gert ao */
 		s = &dev->subdevices[2];
+ dev_info(dev->class_dev, "daqgert_ao_config started\n");
 		num_ao_chan = daqgert_ao_config(dev, s); /* config SPI ports for ao use */
+ dev_info(dev->class_dev, "daqgert_ao_config done\n");
 		s->type = COMEDI_SUBD_AO;
 		/* we support single-ended (ground)  */
 		s->subdev_flags = SDF_WRITABLE | SDF_GROUND;
