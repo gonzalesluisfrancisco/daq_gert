@@ -1556,11 +1556,11 @@ static int __init daqgert_init(void)
 	ret = comedi_driver_register(&daqgert_driver);
 	if (ret < 0)
 		return ret;
-	comedi_ctl.tx_buff = kmalloc(SPI_BUFF_SIZE, GFP_KERNEL | GFP_DMA);
+	comedi_ctl.tx_buff = kmalloc(SPI_BUFF_SIZE, GFP_KERNEL);
 	if (!comedi_ctl.tx_buff) {
 		return -ENOMEM;
 	}
-	comedi_ctl.rx_buff = kmalloc(SPI_BUFF_SIZE, GFP_KERNEL | GFP_DMA);
+	comedi_ctl.rx_buff = kmalloc(SPI_BUFF_SIZE, GFP_KERNEL);
 	if (!comedi_ctl.rx_buff) {
 
 		return -ENOMEM;
