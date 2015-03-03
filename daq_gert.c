@@ -166,13 +166,13 @@ void (*setPadDrive) (int group, int value) ;
 int (*digitalRead) (int pin) ;
 
 static struct spi_device *comedi_spi_ai, *comedi_spi_ao;
-static struct bcm2708_spi *comedi_bs;
 
 struct comedi_control {
 	struct spi_message msg;
 	struct spi_transfer transfer;
 	u8 *tx_buff;
 	u8 *rx_buff;
+      struct mutex            drvdata_lock;
 } ;
 static struct comedi_control comedi_ctl;
 
@@ -640,7 +640,7 @@ static int bcm2708_spi_probe(struct platform_device *pdev)
 	int irq, err = -ENOMEM;
 	struct clk *clk;
 	struct spi_master *master;
-	struct bcm2708_spi *bs;
+	static struct bcm2708_spi *bs;
 
 dev_info(&pdev->dev, "GertBoard Detection bcm2708_spi_probe start\n");
 	regs = platform_get_resource(pdev, IORESOURCE_MEM, 0);
@@ -723,9 +723,6 @@ dev_info(&pdev->dev, "GertBoard Detection bcm2708_spi_probe start clk_prepare\n"
 		dev_err(&pdev->dev, "could not register SPI master: %d\n", err);
 		goto out_free_irq;
 	}
-
-	/* make comedi copies */
-	comedi_bs = bs;
 
 	dev_info(&pdev->dev, "SPI Controller at 0x%08lx (irq %d)\n",
 		(unsigned long) regs->start, irq);
@@ -1234,18 +1231,29 @@ static int daqgert_dio_insn_config(struct comedi_device *dev,
 }
 
 /* Create a message to send to the SPI driver */
-static void comedi_spi_msg(unsigned char data, unsigned char cs_select, unsigned char msg_len)
+static int comedi_spi_msg(unsigned char data, unsigned char cs_select, unsigned char msg_len)
 {
+	int	err;
+	struct spi_message *m;
+	struct spi_transfer *x;
+ 	struct comedi_control *c;
 
+	c=&comedi_ctl;
+	m=&comedi_ctl.msg;
+	x=&comedi_ctl.transfer;
 	if (msg_len > SPI_BUFF_SIZE) msg_len = SPI_BUFF_SIZE;
-	spi_message_init(&comedi_ctl.msg);
-	comedi_ctl.msg.spi = comedi_spi_ai;
-	if (cs_select == CSnB) comedi_ctl.msg.spi = comedi_spi_ao;
-	comedi_ctl.tx_buff[0] = data; /* we only set 1 byte but can send many */
-	comedi_ctl.transfer.len = msg_len;
-	comedi_ctl.transfer.tx_buf = comedi_ctl.tx_buff;
-	comedi_ctl.transfer.rx_buf = comedi_ctl.rx_buff;
-	spi_message_add_tail(&comedi_ctl.transfer, &comedi_ctl.msg);
+	spi_message_init(m);
+	m->spi = comedi_spi_ai;
+	if (cs_select == CSnB) m->spi = comedi_spi_ao;
+//        mutex_lock(&c->drvdata_lock);
+	c->tx_buff[0] = data; /* we only set 1 byte but can send many */
+	x->len = msg_len;
+	x->tx_buf = c->tx_buff;
+	x->rx_buf = c->rx_buff;
+	spi_message_add_tail(x, m);
+        err=spi_sync(m->spi,m);
+//      	mutex_unlock(&c->drvdata_lock);
+	return err;
 }
 
 /* Have the SPI driver execute our message to the selected slave */
@@ -1254,8 +1262,8 @@ static int comedi_do_one_message(unsigned char msgdata, unsigned char cs_select,
 	int status;
 
 	if (!spi_adc.link) return -ESHUTDOWN;
-	comedi_spi_msg(msgdata, cs_select, msg_len);
-	status = bcm2708_process_transfer(comedi_bs, &comedi_ctl.msg, &comedi_ctl.transfer);
+	status=comedi_spi_msg(msgdata, cs_select, msg_len);
+//	status = bcm2708_process_transfer(bs, &comedi_ctl.msg, &comedi_ctl.transfer);
 	return status;
 }
 
@@ -1416,6 +1424,17 @@ static int daqgert_attach(struct comedi_device *dev, struct comedi_devconfig *it
 	struct comedi_subdevice *s;
 	int ret, num_subdev = 1, i, d;
 
+        dev_info(dev->class_dev, "Kmalloc SPI rx/tx buffers\n");
+        comedi_ctl.tx_buff = kmalloc(SPI_BUFF_SIZE, GFP_KERNEL);
+        if (!comedi_ctl.tx_buff) {
+                return -ENOMEM;
+        }
+        comedi_ctl.rx_buff = kmalloc(SPI_BUFF_SIZE, GFP_KERNEL);
+        if (!comedi_ctl.rx_buff) {
+
+                return -ENOMEM;
+        }
+
 	/* Use the kernel system_rev EXPORT_SYMBOL */
 	RPisys_rev = system_rev; /* what board are we running on? */
 	if (RPisys_rev < 2) {
@@ -1524,8 +1543,11 @@ static int daqgert_attach(struct comedi_device *dev, struct comedi_devconfig *it
 
 static void daqgert_detach(struct comedi_device *dev)
 {
-
 	iounmap(gpio);
+        if (comedi_ctl.tx_buff)
+                kfree(comedi_ctl.tx_buff);
+        if (comedi_ctl.rx_buff)
+                kfree(comedi_ctl.rx_buff);
 	platform_driver_unregister(&bcm2708_spi_driver);
 	dev_info(dev->class_dev, "daq_gert detached\n");
 }
@@ -1549,37 +1571,7 @@ static struct comedi_driver daqgert_driver = {
 	.offset = sizeof (struct daqgert_board),
 };
 
-static int __init daqgert_init(void)
-{
-	int ret;
-
-	ret = comedi_driver_register(&daqgert_driver);
-	if (ret < 0)
-		return ret;
-	comedi_ctl.tx_buff = kmalloc(SPI_BUFF_SIZE, GFP_KERNEL);
-	if (!comedi_ctl.tx_buff) {
-		return -ENOMEM;
-	}
-	comedi_ctl.rx_buff = kmalloc(SPI_BUFF_SIZE, GFP_KERNEL);
-	if (!comedi_ctl.rx_buff) {
-
-		return -ENOMEM;
-	}
-	return 0;
-}
-module_init(daqgert_init);
-
-static void __exit daqgert_exit(void)
-{
-
-	if (comedi_ctl.tx_buff)
-		kfree(comedi_ctl.tx_buff);
-	if (comedi_ctl.rx_buff)
-		kfree(comedi_ctl.rx_buff);
-
-	comedi_driver_unregister(&daqgert_driver);
-}
-module_exit(daqgert_exit);
+module_comedi_driver(daqgert_driver);
 
 MODULE_AUTHOR("Fred Brooks <nsaspook@nsaspook.com>");
 MODULE_DESCRIPTION(
