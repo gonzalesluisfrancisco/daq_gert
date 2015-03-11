@@ -930,7 +930,7 @@ static int daqgert_attach(struct comedi_device *dev, struct comedi_devconfig *it
 	for (i = 0; i < NUM_DIO_OUTPUTS; i++) { /* [0..7] OUTPUTS */
 		pinModeWPi(i, OUTPUT);
 	}
-        dev_info(dev->class_dev, "GertBoard GPIO set [0..7]\n");
+        dev_info(dev->class_dev, "GertBoard GPIO set [0..7] to outputs\n");
 	num_dio_chan = NUM_DIO_CHAN; /* Rev 1 board setup first */
 	if (piBoardRev(dev) > 1) /* This a Rev 2 or higher board "I hope" */
 		num_dio_chan = NUM_DIO_CHAN_REV2;
@@ -1046,7 +1046,7 @@ static struct comedi_driver daqgert_driver = {
 
 module_comedi_driver(daqgert_driver);
 
-MODULE_AUTHOR("Fred Brooks <nsaspook@nsaspook.com>");
+MODULE_AUTHOR("Fred Brooks <spam@sma2.rain.com>");
 MODULE_DESCRIPTION(
 		   "Comedi driver for RASPI GERTBOARD DIO/AI/AO");
 MODULE_VERSION("0.0.09");
