@@ -165,6 +165,9 @@ void (*digitalWrite) (int pin, int value) ;
 void (*setPadDrive) (int group, int value) ;
 int (*digitalRead) (int pin) ;
 
+struct spi_master *master;
+struct bcm2708_spi *bs;
+
 static struct spi_device *comedi_spi_ai, *comedi_spi_ao;
 
 struct comedi_control {
@@ -618,6 +621,20 @@ int piBoardRev(struct comedi_device *dev)
 }
 
 /*
+ * setup and probe the spi buss for devices
+*/
+int SPI_probe(struct comedi_device *dev)
+{
+        dev_info(dev->class_dev, "Alloc Master start \n");
+        dev_info(dev->class_dev, "Alloc Master done \n");
+	if (!master) {
+		dev_err(dev->class_dev, "spi_alloc_master() failed\n");
+	}		
+	return 0;
+}
+
+
+/*
  * wiringPiSetup:
  *	Must be called once at the start of your program execution.
  *
@@ -945,6 +962,7 @@ static int daqgert_attach(struct comedi_device *dev, struct comedi_devconfig *it
 	dev_info(dev->class_dev, "GertBoard Detection Started\n");
 	num_subdev = 1;
         gert_detected = FALSE;
+	SPI_probe(dev);
 
         dev_info(dev->class_dev, "GertBoard Detection Completed\n");
 	dev->board_name = thisboard->name;
@@ -1044,7 +1062,21 @@ static struct comedi_driver daqgert_driver = {
 	.offset = sizeof (struct daqgert_board),
 };
 
-module_comedi_driver(daqgert_driver);
+static int __init daqgert_init(void) {
+    int ret;
+
+    ret = comedi_driver_register(&daqgert_driver);
+    if (ret < 0)
+        return ret;
+    return 0;
+}
+module_init(daqgert_init);
+
+static void __exit daqgert_exit(void) {
+
+    comedi_driver_unregister(&daqgert_driver);
+}
+module_exit(daqgert_exit);
 
 MODULE_AUTHOR("Fred Brooks <spam@sma2.rain.com>");
 MODULE_DESCRIPTION(
