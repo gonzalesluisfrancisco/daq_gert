@@ -83,7 +83,7 @@ The DAQ-GERT appears in Comedi as a  digital I/O subdevice (0) with
 a analog output subdevice(2) with 2 channels
 
 Digital:  The comedi channel 0 corresponds to the GPIO WPi table order
-channel numbers [0..7] will be outputs, [8..16/20] will be inputs
+channel numbers [0..7] will be outputs, [8..16/20/29] will be inputs
  * 0/2
  * 1/3
  * 4
@@ -274,7 +274,6 @@ static int bcm2708_spi_setup(struct spi_device *spi)
 	return 0;
 }
 
-#define NUM_PINS        17
 
 #define WPI_MODE_PINS            0
 #define WPI_MODE_GPIO            1
@@ -319,6 +318,7 @@ static int bcm2708_spi_setup(struct spi_device *spi)
 /* driver hardware numbers */
 #define NUM_DIO_CHAN  17
 #define NUM_DIO_CHAN_REV2       21
+#define NUM_DIO_CHAN_REV3       30
 #define NUM_DIO_OUTPUTS 8
 #define DIO_PINS_DEFAULT        0xff
 /* for for compat with ni_daq_700 used for driver testing, 2 AI channels */
@@ -406,10 +406,11 @@ static const int pinToGpioR2 [64] = {
 	10, 9, 11, /* SPI  - MOSI, MISO, SCLK      wpi 12 - 14 */
 	14, 15, /* UART - Tx, Rx                wpi 15 - 16 */
 	28, 29, 30, 31, /* New GPIOs 8 though 11        wpi 17 - 20 */
+	5, 6, 12, 13, 16, 19, 20, 21, 26, /* Rev 3 New GPIOs */
 
-	/* Padding: */
+        /* Padding: */
 
-	-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, /* ... 31 */
+	-1, -1, /* ... 31 */
 	-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, /* . 47 */
 	-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, /* . 63 */
 };
@@ -933,10 +934,12 @@ static int daqgert_attach(struct comedi_device *dev, struct comedi_devconfig *it
 	num_dio_chan = NUM_DIO_CHAN; /* Rev 1 board setup first */
 	if (piBoardRev(dev) > 1) /* This a Rev 2 or higher board "I hope" */
 		num_dio_chan = NUM_DIO_CHAN_REV2;
-	for (i = NUM_DIO_OUTPUTS; i < num_dio_chan; i++) { /* [8..16] or 20 INPUTS */
+        if (piBoardRev(dev) > 2) /* This a Rev 3 or higher board "I hope" */
+                num_dio_chan = NUM_DIO_CHAN_REV3;
+	for (i = NUM_DIO_OUTPUTS; i < num_dio_chan; i++) { /* [8..16/20/29] INPUTS */
 		pinModeWPi(i, INPUT);
 	}
-        dev_info(dev->class_dev, "GertBoard GPIO set [8..16] or 20 inputs\n");
+        dev_info(dev->class_dev, "GertBoard GPIO set [8..16/20/29] to inputs\n");
 
 	/* assume we have DON"T a gertboard */
 	dev_info(dev->class_dev, "GertBoard Detection Started\n");
