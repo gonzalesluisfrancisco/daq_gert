@@ -22,23 +22,44 @@
 
 /*
 Driver: "experimental" daq_gert in progress ... for 3.18+ kernels
+*** edit arch/arm/mach-bcm2709/bcm2709.c to add spigert device info to spidev info
+*** edit arch/arm/mach-bcm2708/bcm2708.c
+recompile kernel
+
+        {
+                .modalias = "spidev",
+                .max_speed_hz = 500000,
+                .bus_num = 1,
+                .chip_select = 0,
+                .mode = SPI_MODE_0,
+        }, {
+                .modalias = "spidev",
+                .max_speed_hz = 500000,
+                .bus_num = 1,
+                .chip_select = 1,
+                .mode = SPI_MODE_0,
+        },
+        {
+                .modalias = "spigert",
+                .max_speed_hz = 500000,
+                .bus_num = 0,
+                .chip_select = 0,
+                .mode = SPI_MODE_3,
+        }, {
+                .modalias = "spigert",
+                .max_speed_hz = 500000,
+                .bus_num = 0,
+                .chip_select = 1,
+                .mode = SPI_MODE_3,
+        }
  * 
  * 
  *  Added daq_gert.o to the COMEDI_MISC_DRIVERS
  *  comedi/drivers/Makefile
  *  obj-$(CONFIG_COMEDI_DAQ_GERT)           += daq_gert.o
- *  Added ARM to the comedi Kconfig file
  *  Added daq_gert to the comedi Kconfig file
  * 
 
- config COMEDI
-   tristate "Data acquisition support (comedi)"
-   depends on m
-   depends on BROKEN || FRV || M32R || MN10300 || SUPERH || TILE || X86 || ARM
-	---help---
-	  Enable support a wide range of data acquisition devices
-	  for Linux.
- 
  * section COMEDI_MISC_DRIVERS
 
  config COMEDI_DAQ_GERT
@@ -151,15 +172,16 @@ IRQ is assigned but not used.
 #include <linux/err.h>
 #include <linux/platform_device.h>
 #include <linux/io.h>
+#include <linux/workqueue.h>
 #include <linux/spi/spi.h>
-#include <linux/spi/spidev.h>
 #include <linux/delay.h>
 #include <linux/log2.h>
 #include <linux/sched.h>
 #include <linux/wait.h>
 #include <linux/mutex.h>
-#include <linux/of.h>
-#include <linux/of_device.h>
+#include <linux/device.h>
+#include <linux/errno.h>
+#include <linux/init.h>
 
 /* Function stubs */
 void (*pinMode) (int pin, int mode) ;
@@ -167,38 +189,19 @@ void (*pullUpDnControl) (int pin, int pud) ;
 void (*digitalWrite) (int pin, int value) ;
 void (*setPadDrive) (int group, int value) ;
 int (*digitalRead) (int pin) ;
+int SPI_probe(struct comedi_device *);
 
-struct spi_master *master;
-struct bcm2708_spi *bs;
+//struct spi_master *master;
+//struct bcm2708_spi *bs;
 
 static struct spi_device *comedi_spi_ai, *comedi_spi_ao;
-
-#define SPI_MODE_MASK           (SPI_CPHA | SPI_CPOL | SPI_CS_HIGH \
-                                  | SPI_LSB_FIRST | SPI_3WIRE | SPI_LOOP \
-                                  | SPI_NO_CS | SPI_READY | SPI_TX_DUAL \
-                                  | SPI_TX_QUAD | SPI_RX_DUAL | SPI_RX_QUAD)
-  
-  struct spidev_data {
-          dev_t                   devt;
-          spinlock_t              spi_lock;
-          struct spi_device       *spi;
-          struct list_head        device_entry;
-  
-          /* TX/RX buffers are NULL unless this device is open (users > 0) */
-          struct mutex            buf_lock;
-          unsigned                users;
-          u8                      *tx_buffer;
-          u8                      *rx_buffer;
-          u32                     speed_hz;
-  };
-  
 
 struct comedi_control {
 	struct spi_message msg;
 	struct spi_transfer transfer;
 	u8 *tx_buff;
 	u8 *rx_buff;
-      struct mutex            drvdata_lock;
+        struct mutex            drvdata_lock;
 } ;
 static struct comedi_control comedi_ctl;
 
@@ -264,42 +267,6 @@ static struct pic_platform_data pic_info_pic18 = {
 #define SPI_CS_CPHA		0x00000004
 #define SPI_CS_CS_10		0x00000002
 #define SPI_CS_CS_01		0x00000001
-
-#define SPI_TIMEOUT_MS	150
-
-static int bcm2708_spi_setup(struct spi_device *spi)
-{
-
-	/* Create SPI channels for Comedi*/
-	if (spi->chip_select == CSnA) { /* we need a device to talk to the ADC */
-		spi->mode = SPI_CS_CS_10 | SPI_CS_CS_01; /* mode 3 */
-		comedi_spi_ai = spi; /* get a copy of the slave device */
-		dev_dbg(&spi->dev,
-			"setup: cd %d: %d Hz, bpw %u, mode 0x%x\n",
-			spi->chip_select, spi->max_speed_hz, spi->bits_per_word,
-			spi->mode);
-	}
-	if (spi->chip_select == CSnB) { /* we need a device to talk to the DAC */
-		spi->mode = SPI_CS_CS_10 | SPI_CS_CS_01; /* mode 3 */
-		comedi_spi_ao = spi; /* get a copy of the slave device */
-		dev_dbg(&spi->dev,
-			"setup: cd %d: %d Hz, bpw %u, mode 0x%x\n",
-			spi->chip_select, spi->max_speed_hz, spi->bits_per_word,
-			spi->mode);
-	}
-
-
-	if (!(spi->mode & SPI_NO_CS) &&
-		(spi->chip_select > spi->master->num_chipselect)) {
-		dev_dbg(&spi->dev,
-			"setup: invalid chipselect %u (%u defined)\n",
-			spi->chip_select, spi->master->num_chipselect);
-		return -EINVAL;
-	}
-
-	return 0;
-}
-
 
 #define WPI_MODE_PINS            0
 #define WPI_MODE_GPIO            1
@@ -642,17 +609,6 @@ int piBoardRev(struct comedi_device *dev)
         boardRev);
 	return boardRev;
 }
-
-/*
- * setup and probe the spi buss for devices
-*/
-int SPI_probe(struct comedi_device *dev)
-{
-        dev_info(dev->class_dev, "SPI probe start \n");
-        dev_info(dev->class_dev, "SPI probe done \n");
-	return 0;
-}
-
 
 /*
  * wiringPiSetup:
@@ -1082,63 +1038,75 @@ static struct comedi_driver daqgert_driver = {
 	.offset = sizeof (struct daqgert_board),
 };
 
-static int spidev_probe(struct spi_device *spi)
+static struct spi_driver spidev_spi_driver;
+
+/* called for each listed spigert device in the bcm270*.c file */
+static int spidev_spi_probe(struct spi_device *spi)
  {
-         struct spidev_data      *spidev;
+       struct comedi_control *pdata;
+	int ret;
  
-         /* Allocate driver data */
-         spidev = kzalloc(sizeof(*spidev), GFP_KERNEL);
-         if (!spidev)
+         pdata = kzalloc(sizeof(struct comedi_control), GFP_KERNEL);
+         if (!pdata)
                  return -ENOMEM;
+         spi->dev.platform_data = pdata;
+      	 if (spi->chip_select == CSnA) comedi_spi_ai = spi; /* get a copy of the slave device 0 */  /* we need a device to talk to the ADC */
+         if (spi->chip_select == CSnB) comedi_spi_ao = spi; /* get a copy of the slave device 1 */  /* we need a device to talk to the DAC */
+	 spi->max_speed_hz=500000;
+	 spi->bits_per_word=8;
+	 spi_setup(spi);
+         dev_info(&spi->dev,
+                        "setup: cd %d: %d Hz, bpw %u, mode 0x%x\n",
+                        spi->chip_select, spi->max_speed_hz, spi->bits_per_word,
+                        spi->mode);
  
-         /* Initialize the driver data */
-         spidev->spi = spi;
-         spin_lock_init(&spidev->spi_lock);
-         mutex_init(&spidev->buf_lock);
- 
-         INIT_LIST_HEAD(&spidev->device_entry);
- 
-         spidev->speed_hz = spi->max_speed_hz;
- 
-         spi_set_drvdata(spi, spidev);
+         /* Check */
+         ret = spi_w8r8(spi, CMD_DUMMY_CFG);
+         if (ret < 0 ) {
+                 dev_err(&spi->dev, "not found.\n");
+                 goto kfree_exit;
+         }
+        if (!(spi->mode & SPI_NO_CS) &&
+                (spi->chip_select > spi->master->num_chipselect)) {
+                dev_err(&spi->dev,
+                        "setup: invalid chipselect %u (%u defined)\n",
+                        spi->chip_select, spi->master->num_chipselect);
+                ret = -EINVAL;
+                goto kfree_exit;
+        }
  
          return 0;
+kfree_exit:
+         kfree(pdata);
+         return ret;
  }
 
-static int spidev_remove(struct spi_device *spi)
+static int spidev_spi_remove(struct spi_device *spi)
  {
-         struct spidev_data      *spidev = spi_get_drvdata(spi);
+         struct comedi_control *pdata = spi->dev.platform_data;
  
-         /* make sure ops on existing fds can abort cleanly */
-         spin_lock_irq(&spidev->spi_lock);
-         spidev->spi = NULL;
-         spin_unlock_irq(&spidev->spi_lock);
- 
+         kfree(pdata);
          return 0;
  }
 
-static const struct of_device_id spidev_dt_ids[] = {
-         { .compatible = "rohm,dh2228fv" },
-         {},
- };
- 
-MODULE_DEVICE_TABLE(of, spidev_dt_ids);
- 
  static struct spi_driver spidev_spi_driver = {
          .driver = {
-                 .name =         "spidev",
+                 .name =         "spigert",
                  .owner =        THIS_MODULE,
-                 .of_match_table = of_match_ptr(spidev_dt_ids),
          },
-         .probe =        spidev_probe,
-         .remove =       spidev_remove,
- 
-         /* NOTE:  suspend/resume methods are not necessary here.
-          * We don't do anything except pass the requests to/from
-          * the underlying controller.  The refrigerator handles
-          * most issues; the controller driver handles the rest.
-          */
+         .probe =  spidev_spi_probe,
+         .remove = spidev_spi_remove,
  };
+
+/*
+ * setup and probe the spi buss for devices
+*/
+int SPI_probe(struct comedi_device *dev)
+{
+        dev_info(dev->class_dev, "SPI probe start \n");
+        dev_info(dev->class_dev, "SPI probe done \n");
+        return 0;
+}
 
 static int __init daqgert_init(void) {
     int ret;
@@ -1164,3 +1132,4 @@ MODULE_DESCRIPTION(
 		   "Comedi driver for RASPI GERTBOARD DIO/AI/AO");
 MODULE_VERSION("0.0.09");
 MODULE_LICENSE("GPL");
+MODULE_ALIAS("spi:spigert");
