@@ -733,11 +733,27 @@ static int daqgert_dio_insn_config(struct comedi_device *dev,
 /* Have the SPI driver execute our message to the selected slave */
 static int comedi_do_one_message(unsigned char msgdata, unsigned char cs_select, unsigned char msg_len)
 {
-	int status;
+	int data16;
 
-	if (!spi_adc.link) return -ESHUTDOWN;
+	if (cs_select==CSnA) {
+		if (msg_len==1) {
+			comedi_ctl.rx_buff[0]=spi_w8r8(comedi_spi_ai,msgdata);
+		} else {
+                        data16=spi_w8r16(comedi_spi_ai,msgdata);
+                        comedi_ctl.rx_buff[0]=data16>>8;
+                        comedi_ctl.rx_buff[1]=data16;
+		}
+	}
 
-	return status;
+        if (cs_select==CSnB) {
+                if (msg_len==1) {
+                        comedi_ctl.rx_buff[0]=spi_w8r8(comedi_spi_ao,msgdata);
+                } else {
+                        comedi_ctl.rx_buff[0]=spi_w8r8(comedi_spi_ao,msgdata);
+                        comedi_ctl.rx_buff[1]=spi_w8r8(comedi_spi_ao,comedi_ctl.tx_buff[1]);
+                }
+        }
+	return 0;
 }
 
 /* Talk to the ADC via the SPI */
@@ -804,45 +820,6 @@ static int daqgert_ao_rinsn(struct comedi_device *dev,
 static int daqgert_ai_config(struct comedi_device *dev,
 			     struct comedi_subdevice *s)
 {
-	int detect_code;
-
-	/* SPI data transfers, send a few dummys for config info */
-	comedi_do_one_message(CMD_DUMMY_CFG, CSnA, 1);
-	comedi_do_one_message(CMD_DUMMY_CFG, CSnA, 1);
-	comedi_do_one_message(CMD_DUMMY_CFG, CSnA, 1);
-	if ((comedi_ctl.rx_buff[0]&0b11000000) != 0b01000000) {
-		comedi_do_one_message(0b01100000, CSnA, 1); /* check for channel 0 SE */
-		detect_code = comedi_ctl.rx_buff[0];
-		if ((comedi_ctl.rx_buff[0]&0b00000100) == 0) {
-			spi_adc.pic18 = 1; /* MCP3002 mode */
-			spi_adc.chan = 2;
-			spi_adc.range = 0; /* range 2.048 */
-			spi_adc.bits = 0; /* 10 bits */
-			dev_info(dev->class_dev,
-				"Gertboard ADC chip Board Detected, %i Channels, Range code %i, Bits code %i, PIC code %i, Detect Code %i\n",
-				spi_adc.chan, spi_adc.range, spi_adc.bits, spi_adc.pic18, detect_code);
-            		gert_detected = TRUE;
-			return spi_adc.chan;
-		}
-		spi_adc.pic18 = 0; /* SPI probes found nothing */
-		/* look for the gertboard SPI devices .pic18 code 1 */
-		dev_info(dev->class_dev, "No GERT Board Found, GPIO pins only. Detect Code %i\n",
-			detect_code);
-		gert_detected = FALSE;
-		return 1; /* dummy chan */
-	}
-	spi_adc.pic18 = 2; /* PIC18 single-end mode 10 bits */
-	spi_adc.chan = comedi_ctl.rx_buff[0]&0x0f;
-	spi_adc.range = (comedi_ctl.rx_buff[0]&0b00100000) >> 5;
-	spi_adc.bits = (comedi_ctl.rx_buff[0]&0b00010000) >> 4;
-	if (spi_adc.bits) {
-		spi_adc.pic18 = 3; /* PIC18 diff mode 12 bits */
-	}
-	dev_info(dev->class_dev,
-		"PIC spi slave ADC chip Board Detected, %i Channels, Range code %i, Bits code %i, PIC code %i\n",
-		spi_adc.chan, spi_adc.range, spi_adc.bits, spi_adc.pic18);
-
-        gert_detected = TRUE;
 	return spi_adc.chan;
 }
 
@@ -907,8 +884,7 @@ static int daqgert_attach(struct comedi_device *dev, struct comedi_devconfig *it
 	dev_info(dev->class_dev, "GertBoard Detection Started\n");
 	num_subdev = 1;
         gert_detected = FALSE;
-	SPI_probe(dev);
-
+	if (SPI_probe(dev)) num_subdev +=2;; // add AI and AO channels */
         dev_info(dev->class_dev, "GertBoard Detection Completed\n");
 	dev->board_name = thisboard->name;
 	ret = comedi_alloc_subdevices(dev, num_subdev);
@@ -1097,7 +1073,8 @@ int SPI_probe(struct comedi_device *dev)
                 dev_info(dev->class_dev, "No GERT Board Found, GPIO pins only. Detect Code %i\n",
                         ret);
                 gert_detected = FALSE;
-                return -1;
+                spi_adc.chan = 0;
+                return spi_adc.chan;
         }
 	if (ret) {
         	spi_adc.pic18 = 2; /* PIC18 single-end mode 10 bits */
@@ -1116,7 +1093,8 @@ int SPI_probe(struct comedi_device *dev)
                 dev_info(dev->class_dev, "No GERT Board Found, GPIO pins only. Detect Code %i\n",
                         ret);
                 gert_detected = FALSE;
-                return -1;
+                spi_adc.chan = 0;
+                return spi_adc.chan;
 	}
         gert_detected = TRUE;
        	return spi_adc.chan;
