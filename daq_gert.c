@@ -177,7 +177,7 @@ void (*setPadDrive) (int group, int value) ;
 int (*digitalRead) (int pin) ;
 int SPI_probe(struct comedi_device *);
 
-static struct spi_device *comedi_spi_ai, *comedi_spi_ao;
+//static struct spi_device *comedi_spi_ai, *comedi_spi_ao;
 
 struct comedi_control {
 	u8 *tx_buff;
@@ -191,8 +191,9 @@ struct spi_adc_type {
 	uint16_t link : 1;
 	uint16_t pic18 : 2;
 	uint16_t chan : 4;
+	struct spi_device *spi;
 } ;
-struct spi_adc_type spi_adc, spi_dac;
+static struct spi_adc_type spi_adc, spi_dac;
 
 struct pic_platform_data {
 	uint16_t conv_delay_usecs;
@@ -669,9 +670,9 @@ static int comedi_do_one_message(unsigned char msgdata, unsigned char cs_select,
 
 	if (cs_select==CSnA) {
 		if (msg_len==1) {
-			comedi_ctl.rx_buff[0]=spi_w8r8(comedi_spi_ai,msgdata);
+			comedi_ctl.rx_buff[0]=spi_w8r8(spi_adc.spi,msgdata);
 		} else {
-                        data16=spi_w8r16(comedi_spi_ai,msgdata);
+                        data16=spi_w8r16(spi_adc.spi,msgdata);
                         comedi_ctl.rx_buff[0]=data16>>8;
                         comedi_ctl.rx_buff[1]=data16;
 		}
@@ -679,10 +680,10 @@ static int comedi_do_one_message(unsigned char msgdata, unsigned char cs_select,
 
         if (cs_select==CSnB) {
                 if (msg_len==1) {
-                        comedi_ctl.rx_buff[0]=spi_w8r8(comedi_spi_ao,msgdata);
+                        comedi_ctl.rx_buff[0]=spi_w8r8(spi_dac.spi,msgdata);
                 } else {
-                        comedi_ctl.rx_buff[0]=spi_w8r8(comedi_spi_ao,msgdata);
-                        comedi_ctl.rx_buff[1]=spi_w8r8(comedi_spi_ao,comedi_ctl.tx_buff[1]);
+                        comedi_ctl.rx_buff[0]=spi_w8r8(spi_dac.spi,msgdata);
+                        comedi_ctl.rx_buff[1]=spi_w8r8(spi_dac.spi,comedi_ctl.tx_buff[1]);
                 }
         }
 	return 0;
@@ -769,12 +770,11 @@ static int daqgert_attach(struct comedi_device *dev, struct comedi_devconfig *it
 	struct comedi_subdevice *s;
 	int ret, num_subdev = 1, i, d;
 
-        dev_info(dev->class_dev, "Kmalloc SPI rx/tx buffers\n");
-        comedi_ctl.tx_buff = kmalloc(SPI_BUFF_SIZE, GFP_KERNEL);
+        comedi_ctl.tx_buff = kmalloc(SPI_BUFF_SIZE, GFP_KERNEL | GFP_DMA);
         if (!comedi_ctl.tx_buff) {
                 return -ENOMEM;
         }
-        comedi_ctl.rx_buff = kmalloc(SPI_BUFF_SIZE, GFP_KERNEL);
+        comedi_ctl.rx_buff = kmalloc(SPI_BUFF_SIZE, GFP_KERNEL | GFP_DMA);
         if (!comedi_ctl.rx_buff) {
 
                 return -ENOMEM;
@@ -923,8 +923,14 @@ static int spidev_spi_probe(struct spi_device *spi)
          if (!pdata)
                  return -ENOMEM;
          spi->dev.platform_data = pdata;
-      	 if (spi->chip_select == CSnA) comedi_spi_ai = spi; /* get a copy of the slave device 0 */  /* we need a device to talk to the ADC */
-         if (spi->chip_select == CSnB) comedi_spi_ao = spi; /* get a copy of the slave device 1 */  /* we need a device to talk to the DAC */
+      	 if (spi->chip_select == CSnA) {
+		/* get a copy of the slave device 0 */  /* we need a device to talk to the ADC */
+		spi_adc.spi = spi;
+	 }
+         if (spi->chip_select == CSnB) {
+		/* get a copy of the slave device 1 */  /* we need a device to talk to the DAC */
+		spi_dac.spi = spi;
+	}
 	 spi->max_speed_hz=2000000;
 	 spi->bits_per_word=8;
 	 spi->mode = SPI_MODE_3; /* mode 3 for ADC & DAC*/
@@ -981,11 +987,11 @@ int SPI_probe(struct comedi_device *dev)
 
         dev_info(dev->class_dev, "SPI probe\n");
         /* SPI data transfers, send a few dummys for config info */
-        ret = spi_w8r8(comedi_spi_ai, CMD_DUMMY_CFG);
-        ret = spi_w8r8(comedi_spi_ai, CMD_DUMMY_CFG);
-        ret = spi_w8r8(comedi_spi_ai, CMD_DUMMY_CFG);
+        ret = spi_w8r8(spi_adc.spi, CMD_DUMMY_CFG);
+        ret = spi_w8r8(spi_adc.spi, CMD_DUMMY_CFG);
+        ret = spi_w8r8(spi_adc.spi, CMD_DUMMY_CFG);
         if ((ret&0b11000000) != 0b01000000) {
-        	ret = spi_w8r8(comedi_spi_ai, 0b01100000); /* check for channel 0 SE */
+        	ret = spi_w8r8(spi_adc.spi, 0b01100000); /* check for channel 0 SE */
                 if ((ret&0b00000100) == 0) {
                         spi_adc.pic18 = 1; /* MCP3002 mode */
                         spi_adc.chan = NUM_AI_CHAN;
@@ -1050,6 +1056,6 @@ module_exit(daqgert_exit);
 MODULE_AUTHOR("Fred Brooks <spam@sma2.rain.com>");
 MODULE_DESCRIPTION(
 		   "Comedi driver for RASPI GERTBOARD DIO/AI/AO");
-MODULE_VERSION("0.0.09");
+MODULE_VERSION("0.0.10");
 MODULE_LICENSE("GPL");
 MODULE_ALIAS("spi:spigert");
