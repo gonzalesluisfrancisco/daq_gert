@@ -22,26 +22,47 @@
 
 /*
 Driver: "experimental" daq_gert in progress ... for 3.18+ kernels
+*** edit arch/arm/mach-bcm2709/bcm2709.c to add spigert device info to spidev info
+*** edit arch/arm/mach-bcm2708/bcm2708.c
+recompile kernel
+
+        {
+                .modalias = "spidev",
+                .max_speed_hz = 500000,
+                .bus_num = 1,
+                .chip_select = 0,
+                .mode = SPI_MODE_0,
+        }, {
+                .modalias = "spidev",
+                .max_speed_hz = 500000,
+                .bus_num = 1,
+                .chip_select = 1,
+                .mode = SPI_MODE_0,
+        },
+        {
+                .modalias = "spigert",
+                .max_speed_hz = 500000,
+                .bus_num = 0,
+                .chip_select = 0,
+                .mode = SPI_MODE_0,
+        }, {
+                .modalias = "spigert",
+                .max_speed_hz = 500000,
+                .bus_num = 0,
+                .chip_select = 1,
+                .mode = SPI_MODE_0,
+        }
  * 
  * 
  *  Added daq_gert.o to the COMEDI_MISC_DRIVERS
  *  comedi/drivers/Makefile
  *  obj-$(CONFIG_COMEDI_DAQ_GERT)           += daq_gert.o
- *  Added ARM to the comedi Kconfig file
  *  Added daq_gert to the comedi Kconfig file
  * 
 
- config COMEDI
-   tristate "Data acquisition support (comedi)"
-   depends on m
-   depends on BROKEN || FRV || M32R || MN10300 || SUPERH || TILE || X86 || ARM
-	---help---
-	  Enable support a wide range of data acquisition devices
-	  for Linux.
- 
  * section COMEDI_MISC_DRIVERS
 
-config COMEDI_DAQ_GERT
+ config COMEDI_DAQ_GERT
 	tristate "GERTBOARD support"
 	depends on COMEDI_KCOMEDILIB
 	---help---
@@ -83,7 +104,7 @@ The DAQ-GERT appears in Comedi as a  digital I/O subdevice (0) with
 a analog output subdevice(2) with 2 channels
 
 Digital:  The comedi channel 0 corresponds to the GPIO WPi table order
-channel numbers [0..7] will be outputs, [8..16/20] will be inputs
+channel numbers [0..7] will be outputs, [8..16/20/29] will be inputs
  * 0/2
  * 1/3
  * 4
@@ -151,12 +172,16 @@ IRQ is assigned but not used.
 #include <linux/err.h>
 #include <linux/platform_device.h>
 #include <linux/io.h>
+#include <linux/workqueue.h>
 #include <linux/spi/spi.h>
 #include <linux/delay.h>
 #include <linux/log2.h>
 #include <linux/sched.h>
 #include <linux/wait.h>
 #include <linux/mutex.h>
+#include <linux/device.h>
+#include <linux/errno.h>
+#include <linux/init.h>
 
 /* Function stubs */
 void (*pinMode) (int pin, int mode) ;
@@ -164,6 +189,10 @@ void (*pullUpDnControl) (int pin, int pud) ;
 void (*digitalWrite) (int pin, int value) ;
 void (*setPadDrive) (int group, int value) ;
 int (*digitalRead) (int pin) ;
+int SPI_probe(struct comedi_device *);
+
+//struct spi_master *master;
+//struct bcm2708_spi *bs;
 
 static struct spi_device *comedi_spi_ai, *comedi_spi_ao;
 
@@ -172,7 +201,7 @@ struct comedi_control {
 	struct spi_transfer transfer;
 	u8 *tx_buff;
 	u8 *rx_buff;
-      struct mutex            drvdata_lock;
+        struct mutex            drvdata_lock;
 } ;
 static struct comedi_control comedi_ctl;
 
@@ -239,567 +268,6 @@ static struct pic_platform_data pic_info_pic18 = {
 #define SPI_CS_CS_10		0x00000002
 #define SPI_CS_CS_01		0x00000001
 
-#define SPI_TIMEOUT_MS	150
-
-#define DRV_NAME_SPI	"bcm2708_spi"
-
-struct bcm2708_spi {
-	spinlock_t lock;
-	void __iomem *base;
-	int irq;
-	struct clk *clk;
-	bool stopping;
-
-	struct list_head queue;
-	struct workqueue_struct *workq;
-	struct work_struct work;
-	struct completion done;
-
-	const u8 *tx_buf;
-	u8 *rx_buf;
-	int len;
-} ;
-
-struct bcm2708_spi_state {
-	u32 cs;
-	u16 cdiv;
-} ;
-
-static inline u32 bcm2708_rd(struct bcm2708_spi *bs, unsigned reg)
-{
-	return readl(bs->base + reg);
-}
-
-static inline void bcm2708_wr(struct bcm2708_spi *bs, unsigned reg, u32 val)
-{
-	writel(val, bs->base + reg);
-}
-
-static inline void bcm2708_rd_fifo(struct bcm2708_spi *bs, int len)
-{
-	u8 byte;
-
-	while (len--) {
-		byte = bcm2708_rd(bs, SPI_FIFO);
-		if (bs->rx_buf)
-			*bs->rx_buf++ = byte;
-	}
-}
-
-static inline void bcm2708_wr_fifo(struct bcm2708_spi *bs, int len)
-{
-	u8 byte;
-	u16 val;
-
-	if (len > bs->len)
-		len = bs->len;
-
-	if (unlikely(bcm2708_rd(bs, SPI_CS) & SPI_CS_LEN)) {
-		/* LoSSI mode */
-		if (unlikely(len % 2)) {
-			printk(KERN_ERR"bcm2708_wr_fifo: length must be even, skipping.\n");
-			bs->len = 0;
-			return;
-		}
-		while (len) {
-			if (bs->tx_buf) {
-				val = *(const u16 *)bs->tx_buf;
-				bs->tx_buf += 2;
-			} else
-				val = 0;
-			bcm2708_wr(bs, SPI_FIFO, val);
-			bs->len -= 2;
-			len -= 2;
-		}
-		return;
-	}
-
-	while (len--) {
-		byte = bs->tx_buf ? *bs->tx_buf++ : 0;
-		bcm2708_wr(bs, SPI_FIFO, byte);
-		bs->len--;
-	}
-}
-
-static irqreturn_t bcm2708_spi_interrupt(int irq, void *dev_id)
-{
-	struct spi_master *master = dev_id;
-	struct bcm2708_spi *bs = spi_master_get_devdata(master);
-	u32 cs;
-
-	spin_lock(&bs->lock);
-
-	cs = bcm2708_rd(bs, SPI_CS);
-
-	if (cs & SPI_CS_DONE) {
-		if (bs->len) { /* first interrupt in a transfer */
-			/* fill the TX fifo with up to 16 bytes */
-			bcm2708_wr_fifo(bs, 16);
-		} else { /* transfer complete */
-			/* disable interrupts */
-			cs &= ~(SPI_CS_INTR | SPI_CS_INTD);
-			bcm2708_wr(bs, SPI_CS, cs);
-
-			/* drain RX FIFO */
-			while (cs & SPI_CS_RXD) {
-				bcm2708_rd_fifo(bs, 1);
-				cs = bcm2708_rd(bs, SPI_CS);
-			}
-
-			/* wake up our bh */
-			complete(&bs->done);
-		}
-	} else if (cs & SPI_CS_RXR) {
-		/* read 12 bytes of data */
-		bcm2708_rd_fifo(bs, 12);
-
-		/* write up to 12 bytes */
-		bcm2708_wr_fifo(bs, 12);
-	}
-
-	spin_unlock(&bs->lock);
-
-	return IRQ_HANDLED;
-}
-
-static int bcm2708_setup_state(struct spi_master *master,
-			       struct device *dev, struct bcm2708_spi_state *state,
-			       u32 hz, u8 csel, u8 mode, u8 bpw)
-{
-	struct bcm2708_spi *bs = spi_master_get_devdata(master);
-	int cdiv;
-	unsigned long bus_hz;
-	u32 cs = 0;
-
-	bus_hz = clk_get_rate(bs->clk);
-
-	if (hz >= bus_hz) {
-		cdiv = 2; /* bus_hz / 2 is as fast as we can go */
-	} else if (hz) {
-		cdiv = DIV_ROUND_UP(bus_hz, hz);
-
-		/* CDIV must be a power of 2, so round up */
-		cdiv = roundup_pow_of_two(cdiv);
-
-		if (cdiv > 65536) {
-			dev_dbg(dev,
-				"setup: %d Hz too slow, cdiv %u; min %ld Hz\n",
-				hz, cdiv, bus_hz / 65536);
-			return -EINVAL;
-		} else if (cdiv == 65536) {
-			cdiv = 0;
-		} else if (cdiv == 1) {
-			cdiv = 2; /* 1 gets rounded down to 0; == 65536 */
-		}
-	} else {
-		cdiv = 0;
-	}
-
-	switch (bpw) {
-	case 8:
-		break;
-	case 9:
-		/* Reading in LoSSI mode is a special case. See 'BCM2835 ARM Peripherals' datasheet */
-		cs |= SPI_CS_LEN;
-		break;
-	default:
-		dev_dbg(dev, "setup: invalid bits_per_word %u (must be 8)\n",
-			bpw);
-		return -EINVAL;
-	}
-
-	if (mode & SPI_CPOL)
-		cs |= SPI_CS_CPOL;
-	if (mode & SPI_CPHA)
-		cs |= SPI_CS_CPHA;
-
-	if (!(mode & SPI_NO_CS)) {
-		if (mode & SPI_CS_HIGH) {
-			cs |= SPI_CS_CSPOL;
-			cs |= SPI_CS_CSPOL0 << csel;
-		}
-
-		cs |= csel;
-	} else {
-		cs |= SPI_CS_CS_10 | SPI_CS_CS_01;
-	}
-
-	if (state) {
-		state->cs = cs;
-		state->cdiv = cdiv;
-		dev_dbg(dev, "setup: want %d Hz; "
-			"bus_hz=%lu / cdiv=%u == %lu Hz; "
-			"mode %u: cs 0x%08X\n",
-			hz, bus_hz, cdiv, bus_hz/cdiv, mode, cs);
-	}
-
-	return 0;
-}
-
-static int bcm2708_process_transfer(struct bcm2708_spi *bs,
-				    struct spi_message *msg, struct spi_transfer *xfer)
-{
-	struct spi_device *spi = msg->spi;
-	struct bcm2708_spi_state state, *stp;
-	int ret;
-	u32 cs;
-
-	if (bs->stopping)
-		return -ESHUTDOWN;
-
-	if (xfer->bits_per_word || xfer->speed_hz) {
-		ret = bcm2708_setup_state(spi->master, &spi->dev, &state,
-			xfer->speed_hz ? xfer->speed_hz : spi->max_speed_hz,
-			spi->chip_select, spi->mode,
-			xfer->bits_per_word ? xfer->bits_per_word :
-				spi->bits_per_word);
-		if (ret)
-			return ret;
-
-		stp = &state;
-	} else {
-		stp = spi->controller_state;
-	}
-
-	reinit_completion(&bs->done);
-	bs->tx_buf = xfer->tx_buf;
-	bs->rx_buf = xfer->rx_buf;
-	bs->len = xfer->len;
-
-	cs = stp->cs | SPI_CS_INTR | SPI_CS_INTD | SPI_CS_TA;
-
-	bcm2708_wr(bs, SPI_CLK, stp->cdiv);
-	bcm2708_wr(bs, SPI_CS, cs);
-
-	ret = wait_for_completion_timeout(&bs->done,
-					msecs_to_jiffies(SPI_TIMEOUT_MS));
-	if (ret == 0) {
-		dev_err(&spi->dev, "transfer timed out\n");
-		return -ETIMEDOUT;
-	}
-
-	if (xfer->delay_usecs)
-		udelay(xfer->delay_usecs);
-
-	if (list_is_last(&xfer->transfer_list, &msg->transfers) ||
-		xfer->cs_change) {
-		/* clear TA and interrupt flags */
-		bcm2708_wr(bs, SPI_CS, stp->cs);
-	}
-
-	msg->actual_length += (xfer->len - bs->len);
-	return 0;
-}
-
-static void bcm2708_work(struct work_struct *work)
-{
-	struct bcm2708_spi *bs = container_of(work, struct bcm2708_spi, work);
-	unsigned long flags;
-	struct spi_message *msg;
-	struct spi_transfer *xfer;
-	int status = 0;
-
-	spin_lock_irqsave(&bs->lock, flags);
-	while (!list_empty(&bs->queue)) {
-		msg = list_first_entry(&bs->queue, struct spi_message, queue);
-		list_del_init(&msg->queue);
-		spin_unlock_irqrestore(&bs->lock, flags);
-
-		list_for_each_entry(xfer, &msg->transfers, transfer_list)
-		{
-			status = bcm2708_process_transfer(bs, msg, xfer);
-			if (status)
-				break;
-		}
-
-		msg->status = status;
-		msg->complete(msg->context);
-
-		spin_lock_irqsave(&bs->lock, flags);
-	}
-	spin_unlock_irqrestore(&bs->lock, flags);
-}
-
-static int bcm2708_spi_setup(struct spi_device *spi)
-{
-	struct bcm2708_spi *bs = spi_master_get_devdata(spi->master);
-	struct bcm2708_spi_state *state;
-	int ret;
-
-	/* Create SPI channels for Comedi*/
-	if (spi->chip_select == CSnA) { /* we need a device to talk to the ADC */
-		spi->mode = SPI_CS_CS_10 | SPI_CS_CS_01; /* mode 3 */
-		comedi_spi_ai = spi; /* get a copy of the slave device */
-		dev_dbg(&spi->dev,
-			"setup: cd %d: %d Hz, bpw %u, mode 0x%x\n",
-			spi->chip_select, spi->max_speed_hz, spi->bits_per_word,
-			spi->mode);
-	}
-	if (spi->chip_select == CSnB) { /* we need a device to talk to the DAC */
-		spi->mode = SPI_CS_CS_10 | SPI_CS_CS_01; /* mode 3 */
-		comedi_spi_ao = spi; /* get a copy of the slave device */
-		dev_dbg(&spi->dev,
-			"setup: cd %d: %d Hz, bpw %u, mode 0x%x\n",
-			spi->chip_select, spi->max_speed_hz, spi->bits_per_word,
-			spi->mode);
-	}
-
-	if (bs->stopping)
-		return -ESHUTDOWN;
-
-	if (!(spi->mode & SPI_NO_CS) &&
-		(spi->chip_select > spi->master->num_chipselect)) {
-		dev_dbg(&spi->dev,
-			"setup: invalid chipselect %u (%u defined)\n",
-			spi->chip_select, spi->master->num_chipselect);
-		return -EINVAL;
-	}
-
-	state = spi->controller_state;
-	if (!state) {
-		state = kzalloc(sizeof (*state), GFP_KERNEL);
-		if (!state)
-			return -ENOMEM;
-
-		spi->controller_state = state;
-	}
-
-	ret = bcm2708_setup_state(spi->master, &spi->dev, state,
-				spi->max_speed_hz, spi->chip_select, spi->mode,
-				spi->bits_per_word);
-	if (ret < 0) {
-		kfree(state);
-		spi->controller_state = NULL;
-		return ret;
-	}
-
-	dev_dbg(&spi->dev,
-		"setup: cd %d: %d Hz, bpw %u, mode 0x%x -> CS=%08x CDIV=%04x\n",
-		spi->chip_select, spi->max_speed_hz, spi->bits_per_word,
-		spi->mode, state->cs, state->cdiv);
-
-	return 0;
-}
-
-static int bcm2708_spi_transfer(struct spi_device *spi, struct spi_message *msg)
-{
-	struct bcm2708_spi *bs = spi_master_get_devdata(spi->master);
-	struct spi_transfer *xfer;
-	int ret;
-	unsigned long flags;
-
-	if (unlikely(list_empty(&msg->transfers)))
-		return -EINVAL;
-
-	if (bs->stopping)
-		return -ESHUTDOWN;
-
-dev_info(&spi->dev, "bcm2708_spi_transfer start\n");
-	list_for_each_entry(xfer, &msg->transfers, transfer_list)
-	{
-		if (!(xfer->tx_buf || xfer->rx_buf) && xfer->len) {
-			dev_dbg(&spi->dev, "missing rx or tx buf\n");
-			return -EINVAL;
-		}
-
-		if (!xfer->bits_per_word || xfer->speed_hz)
-			continue;
-
-		ret = bcm2708_setup_state(spi->master, &spi->dev, NULL,
-					xfer->speed_hz ? xfer->speed_hz : spi->max_speed_hz,
-					spi->chip_select, spi->mode,
-					xfer->bits_per_word ? xfer->bits_per_word :
-					spi->bits_per_word);
-dev_info(&spi->dev, "bcm2708_spi_transfer setup_state done\n");
-		if (ret)
-			return ret;
-	}
-
-	msg->status = -EINPROGRESS;
-	msg->actual_length = 0;
-
-	spin_lock_irqsave(&bs->lock, flags);
-	list_add_tail(&msg->queue, &bs->queue);
-	queue_work(bs->workq, &bs->work);
-	spin_unlock_irqrestore(&bs->lock, flags);
-
-	return 0;
-}
-
-static void bcm2708_spi_cleanup(struct spi_device *spi)
-{
-	if (spi->controller_state) {
-		kfree(spi->controller_state);
-		spi->controller_state = NULL;
-	}
-}
-
-static int bcm2708_spi_probe(struct platform_device *pdev)
-{
-	struct resource *regs;
-	int irq, err = -ENOMEM;
-	struct clk *clk;
-	struct spi_master *master;
-	static struct bcm2708_spi *bs;
-
-dev_info(&pdev->dev, "GertBoard Detection bcm2708_spi_probe start\n");
-	regs = platform_get_resource(pdev, IORESOURCE_MEM, 0);
-	if (!regs) {
-		dev_err(&pdev->dev, "could not get IO memory\n");
-		return -ENXIO;
-	}
-
-dev_info(&pdev->dev, "GertBoard Detection bcm2708_spi_probe start irq\n");
-	irq = platform_get_irq(pdev, 0);
-	if (irq < 0) {
-		dev_err(&pdev->dev, "could not get IRQ\n");
-		return irq;
-	}
-
-dev_info(&pdev->dev, "GertBoard Detection bcm2708_spi_probe start clk\n");
-	clk = clk_get(&pdev->dev, NULL);
-	if (IS_ERR(clk)) {
-		dev_err(&pdev->dev, "could not find clk: %ld\n", PTR_ERR(clk));
-		return PTR_ERR(clk);
-	}
-
-dev_info(&pdev->dev, "GertBoard Detection bcm2708_spi_probe start master\n");
-	master = spi_alloc_master(&pdev->dev, sizeof (*bs));
-	if (!master) {
-		dev_err(&pdev->dev, "spi_alloc_master() failed\n");
-		goto out_clk_put;
-	}
-
-	/* the spi->mode bits understood by this driver: */
-	master->mode_bits = SPI_CPOL | SPI_CPHA | SPI_CS_HIGH | SPI_NO_CS;
-
-	master->bus_num = pdev->id;
-	master->num_chipselect = 3;
-	master->setup = bcm2708_spi_setup;
-	master->transfer = bcm2708_spi_transfer;
-	master->cleanup = bcm2708_spi_cleanup;
-	master->dev.of_node = pdev->dev.of_node;
-	platform_set_drvdata(pdev, master);
-
-dev_info(&pdev->dev, "platform_set_drvdata done\n");
-	bs = spi_master_get_devdata(master);
-
-	spin_lock_init(&bs->lock);
-	INIT_LIST_HEAD(&bs->queue);
-	init_completion(&bs->done);
-	INIT_WORK(&bs->work, bcm2708_work);
-
-dev_info(&pdev->dev, "INIT_WORK done\n");
-	bs->base = ioremap(regs->start, resource_size(regs));
-	if (!bs->base) {
-		dev_err(&pdev->dev, "could not remap memory\n");
-		goto out_master_put;
-	}
-
-	bs->workq = create_singlethread_workqueue(dev_name(&pdev->dev));
-	if (!bs->workq) {
-		dev_err(&pdev->dev, "could not create workqueue\n");
-		goto out_iounmap;
-	}
-
-	bs->irq = irq;
-	bs->clk = clk;
-	bs->stopping = false;
-
-	err = request_irq(irq, bcm2708_spi_interrupt, 0, dev_name(&pdev->dev),
-			master);
-	if (err) {
-		dev_err(&pdev->dev, "could not request IRQ: %d\n", err);
-		goto out_workqueue;
-	}
-
-	/* initialize the hardware */
-dev_info(&pdev->dev, "GertBoard Detection bcm2708_spi_probe start clk_prepare\n");
-	clk_prepare_enable(clk);
-	bcm2708_wr(bs, SPI_CS, SPI_CS_REN | SPI_CS_CLEAR_RX | SPI_CS_CLEAR_TX);
-
-	err = spi_register_master(master);
-	if (err) {
-		dev_err(&pdev->dev, "could not register SPI master: %d\n", err);
-		goto out_free_irq;
-	}
-
-	dev_info(&pdev->dev, "SPI Controller at 0x%08lx (irq %d)\n",
-		(unsigned long) regs->start, irq);
-	spi_adc.link = 1;
-	return 0;
-
-out_free_irq:
-	free_irq(bs->irq, master);
-	clk_disable_unprepare(bs->clk);
-out_workqueue:
-	destroy_workqueue(bs->workq);
-out_iounmap:
-	iounmap(bs->base);
-out_master_put:
-	spi_master_put(master);
-out_clk_put:
-	clk_put(clk);
-	return err;
-}
-
-static int bcm2708_spi_remove(struct platform_device *pdev)
-{
-	struct spi_master *master = platform_get_drvdata(pdev);
-	struct bcm2708_spi *bs = spi_master_get_devdata(master);
-
-	spi_adc.link = 0;
-	/* reset the hardware and block queue progress */
-	spin_lock_irq(&bs->lock);
-	bs->stopping = true;
-	bcm2708_wr(bs, SPI_CS, SPI_CS_CLEAR_RX | SPI_CS_CLEAR_TX);
-	spin_unlock_irq(&bs->lock);
-
-	flush_work(&bs->work);
-
-	clk_disable_unprepare(bs->clk);
-	clk_put(bs->clk);
-	free_irq(bs->irq, master);
-	iounmap(bs->base);
-
-	spi_unregister_master(master);
-
-	return 0;
-}
-
-static const struct of_device_id bcm2708_spi_match[] = {
-	{ .compatible = "brcm,bcm2708-spi", },
-	{}
-};
-MODULE_DEVICE_TABLE(of, bcm2708_spi_match);
-
-static struct platform_driver bcm2708_spi_driver = {
-	.driver =
-	{
-		.name = DRV_NAME_SPI,
-		.owner = THIS_MODULE,
-		.of_match_table = bcm2708_spi_match,
-	},
-	.probe = bcm2708_spi_probe,
-	.remove = bcm2708_spi_remove,
-};
-
-/*
-
-MODULE_DESCRIPTION("SPI controller driver for Broadcom BCM2708");
-MODULE_AUTHOR("Chris Boot <bootc@bootc.net>");
-MODULE_LICENSE("GPL v2");
-MODULE_ALIAS("platform:" DRV_NAME);
- */
-
-
-/* Handy defines */
-#ifndef SZ_16K
-#define SZ_16K                          0x00004000
-#endif
-
-#define NUM_PINS        17
-
 #define WPI_MODE_PINS            0
 #define WPI_MODE_GPIO            1
 #define WPI_MODE_GPIO_SYS        2
@@ -835,18 +303,6 @@ MODULE_ALIAS("platform:" DRV_NAME);
 #define FSEL_ALT4               0b011
 #define FSEL_ALT5               0b010
 
-/*
- Access from ARM Running Linux
-      Take from Gert/Doms code. Some of this is not in the manual
-      that I can find )-:
- */
-#define BCM2708_PERI_BASE       0x20000000
-#define GPIO_PADS               (BCM2708_PERI_BASE + 0x100000)
-#define CLOCK_BASE              (BCM2708_PERI_BASE + 0x101000)
-#define GPIO_BASE               (BCM2708_PERI_BASE + 0x200000)
-#define GPIO_TIMER              (BCM2708_PERI_BASE + 0x00B000)
-#define GPIO_PWM                (BCM2708_PERI_BASE + 0x20C000)
-
 /* 
 #define PAGE_SIZE               (4*1024)
 #define BLOCK_SIZE              (4*1024)
@@ -855,6 +311,7 @@ MODULE_ALIAS("platform:" DRV_NAME);
 /* driver hardware numbers */
 #define NUM_DIO_CHAN  17
 #define NUM_DIO_CHAN_REV2       21
+#define NUM_DIO_CHAN_REV3       30
 #define NUM_DIO_OUTPUTS 8
 #define DIO_PINS_DEFAULT        0xff
 /* for for compat with ni_daq_700 used for driver testing, 2 AI channels */
@@ -878,6 +335,21 @@ static unsigned int RPisys_rev;
 /* The SPI code has found the IO chips or not  */
 static int gert_detected = FALSE;
 /* default to TRUE in detection code while testing */
+
+static void bcm2708_set_gpio_alt(int pin, int alt)
+{
+
+/*
+ * This is the common way to handle the GPIO pins for
+ * the Raspberry Pi.
+ * TODO This is a hack. Use pinmux / pinctrl.
+*/
+
+#define INP_GPIO(g) *(gpio+((g)/10)) &= ~(7<<(((g)%10)*3))
+#define SET_GPIO_ALT(g,a) *(gpio+(((g)/10))) |= (((a)<=3?(a)+4:(a)==4?3:2)<<(((g)%10)*3))
+INP_GPIO(pin);
+SET_GPIO_ALT(pin, alt);
+}
 
 static const struct comedi_lrange daqgert_ai_range3_300 = {1,
 	{
@@ -927,10 +399,11 @@ static const int pinToGpioR2 [64] = {
 	10, 9, 11, /* SPI  - MOSI, MISO, SCLK      wpi 12 - 14 */
 	14, 15, /* UART - Tx, Rx                wpi 15 - 16 */
 	28, 29, 30, 31, /* New GPIOs 8 though 11        wpi 17 - 20 */
+	5, 6, 12, 13, 16, 19, 20, 21, 26, /* Rev 3 New GPIOs */
 
-	/* Padding: */
+        /* Padding: */
 
-	-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, /* ... 31 */
+	-1, -1, /* ... 31 */
 	-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, /* . 47 */
 	-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, /* . 63 */
 };
@@ -1001,17 +474,7 @@ static const uint8_t gpioToGPLEV [] = {
 
 void pinModeGpio(int pin, int mode)
 {
-	int fSel, shift;
-
-	pin &= 63;
-
-	fSel = gpioToGPFSEL [pin];
-	shift = gpioToShift [pin];
-
-	/**/ if (mode == INPUT) /* Sets bits to zero = input */
-		*(gpio + fSel) = (*(gpio + fSel) & ~(7 << shift));
-	else if (mode == OUTPUT)
-		*(gpio + fSel) = (*(gpio + fSel) & ~(7 << shift)) | (1 << shift);
+bcm2708_set_gpio_alt(pin, mode);
 }
 
 void pinModeWPi(int pin, int mode)
@@ -1075,34 +538,75 @@ int digitalReadGpio(int pin)
  * piBoardRev:
  *	Return a number representing the hardware revision of the board.
  *	Revision is currently 1 or 2. -1 is returned on error.
+SRRR MMMM PPPP TTTT TTTT VVVV
+
+S scheme (0=old, 1=new)
+R RAM (0=256, 1=512, 2=1024)
+M manufacturer (0='SONY',1='EGOMAN',2='EMBEST',3='UNKNOWN',4='EMBEST')
+P processor (0=2835, 1=2836)
+T type (0='A', 1='B', 2='A+', 3='B+', 4='Pi 2 B', 5='Alpha', 6='Compute Module')
+V revision (0-15)
+
+1010 0010 0001 0000 0100 0001
+SRRR MMMM PPPP TTTT TTTT VVVV
+
+S=1 new scheme
+R=2 1024 MB
+M=2 EMBEST
+P=1 2836
+T=4 Pi 2 B
+V=1 1
  *********************************************************************
  */
 
 int piBoardRev(struct comedi_device *dev)
 {
-	int r = -1;
+	int r = -1,nscheme=0;
 	static int boardRev = -1;
 
 	if (boardRev != -1)
 		return boardRev;
 
-	dev_info(dev->class_dev, "RPi Board Rev %u, Serial %08x%08x\n",
-		RPisys_rev, system_serial_high, system_serial_low);
-
-	r = RPisys_rev;
+	r = RPisys_rev&0xf;
+	if (RPisys_rev&0x800000) {
+		nscheme=1;
+        	dev_info(dev->class_dev, "RPi Board Rev new scheme %x, Serial %08x%08x, Rev %u\n",
+                RPisys_rev, system_serial_high, system_serial_low,r);
+	} else {
+       		dev_info(dev->class_dev, "RPi Board Rev old scheme %u, Serial %08x%08x\n",
+                RPisys_rev, system_serial_high, system_serial_low);
+	}
 
 	if (r == -1) {
 		return -1;
 	}
 
-	if ((r == 2) || (r == 3))
-		boardRev = 1;
-	else if ((r == 4) || (r == 5) || (r == 6))
-		boardRev = 2;
-	else {
-		return -1;
+	if (nscheme) {
+		switch (r) {
+                case 1:
+                        boardRev = 3;
+                        break;
+                default:
+                        boardRev= -1;
+		}
+	} else {
+        	switch (r) {
+        	case 2:
+		case 3:
+                	boardRev = 1;
+                	break;
+        	case 4:
+		case 5:
+		case 6:
+                	boardRev = 2;
+                	break;
+        	default:
+                	boardRev= -1;
+        	}
 	}
 
+        dev_info(dev->class_dev, "Comedi Gpio board rev %u\n",
+        boardRev);
 	return boardRev;
 }
 
@@ -1328,45 +832,11 @@ static int daqgert_ao_rinsn(struct comedi_device *dev,
 	return n;
 }
 
-static int bcm2708_check_pinmode(void)
-{
-#define INP_GPIO(g) *(gpio+((g)/10)) &= ~(7<<(((g)%10)*3))
-#define SET_GPIO_ALT(g,a) *(gpio+(((g)/10))) |= (((a)<=3?(a)+4:(a)==4?3:2)<<(((g)%10)*3))
-#define GPIO_PULL   *(gpio+37)
-#define GPIO_PULLCLK0 *(gpio+38)
-
-	int pin;
-
-	/* enable pull-up on GPIO */
-	GPIO_PULL = 2;
-	udelay(50);
-	/* clock on GPIO */
-	GPIO_PULLCLK0 = 0x0000c403;
-	udelay(50);
-	GPIO_PULL = 0;
-	GPIO_PULLCLK0 = 0;
-
-	/* SPI is on GPIO 7..11 */
-	for (pin = 7; pin <= 11; pin++) {
-		INP_GPIO(pin); /* set mode to GPIO input first */
-		SET_GPIO_ALT(pin, 0); /* set mode to ALT 0 */
-	}
-	/* look for SPI offboard chip responses later */
-	/* Just set gert_detected for now */
-
-	gert_detected = TRUE;
-	for (pin = 14; pin <= 15; pin++) {
-		INP_GPIO(pin); /* set RS-232 mode to GPIO input again */
-	}
-
-	return TRUE;
-}
-
 static int daqgert_ai_config(struct comedi_device *dev,
 			     struct comedi_subdevice *s)
 {
 
-	int pin, detect_code;
+	int detect_code;
 	/* SPI data transfers, send a few dummys for config info */
 dev_info(dev->class_dev, "comedi_do_one_message start\n");
 	comedi_do_one_message(CMD_DUMMY_CFG, CSnA, 1);
@@ -1391,9 +861,6 @@ dev_info(dev->class_dev, "comedi_do_one_message end\n");
 		dev_info(dev->class_dev, "No GERT Board Found, GPIO pins only. Detect Code %i\n",
 			detect_code);
 		gert_detected = FALSE;
-		for (pin = 7; pin <= 11; pin++) {
-			INP_GPIO(pin); /* set mode to GPIO input again */
-		}
 		return 1; /* dummy chan */
 	}
 	spi_adc.pic18 = 2; /* PIC18 single-end mode 10 bits */
@@ -1451,26 +918,27 @@ static int daqgert_attach(struct comedi_device *dev, struct comedi_devconfig *it
 
 	/* setup the pins in a static matter for now */
 	/* PIN mode for all */
+        dev_info(dev->class_dev, "GertBoard WiringPiSetup\n");
 	wiringPiSetup(dev);
 	for (i = 0; i < NUM_DIO_OUTPUTS; i++) { /* [0..7] OUTPUTS */
 		pinModeWPi(i, OUTPUT);
 	}
+        dev_info(dev->class_dev, "GertBoard GPIO set [0..7] to outputs\n");
 	num_dio_chan = NUM_DIO_CHAN; /* Rev 1 board setup first */
-	if (RPisys_rev > 3) /* This a Rev 2 board "I hope" */
+	if (piBoardRev(dev) > 1) /* This a Rev 2 or higher board "I hope" */
 		num_dio_chan = NUM_DIO_CHAN_REV2;
-	for (i = NUM_DIO_OUTPUTS; i < num_dio_chan; i++) { /* [8..16] or 20 INPUTS */
+        if (piBoardRev(dev) > 2) /* This a Rev 3 or higher board "I hope" */
+                num_dio_chan = NUM_DIO_CHAN_REV3;
+	for (i = NUM_DIO_OUTPUTS; i < num_dio_chan; i++) { /* [8..16/20/29] INPUTS */
 		pinModeWPi(i, INPUT);
 	}
+        dev_info(dev->class_dev, "GertBoard GPIO set [8..16/20/29] to inputs\n");
 
-	/* Change pins [GPIO 7..11] to ALT SPI mode if gertboard found */
-	/* These are GPIO pin numbers NOT WPi pin numbers */
-	bcm2708_check_pinmode(); /* looking for a GERT Board */
-	/* assume we have a gertboard */
+	/* assume we have DON"T a gertboard */
 	dev_info(dev->class_dev, "GertBoard Detection Started\n");
-	num_subdev = 3;
-
-	/* Call SPI setup routines */
-	platform_driver_probe(&bcm2708_spi_driver, bcm2708_spi_probe);
+	num_subdev = 1;
+        gert_detected = FALSE;
+	SPI_probe(dev);
 
         dev_info(dev->class_dev, "GertBoard Detection Completed\n");
 	dev->board_name = thisboard->name;
@@ -1548,7 +1016,6 @@ static void daqgert_detach(struct comedi_device *dev)
                 kfree(comedi_ctl.tx_buff);
         if (comedi_ctl.rx_buff)
                 kfree(comedi_ctl.rx_buff);
-	platform_driver_unregister(&bcm2708_spi_driver);
 	dev_info(dev->class_dev, "daq_gert detached\n");
 }
 
@@ -1571,10 +1038,98 @@ static struct comedi_driver daqgert_driver = {
 	.offset = sizeof (struct daqgert_board),
 };
 
-module_comedi_driver(daqgert_driver);
+static struct spi_driver spidev_spi_driver;
 
-MODULE_AUTHOR("Fred Brooks <nsaspook@nsaspook.com>");
+/* called for each listed spigert device in the bcm270*.c file */
+static int spidev_spi_probe(struct spi_device *spi)
+ {
+       struct comedi_control *pdata;
+	int ret;
+ 
+         pdata = kzalloc(sizeof(struct comedi_control), GFP_KERNEL);
+         if (!pdata)
+                 return -ENOMEM;
+         spi->dev.platform_data = pdata;
+      	 if (spi->chip_select == CSnA) comedi_spi_ai = spi; /* get a copy of the slave device 0 */  /* we need a device to talk to the ADC */
+         if (spi->chip_select == CSnB) comedi_spi_ao = spi; /* get a copy of the slave device 1 */  /* we need a device to talk to the DAC */
+	 spi->max_speed_hz=500000;
+	 spi->bits_per_word=8;
+	 spi_setup(spi);
+         dev_info(&spi->dev,
+                        "setup: cd %d: %d Hz, bpw %u, mode 0x%x\n",
+                        spi->chip_select, spi->max_speed_hz, spi->bits_per_word,
+                        spi->mode);
+ 
+         /* Check */
+         ret = spi_w8r8(spi, CMD_DUMMY_CFG);
+         if (ret < 0 ) {
+                 dev_err(&spi->dev, "not found.\n");
+                 goto kfree_exit;
+         }
+        if (!(spi->mode & SPI_NO_CS) &&
+                (spi->chip_select > spi->master->num_chipselect)) {
+                dev_err(&spi->dev,
+                        "setup: invalid chipselect %u (%u defined)\n",
+                        spi->chip_select, spi->master->num_chipselect);
+                ret = -EINVAL;
+                goto kfree_exit;
+        }
+ 
+         return 0;
+kfree_exit:
+         kfree(pdata);
+         return ret;
+ }
+
+static int spidev_spi_remove(struct spi_device *spi)
+ {
+         struct comedi_control *pdata = spi->dev.platform_data;
+ 
+         kfree(pdata);
+         return 0;
+ }
+
+ static struct spi_driver spidev_spi_driver = {
+         .driver = {
+                 .name =         "spigert",
+                 .owner =        THIS_MODULE,
+         },
+         .probe =  spidev_spi_probe,
+         .remove = spidev_spi_remove,
+ };
+
+/*
+ * setup and probe the spi buss for devices
+*/
+int SPI_probe(struct comedi_device *dev)
+{
+        dev_info(dev->class_dev, "SPI probe start \n");
+        dev_info(dev->class_dev, "SPI probe done \n");
+        return 0;
+}
+
+static int __init daqgert_init(void) {
+    int ret;
+
+    ret = comedi_driver_register(&daqgert_driver);
+    if (ret < 0)
+        return ret;
+    ret = spi_register_driver(&spidev_spi_driver);
+    if (ret < 0)
+        return ret;
+    return 0;
+}
+module_init(daqgert_init);
+
+static void __exit daqgert_exit(void) {
+    spi_unregister_driver(&spidev_spi_driver);
+    comedi_driver_unregister(&daqgert_driver);
+}
+module_exit(daqgert_exit);
+
+MODULE_AUTHOR("Fred Brooks <spam@sma2.rain.com>");
 MODULE_DESCRIPTION(
 		   "Comedi driver for RASPI GERTBOARD DIO/AI/AO");
-MODULE_VERSION("0.0.08");
+MODULE_VERSION("0.0.09");
 MODULE_LICENSE("GPL");
+MODULE_ALIAS("spi:spigert");
