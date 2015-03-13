@@ -44,13 +44,13 @@ recompile kernel
                 .max_speed_hz = 500000,
                 .bus_num = 0,
                 .chip_select = 0,
-                .mode = SPI_MODE_3,
+                .mode = SPI_MODE_0,
         }, {
                 .modalias = "spigert",
                 .max_speed_hz = 500000,
                 .bus_num = 0,
                 .chip_select = 1,
-                .mode = SPI_MODE_3,
+                .mode = SPI_MODE_0,
         }
  * 
  * 
@@ -100,7 +100,7 @@ Status: inprogress (DIO 95%) (AI 80%) AO (80%) (My code cleanup 55%)
 Updated: Thu, 26 Feb 2015 12:07:20 +0000
 
 The DAQ-GERT appears in Comedi as a  digital I/O subdevice (0) with
-17 or 21 channels, a analog input subdevice (1) with 2 single-ended channels,
+17 or 21 or 30 channels, a analog input subdevice (1) with 2 single-ended channels,
 a analog output subdevice(2) with 2 channels
 
 Digital:  The comedi channel 0 corresponds to the GPIO WPi table order
@@ -163,25 +163,11 @@ IRQ is assigned but not used.
 
 #include "../comedidev.h"
 #include <linux/interrupt.h>
-#include <linux/slab.h>
-#include <linux/ioport.h>
 #include <linux/kernel.h>
 #include <linux/module.h>
-#include <linux/spinlock.h>
-#include <linux/clk.h>
-#include <linux/err.h>
-#include <linux/platform_device.h>
-#include <linux/io.h>
-#include <linux/workqueue.h>
 #include <linux/spi/spi.h>
 #include <linux/delay.h>
-#include <linux/log2.h>
-#include <linux/sched.h>
-#include <linux/wait.h>
-#include <linux/mutex.h>
 #include <linux/device.h>
-#include <linux/errno.h>
-#include <linux/init.h>
 
 /* Function stubs */
 void (*pinMode) (int pin, int mode) ;
@@ -191,17 +177,11 @@ void (*setPadDrive) (int group, int value) ;
 int (*digitalRead) (int pin) ;
 int SPI_probe(struct comedi_device *);
 
-//struct spi_master *master;
-//struct bcm2708_spi *bs;
-
 static struct spi_device *comedi_spi_ai, *comedi_spi_ao;
 
 struct comedi_control {
-	struct spi_message msg;
-	struct spi_transfer transfer;
 	u8 *tx_buff;
 	u8 *rx_buff;
-        struct mutex            drvdata_lock;
 } ;
 static struct comedi_control comedi_ctl;
 
@@ -234,40 +214,6 @@ static struct pic_platform_data pic_info_pic18 = {
 #define CMD_ADC_DIAG	0b11110000
 #define CMD_DUMMY_CFG	0b01000000
 
-/* SPI register offsets */
-#define SPI_CS			0x00
-#define SPI_FIFO		0x04
-#define SPI_CLK			0x08
-#define SPI_DLEN		0x0c
-#define SPI_LTOH		0x10
-#define SPI_DC			0x14
-
-/* Bitfields in CS */
-#define SPI_CS_LEN_LONG		0x02000000
-#define SPI_CS_DMA_LEN		0x01000000
-#define SPI_CS_CSPOL2		0x00800000
-#define SPI_CS_CSPOL1		0x00400000
-#define SPI_CS_CSPOL0		0x00200000
-#define SPI_CS_RXF		0x00100000
-#define SPI_CS_RXR		0x00080000
-#define SPI_CS_TXD		0x00040000
-#define SPI_CS_RXD		0x00020000
-#define SPI_CS_DONE		0x00010000
-#define SPI_CS_LEN		0x00002000
-#define SPI_CS_REN		0x00001000
-#define SPI_CS_ADCS		0x00000800
-#define SPI_CS_INTR		0x00000400
-#define SPI_CS_INTD		0x00000200
-#define SPI_CS_DMAEN		0x00000100
-#define SPI_CS_TA		0x00000080
-#define SPI_CS_CSPOL		0x00000040
-#define SPI_CS_CLEAR_RX		0x00000020
-#define SPI_CS_CLEAR_TX		0x00000010
-#define SPI_CS_CPOL		0x00000008
-#define SPI_CS_CPHA		0x00000004
-#define SPI_CS_CS_10		0x00000002
-#define SPI_CS_CS_01		0x00000001
-
 #define WPI_MODE_PINS            0
 #define WPI_MODE_GPIO            1
 #define WPI_MODE_GPIO_SYS        2
@@ -289,9 +235,6 @@ static struct pic_platform_data pic_info_pic18 = {
 #define FALSE   (1==2)
 #endif
 
-/* BCM Magic */
-#define BCM_PASSWORD            0x5A000000
-
 // Port function select bits
 #define FSEL_INPT               0b000
 #define FSEL_OUTP               0b001
@@ -303,21 +246,13 @@ static struct pic_platform_data pic_info_pic18 = {
 #define FSEL_ALT4               0b011
 #define FSEL_ALT5               0b010
 
-/* 
-#define PAGE_SIZE               (4*1024)
-#define BLOCK_SIZE              (4*1024)
- */
-
 /* driver hardware numbers */
 #define NUM_DIO_CHAN  17
 #define NUM_DIO_CHAN_REV2       21
 #define NUM_DIO_CHAN_REV3       30
 #define NUM_DIO_OUTPUTS 8
 #define DIO_PINS_DEFAULT        0xff
-/* for for compat with ni_daq_700 used for driver testing, 2 AI channels */
-/* on the real device */
 
-#define NUM_AI_CHAN_EXTENDED 12
 #define NUM_AI_CHAN 2
 #define NUM_AO_CHAN 2
 
@@ -332,13 +267,10 @@ extern unsigned int system_serial_low;
 extern unsigned int system_serial_high;
 
 static unsigned int RPisys_rev;
-/* The SPI code has found the IO chips or not  */
 static int gert_detected = FALSE;
-/* default to TRUE in detection code while testing */
 
 static void bcm2708_set_gpio_alt(int pin, int alt)
 {
-
 /*
  * This is the common way to handle the GPIO pins for
  * the Raspberry Pi.
@@ -909,9 +841,7 @@ static int daqgert_attach(struct comedi_device *dev, struct comedi_devconfig *it
 		/* daq_gert ai */
 		s = &dev->subdevices[1];
 		s->private = &pic_info_pic18; /* SPI adc slave conv delay */
- dev_info(dev->class_dev, "daqgert_ai_config started\n");
 		num_ai_chan = daqgert_ai_config(dev, s); /* config SPI ports for ai use */
- dev_info(dev->class_dev, "daqgert_ai_config done\n");
 		s->type = COMEDI_SUBD_AI;
 		/* we support single-ended (ground)  */
 		s->subdev_flags = SDF_READABLE | SDF_GROUND;
@@ -931,9 +861,7 @@ static int daqgert_attach(struct comedi_device *dev, struct comedi_devconfig *it
 
 		/* daq-gert ao */
 		s = &dev->subdevices[2];
- dev_info(dev->class_dev, "daqgert_ao_config started\n");
 		num_ao_chan = daqgert_ao_config(dev, s); /* config SPI ports for ao use */
- dev_info(dev->class_dev, "daqgert_ao_config done\n");
 		s->type = COMEDI_SUBD_AO;
 		/* we support single-ended (ground)  */
 		s->subdev_flags = SDF_WRITABLE | SDF_GROUND;
@@ -997,9 +925,9 @@ static int spidev_spi_probe(struct spi_device *spi)
          spi->dev.platform_data = pdata;
       	 if (spi->chip_select == CSnA) comedi_spi_ai = spi; /* get a copy of the slave device 0 */  /* we need a device to talk to the ADC */
          if (spi->chip_select == CSnB) comedi_spi_ao = spi; /* get a copy of the slave device 1 */  /* we need a device to talk to the DAC */
-	 spi->max_speed_hz=500000;
+	 spi->max_speed_hz=2000000;
 	 spi->bits_per_word=8;
-	 spi->mode = SPI_CS_CS_10 | SPI_CS_CS_01; /* mode 3 */
+	 spi->mode = SPI_MODE_3; /* mode 3 for ADC & DAC*/
 	 spi_setup(spi);
          dev_info(&spi->dev,
                         "setup: cd %d: %d Hz, bpw %u, mode 0x%x\n",
@@ -1060,7 +988,7 @@ int SPI_probe(struct comedi_device *dev)
         	ret = spi_w8r8(comedi_spi_ai, 0b01100000); /* check for channel 0 SE */
                 if ((ret&0b00000100) == 0) {
                         spi_adc.pic18 = 1; /* MCP3002 mode */
-                        spi_adc.chan = 2;
+                        spi_adc.chan = NUM_AI_CHAN;
                         spi_adc.range = 0; /* range 2.048 */
                         spi_adc.bits = 0; /* 10 bits */
                         dev_info(dev->class_dev,
