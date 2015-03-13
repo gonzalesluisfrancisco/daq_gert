@@ -567,7 +567,7 @@ int piBoardRev(struct comedi_device *dev)
 	if (boardRev != -1)
 		return boardRev;
 
-	r = RPisys_rev&0xf;
+	r = RPisys_rev&0xff;
 	if (RPisys_rev&0x800000) {
 		nscheme=1;
         	dev_info(dev->class_dev, "RPi Board Rev new scheme %x, Serial %08x%08x, Rev %u\n",
@@ -595,13 +595,12 @@ int piBoardRev(struct comedi_device *dev)
 		case 3:
                 	boardRev = 1;
                 	break;
-        	case 4:
-		case 5:
-		case 6:
-                	boardRev = 2;
+        	case 0:
+		case 1:
+                	boardRev = -1;
                 	break;
         	default:
-                	boardRev= -1;
+                	boardRev = 2;
         	}
 	}
 
