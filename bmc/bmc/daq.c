@@ -212,16 +212,14 @@ typedef struct bmcdata {
 int get_data_sample(void) {
     int i;
 
-    for (i = 0; i < 1; i++) { // several samples per reading
-        bmc.pv_voltage = lp_filter(get_adc_volts(PVV_C), PVV_C, TRUE);
-        bmc.cc_voltage = lp_filter(get_adc_volts(CCV_C), CCV_C, TRUE);
+        bmc.pv_voltage = get_adc_volts(PVV_C);
+        bmc.cc_voltage = get_adc_volts(CCV_C);
         //        bmc.input_voltage = lp_filter(get_adc_volts(INV_C), INV_C, TRUE);
         //        bmc.b1_voltage = lp_filter(get_adc_volts(B1V_C), B1V_C, TRUE);
         //        bmc.b2_voltage = lp_filter(get_adc_volts(B2V_C), B2V_C, TRUE);
         //        bmc.pv_current = lp_filter(get_adc_volts(PVC_C), PVC_C, TRUE);
         //        bmc.cc_current = lp_filter(get_adc_volts(CCC_C), CCC_C, TRUE);
         //        bmc.battery_current = lp_filter(get_adc_volts(BAC_C), BAC_C, TRUE);
-    }
     //    bmc.system_voltage = get_adc_volts(SYV_C);
     //    bmc.logic_voltage = get_adc_volts(VD5_C);
 
