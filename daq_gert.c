@@ -986,6 +986,12 @@ int SPI_probe(struct comedi_device *dev)
 	int ret;
 
         dev_info(dev->class_dev, "SPI probe\n");
+	if (!spi_adc.spi) {
+        	dev_info(dev->class_dev, "No SPI channel detected\n");
+                gert_detected = FALSE;
+		spi_adc.chan = 0;
+                return spi_adc.chan;
+	}
         /* SPI data transfers, send a few dummys for config info */
         ret = spi_w8r8(spi_adc.spi, CMD_DUMMY_CFG);
         ret = spi_w8r8(spi_adc.spi, CMD_DUMMY_CFG);
