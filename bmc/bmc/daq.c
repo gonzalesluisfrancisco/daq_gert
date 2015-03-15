@@ -124,12 +124,13 @@ double get_adc_volts(int chan) {
     int retval;
 
     ADC_ERROR = FALSE;
-    retval = comedi_data_read_delayed(it, subdev_ai, chan, range_ai, aref_ai, &data, 10000);
+    retval = comedi_data_read_delayed(it, subdev_ai, chan, range_ai, aref_ai, &data, 1);
     if (retval < 0) {
         comedi_perror("comedi_data_read in get_adc_volts");
         ADC_ERROR = TRUE;
         return 0.0;
     }
+	bmc.adc_sample[chan]=data;
     return comedi_to_phys(data, ad_range, maxdata_ai);
 }
 

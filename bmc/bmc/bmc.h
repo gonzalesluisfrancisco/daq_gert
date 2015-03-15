@@ -42,6 +42,7 @@ typedef struct bmcdata {
     double pv_current,cc_current,battery_current;
     struct didata datain;
     struct dodata dataout;
+    int32_t adc_sample[32];
     int32_t utc;
 }
 volatile bmctype;

@@ -18,7 +18,7 @@ struct bmcdata bmc; /* DIO buffer */
 
 int main(int argc, char *argv[]) {
     int blink[2], flip[2] = {0, 0};
-    if (init_daq(-25.0, 25.0, FALSE) < 0) {
+    if (init_daq(0.0, 25.0, FALSE) < 0) {
         printf("Missing Analog subdevice(s)\n");
         return -1;
     }
@@ -35,9 +35,9 @@ int main(int argc, char *argv[]) {
 
         printf("         \r");
         get_data_sample();
-        printf(" %2.3fV %2.3fV %2.3fV %2.3fV %2.3fV %2.3fV %2.3fV %u %u %u %u %u %u",
+        printf(" %2.3fV %2.3fV %2.3fV %2.3fV %2.3fV %2.3fV %2.3fV %u %u %u %u %u %u raw %x, %x",
                 bmc.pv_voltage, bmc.cc_voltage, bmc.input_voltage, bmc.b1_voltage, bmc.b2_voltage, bmc.system_voltage, bmc.logic_voltage,
-                bmc.datain.D0, bmc.datain.D1, bmc.datain.D2, bmc.datain.D3, bmc.datain.D6, bmc.datain.D7);
+                bmc.datain.D0, bmc.datain.D1, bmc.datain.D2, bmc.datain.D3, bmc.datain.D6, bmc.datain.D7,bmc.adc_sample[0],bmc.adc_sample[1]);
         usleep(4990);
         if (bmc.datain.D6 == 0) {
             if (((blink[0]++) % 150) == 0) {

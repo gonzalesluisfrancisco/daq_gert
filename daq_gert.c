@@ -22,6 +22,7 @@
 
 /*
 Driver: "experimental" daq_gert in progress ... for 3.18+ kernels
+Test program code in /fujitsu/nidaq700/raspigert/bmc/bmc 
 *** edit arch/arm/mach-bcm2709/bcm2709.c to add spigert device info to spidev info
 *** edit arch/arm/mach-bcm2708/bcm2708.c
 recompile kernel
@@ -199,8 +200,8 @@ struct pic_platform_data {
 	uint16_t conv_delay_usecs;
 } ;
 
-static struct pic_platform_data pic_info_pic18 = {
-	.conv_delay_usecs = 35
+static const struct pic_platform_data pic_info_pic18 = {
+	.conv_delay_usecs = 1000
 };
 
 #define CSnA    0       /* GPIO 8  Gertboard ADC */
@@ -269,6 +270,33 @@ extern unsigned int system_serial_high;
 
 static unsigned int RPisys_rev;
 static int gert_detected = FALSE;
+
+static int bcm2708_check_pinmode(void) {
+#define INP_GPIO(g) *(gpio+((g)/10)) &= ~(7<<(((g)%10)*3))
+#define SET_GPIO_ALT(g,a) *(gpio+(((g)/10))) |= (((a)<=3?(a)+4:(a)==4?3:2)<<(((g)%10)*3))
+#define GPIO_PULL *(gpio+37)
+#define GPIO_PULLCLK0 *(gpio+38)
+int pin;
+/* enable pull-up on GPIO */
+GPIO_PULL = 2;
+udelay(50);
+/* clock on GPIO */
+GPIO_PULLCLK0 = 0x0000c403;
+udelay(50);
+GPIO_PULL = 0;
+GPIO_PULLCLK0 = 0;
+/* SPI is on GPIO 7..11 */
+for (pin = 7; pin <= 11; pin++) {
+INP_GPIO(pin); /* set mode to GPIO input first */
+SET_GPIO_ALT(pin, 0); /* set mode to ALT 0 */
+}
+/* look for SPI offboard chip responses later */
+/* Just set gert_detected for now */
+for (pin = 14; pin <= 15; pin++) {
+INP_GPIO(pin); /* set RS-232 mode to GPIO input again */
+}
+return TRUE;
+}
 
 static void bcm2708_set_gpio_alt(int pin, int alt)
 {
@@ -680,10 +708,10 @@ static int comedi_do_one_message(unsigned char msgdata, unsigned char cs_select,
 
         if (cs_select==CSnB) {
                 if (msg_len==1) {
-                        comedi_ctl.rx_buff[0]=spi_w8r8(spi_dac.spi,msgdata);
+                        comedi_ctl.rx_buff[2]=spi_w8r8(spi_dac.spi,msgdata);
                 } else {
-                        comedi_ctl.rx_buff[0]=spi_w8r8(spi_dac.spi,msgdata);
-                        comedi_ctl.rx_buff[1]=spi_w8r8(spi_dac.spi,comedi_ctl.tx_buff[1]);
+                        comedi_ctl.rx_buff[2]=spi_w8r8(spi_dac.spi,msgdata);
+                        comedi_ctl.rx_buff[3]=spi_w8r8(spi_dac.spi,comedi_ctl.tx_buff[1]);
                 }
         }
 	return 0;
@@ -705,11 +733,11 @@ static int daqgert_ai_rinsn(struct comedi_device *dev,
 		/* The PIC Slave needs 8 bit transfers only */
 		if (spi_adc.pic18 > 1) { /*  PIC18 SPI slave device */
 			comedi_do_one_message(CMD_ADC_GO_H + chan, CSnA, 1);
-			udelay(pic_data->conv_delay_usecs); /* ADC conversion delay */
+			udelay(pic_info_pic18.conv_delay_usecs); /* ADC conversion delay */
 			comedi_do_one_message(CMD_ADC_DATA, CSnA, 1);
-			data[n] = comedi_ctl.rx_buff[0] << 8;
+			data[n] = (comedi_ctl.rx_buff[0]&0x03) << 8;
 			comedi_do_one_message(CMD_DUMMY_CFG, CSnA, 1);
-			data[n] += comedi_ctl.rx_buff[0];
+			data[n] += (comedi_ctl.rx_buff[0]&0xff);
 		} else { /* Gertboard device */
 			comedi_do_one_message((0b01100000 | ((chan & 0x01) << 4)), CSnA, 2); /* set ADC channel SE, send two bytes */
 			data[n] = (comedi_ctl.rx_buff[0]&0b00000011) << 8; /* two bytes were received from the FIFO */
@@ -813,6 +841,7 @@ static int daqgert_attach(struct comedi_device *dev, struct comedi_devconfig *it
         dev_info(dev->class_dev, "GertBoard GPIO set [8..16/20/29] to inputs\n");
 
 	/* assume we have DON"T a gertboard */
+	bcm2708_check_pinmode();
 	dev_info(dev->class_dev, "GertBoard Detection Started\n");
 	num_subdev = 1;
         gert_detected = FALSE;
@@ -931,7 +960,7 @@ static int spidev_spi_probe(struct spi_device *spi)
 		/* get a copy of the slave device 1 */  /* we need a device to talk to the DAC */
 		spi_dac.spi = spi;
 	}
-	 spi->max_speed_hz=2000000;
+	 spi->max_speed_hz=500000;
 	 spi->bits_per_word=8;
 	 spi->mode = SPI_MODE_3; /* mode 3 for ADC & DAC*/
 	 spi_setup(spi);
