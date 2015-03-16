@@ -183,6 +183,7 @@ int SPI_probe(struct comedi_device *);
 struct comedi_control {
 	u8 *tx_buff;
 	u8 *rx_buff;
+        struct mutex            drvdata_lock;
 } ;
 static struct comedi_control comedi_ctl;
 
@@ -198,16 +199,18 @@ static struct spi_adc_type spi_adc, spi_dac;
 
 struct pic_platform_data {
 	uint16_t conv_delay_usecs;
+        struct mutex            drvdata_lock;
 } ;
 
-static const struct pic_platform_data pic_info_pic18 = {
-	.conv_delay_usecs = 1000
+static struct pic_platform_data pic_info_pic18 = {
+	.conv_delay_usecs = 500
 };
 
 #define CSnA    0       /* GPIO 8  Gertboard ADC */
 #define CSnB    1       /* GPIO 7  Gertboard DAC */
 
 #define SPI_BUFF_SIZE 16
+#define SLAVE_DELAY 100
 
 /* PIC Slave commands */
 #define CMD_ADC_GO	0b10000000      // send data low byte first
@@ -725,6 +728,7 @@ static int daqgert_ai_rinsn(struct comedi_device *dev,
 
 	int n, chan;
 	struct pic_platform_data *pic_data = s->private;
+        u8 txbuf[2], rxbuf[3];
 
 	chan = CR_CHAN(insn->chanspec);
 	/* convert n samples */
@@ -732,12 +736,22 @@ static int daqgert_ai_rinsn(struct comedi_device *dev,
 		/* Make SPI messages for the type of ADC are we talking to */
 		/* The PIC Slave needs 8 bit transfers only */
 		if (spi_adc.pic18 > 1) { /*  PIC18 SPI slave device */
-			comedi_do_one_message(CMD_ADC_GO_H + chan, CSnA, 1);
-			udelay(pic_info_pic18.conv_delay_usecs); /* ADC conversion delay */
-			comedi_do_one_message(CMD_ADC_DATA, CSnA, 1);
-			data[n] = (comedi_ctl.rx_buff[0]&0x03) << 8;
-			comedi_do_one_message(CMD_DUMMY_CFG, CSnA, 1);
-			data[n] += (comedi_ctl.rx_buff[0]&0xff);
+//       			mutex_lock(&pic_data->drvdata_lock);
+			txbuf[0]=CMD_ADC_GO_H;
+			spi_write(spi_adc.spi,txbuf,1);
+//			spi_read(spi_adc.spi,rxbuf,1);
+//			comedi_do_one_message(CMD_ADC_GO_H + chan, CSnA, 1);
+			udelay(SLAVE_DELAY); /* ADC conversion delay */
+			txbuf[0]=CMD_ADC_DATA;
+                        txbuf[1]=CMD_DUMMY_CFG;
+			spi_write_then_read(spi_adc.spi,txbuf,2,rxbuf,2);
+                        data[n] = rxbuf[0];
+                        data[n] += (rxbuf[1] << 8);
+//			comedi_do_one_message(CMD_ADC_DATA, CSnA, 1);
+//			data[n] = (comedi_ctl.rx_buff[0]&0x03) << 8;
+//			comedi_do_one_message(CMD_DUMMY_CFG, CSnA, 1);
+//			data[n] += (comedi_ctl.rx_buff[1]&0xff);
+//       			mutex_unlock(&pic_data->drvdata_lock);
 		} else { /* Gertboard device */
 			comedi_do_one_message((0b01100000 | ((chan & 0x01) << 4)), CSnA, 2); /* set ADC channel SE, send two bytes */
 			data[n] = (comedi_ctl.rx_buff[0]&0b00000011) << 8; /* two bytes were received from the FIFO */
@@ -952,6 +966,7 @@ static int spidev_spi_probe(struct spi_device *spi)
          if (!pdata)
                  return -ENOMEM;
          spi->dev.platform_data = pdata;
+	 mutex_init(&pic_info_pic18.drvdata_lock);
       	 if (spi->chip_select == CSnA) {
 		/* get a copy of the slave device 0 */  /* we need a device to talk to the ADC */
 		spi_adc.spi = spi;
@@ -960,7 +975,7 @@ static int spidev_spi_probe(struct spi_device *spi)
 		/* get a copy of the slave device 1 */  /* we need a device to talk to the DAC */
 		spi_dac.spi = spi;
 	}
-	 spi->max_speed_hz=500000;
+	 spi->max_speed_hz=2000000;
 	 spi->bits_per_word=8;
 	 spi->mode = SPI_MODE_3; /* mode 3 for ADC & DAC*/
 	 spi_setup(spi);
