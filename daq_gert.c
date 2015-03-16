@@ -728,7 +728,7 @@ static int daqgert_ai_rinsn(struct comedi_device *dev,
 
 	int n, chan;
 	struct pic_platform_data *pic_data = s->private;
-        u8 txbuf[2], rxbuf[3];
+        u8 txbuf[3], rxbuf[3];
 
 	chan = CR_CHAN(insn->chanspec);
 	/* convert n samples */
@@ -736,22 +736,15 @@ static int daqgert_ai_rinsn(struct comedi_device *dev,
 		/* Make SPI messages for the type of ADC are we talking to */
 		/* The PIC Slave needs 8 bit transfers only */
 		if (spi_adc.pic18 > 1) { /*  PIC18 SPI slave device */
-//       			mutex_lock(&pic_data->drvdata_lock);
+       			mutex_lock(&pic_data->drvdata_lock);
 			txbuf[0]=CMD_ADC_GO_H;
 			spi_write(spi_adc.spi,txbuf,1);
-//			spi_read(spi_adc.spi,rxbuf,1);
-//			comedi_do_one_message(CMD_ADC_GO_H + chan, CSnA, 1);
 			udelay(SLAVE_DELAY); /* ADC conversion delay */
 			txbuf[0]=CMD_ADC_DATA;
                         txbuf[1]=CMD_DUMMY_CFG;
 			spi_write_then_read(spi_adc.spi,txbuf,2,rxbuf,2);
-                        data[n] = rxbuf[0];
-                        data[n] += (rxbuf[1] << 8);
-//			comedi_do_one_message(CMD_ADC_DATA, CSnA, 1);
-//			data[n] = (comedi_ctl.rx_buff[0]&0x03) << 8;
-//			comedi_do_one_message(CMD_DUMMY_CFG, CSnA, 1);
-//			data[n] += (comedi_ctl.rx_buff[1]&0xff);
-//       			mutex_unlock(&pic_data->drvdata_lock);
+                        data[n] = rxbuf[0]+(rxbuf[1] << 8);
+       			mutex_unlock(&pic_data->drvdata_lock);
 		} else { /* Gertboard device */
 			comedi_do_one_message((0b01100000 | ((chan & 0x01) << 4)), CSnA, 2); /* set ADC channel SE, send two bytes */
 			data[n] = (comedi_ctl.rx_buff[0]&0b00000011) << 8; /* two bytes were received from the FIFO */
