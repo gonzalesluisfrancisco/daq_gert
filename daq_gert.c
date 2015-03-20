@@ -203,14 +203,14 @@ struct pic_platform_data {
 } ;
 
 static struct pic_platform_data pic_info_pic18 = {
-	.conv_delay_usecs = 500
+	.conv_delay_usecs = 35
 };
 
 #define CSnA    0       /* GPIO 8  Gertboard ADC */
 #define CSnB    1       /* GPIO 7  Gertboard DAC */
 
 #define SPI_BUFF_SIZE 16
-#define SLAVE_DELAY 100
+#define SLAVE_DELAY 50
 
 /* PIC Slave commands */
 #define CMD_ADC_GO	0b10000000      // send data low byte first
@@ -218,6 +218,7 @@ static struct pic_platform_data pic_info_pic18 = {
 #define CMD_ADC_DATA	0b10010000
 #define CMD_ADC_DIAG	0b11110000
 #define CMD_DUMMY_CFG	0b01000000
+#define	CMD_ZERO	0b00000000
 
 #define WPI_MODE_PINS            0
 #define WPI_MODE_GPIO            1
@@ -736,14 +737,22 @@ static int daqgert_ai_rinsn(struct comedi_device *dev,
 		/* Make SPI messages for the type of ADC are we talking to */
 		/* The PIC Slave needs 8 bit transfers only */
 		if (spi_adc.pic18 > 1) { /*  PIC18 SPI slave device */
-       			mutex_lock(&pic_data->drvdata_lock);
-			txbuf[0]=CMD_ADC_GO_H;
-			spi_write(spi_adc.spi,txbuf,1);
-			udelay(SLAVE_DELAY); /* ADC conversion delay */
-			txbuf[0]=CMD_ADC_DATA;
-                        txbuf[1]=CMD_DUMMY_CFG;
-			spi_write_then_read(spi_adc.spi,txbuf,2,rxbuf,2);
-                        data[n] = rxbuf[0]+(rxbuf[1] << 8);
+                        mutex_lock(&pic_data->drvdata_lock);
+                        udelay(SLAVE_DELAY); /* ADC conversion delay */
+			txbuf[0]=CMD_ADC_GO+chan;
+			spi_write_then_read(spi_adc.spi,txbuf,1,rxbuf,1); /* rx buffer has old data */
+                        data[n]=0;
+                        udelay(SLAVE_DELAY); /* ADC conversion delay */
+                        txbuf[0]=CMD_ZERO;
+                        spi_write_then_read(spi_adc.spi,txbuf,1,rxbuf,1); /* rx buffer has old data */
+                        udelay(SLAVE_DELAY); /* ADC conversion delay */
+                        txbuf[0]=CMD_ADC_DATA;
+                        spi_write_then_read(spi_adc.spi,txbuf,1,rxbuf,1);
+                        data[n] += rxbuf[0];
+                        udelay(SLAVE_DELAY); /* ADC conversion delay */
+                        txbuf[0]=CMD_ZERO;
+                        spi_write_then_read(spi_adc.spi,txbuf,1,rxbuf,1);
+                        data[n] += rxbuf[0]<<8;
        			mutex_unlock(&pic_data->drvdata_lock);
 		} else { /* Gertboard device */
 			comedi_do_one_message((0b01100000 | ((chan & 0x01) << 4)), CSnA, 2); /* set ADC channel SE, send two bytes */
@@ -968,7 +977,7 @@ static int spidev_spi_probe(struct spi_device *spi)
 		/* get a copy of the slave device 1 */  /* we need a device to talk to the DAC */
 		spi_dac.spi = spi;
 	}
-	 spi->max_speed_hz=2000000;
+	 spi->max_speed_hz=1000000;
 	 spi->bits_per_word=8;
 	 spi->mode = SPI_MODE_3; /* mode 3 for ADC & DAC*/
 	 spi_setup(spi);
