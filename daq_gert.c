@@ -97,8 +97,8 @@ WiringPI
  * spi-atmel.c, Copyright (C) 2006 Atmel Corporation
 
 Devices: [] GERTBOARD (daq_gert)
-Status: inprogress (DIO 95%) (AI 80%) AO (80%) (My code cleanup 55%)
-Updated: Thu, 26 Feb 2015 12:07:20 +0000
+Status: inprogress (DIO 95%) (AI 90%) AO (90%) (My code cleanup 65%)
+Updated: Mar 2015 12:07:20 +0000
 
 The DAQ-GERT appears in Comedi as a  digital I/O subdevice (0) with
 17 or 21 or 30 channels, a analog input subdevice (1) with 2 single-ended channels,
@@ -153,6 +153,7 @@ IRQ is assigned but not used.
  * bit 7 high for commands sent from the MASTER
  * bit 6 0 send lower or 1 send upper byte ADC result first
  * bits 3..0 port address
+ * all zeros sent to the PIC slave will return 8 bits from the ADC buffer
  *
  * bit 7 low  for config data sent in CMD_DUMMY per uC type
  * bits 6 config bit code always 1
@@ -198,19 +199,19 @@ struct spi_adc_type {
 static struct spi_adc_type spi_adc, spi_dac;
 
 struct pic_platform_data {
-	uint16_t conv_delay_usecs;
+	uint16_t conv_delay_usecs,cmd_delay_usecs;
         struct mutex            drvdata_lock;
 } ;
 
 static struct pic_platform_data pic_info_pic18 = {
-	.conv_delay_usecs = 35
+        .cmd_delay_usecs = 20,
+	.conv_delay_usecs = 50
 };
 
 #define CSnA    0       /* GPIO 8  Gertboard ADC */
 #define CSnB    1       /* GPIO 7  Gertboard DAC */
 
 #define SPI_BUFF_SIZE 16
-#define SLAVE_DELAY 50
 
 /* PIC Slave commands */
 #define CMD_ADC_GO	0b10000000      // send data low byte first
@@ -729,7 +730,6 @@ static int daqgert_ai_rinsn(struct comedi_device *dev,
 
 	int n, chan;
 	struct pic_platform_data *pic_data = s->private;
-        u8 txbuf[3], rxbuf[3];
 
 	chan = CR_CHAN(insn->chanspec);
 	/* convert n samples */
@@ -738,21 +738,20 @@ static int daqgert_ai_rinsn(struct comedi_device *dev,
 		/* The PIC Slave needs 8 bit transfers only */
 		if (spi_adc.pic18 > 1) { /*  PIC18 SPI slave device */
                         mutex_lock(&pic_data->drvdata_lock);
-                        udelay(SLAVE_DELAY); /* ADC conversion delay */
-			txbuf[0]=CMD_ADC_GO+chan;
-			spi_write_then_read(spi_adc.spi,txbuf,1,rxbuf,1); /* rx buffer has old data */
-                        data[n]=0;
-                        udelay(SLAVE_DELAY); /* ADC conversion delay */
-                        txbuf[0]=CMD_ZERO;
-                        spi_write_then_read(spi_adc.spi,txbuf,1,rxbuf,1); /* rx buffer has old data */
-                        udelay(SLAVE_DELAY); /* ADC conversion delay */
-                        txbuf[0]=CMD_ADC_DATA;
-                        spi_write_then_read(spi_adc.spi,txbuf,1,rxbuf,1);
-                        data[n] += rxbuf[0];
-                        udelay(SLAVE_DELAY); /* ADC conversion delay */
-                        txbuf[0]=CMD_ZERO;
-                        spi_write_then_read(spi_adc.spi,txbuf,1,rxbuf,1);
-                        data[n] += rxbuf[0]<<8;
+                        udelay(pic_data->cmd_delay_usecs); /* ADC conversion delay */
+			comedi_ctl.tx_buff[0]=CMD_ADC_GO+chan;
+			spi_write_then_read(spi_adc.spi,comedi_ctl.tx_buff,1,comedi_ctl.rx_buff,1); /* rx buffer has old data */
+                        udelay(pic_data->conv_delay_usecs); /* ADC conversion delay */
+                        comedi_ctl.tx_buff[0]=CMD_ZERO;
+                        spi_write_then_read(spi_adc.spi,comedi_ctl.tx_buff,1,comedi_ctl.rx_buff,1); /* rx buffer has old data */
+                        udelay(pic_data->cmd_delay_usecs); /* ADC conversion delay */
+                        comedi_ctl.tx_buff[0]=CMD_ADC_DATA;
+                        spi_write_then_read(spi_adc.spi,comedi_ctl.tx_buff,1,comedi_ctl.rx_buff,1);
+                        data[n] = comedi_ctl.rx_buff[0];
+                        udelay(pic_data->cmd_delay_usecs); /* ADC conversion delay */
+                        comedi_ctl.tx_buff[0]=CMD_ZERO;
+                        spi_write_then_read(spi_adc.spi,comedi_ctl.tx_buff,1,comedi_ctl.rx_buff,1);
+                        data[n] += comedi_ctl.rx_buff[0]<<8;
        			mutex_unlock(&pic_data->drvdata_lock);
 		} else { /* Gertboard device */
 			comedi_do_one_message((0b01100000 | ((chan & 0x01) << 4)), CSnA, 2); /* set ADC channel SE, send two bytes */
@@ -1108,6 +1107,6 @@ module_exit(daqgert_exit);
 MODULE_AUTHOR("Fred Brooks <spam@sma2.rain.com>");
 MODULE_DESCRIPTION(
 		   "Comedi driver for RASPI GERTBOARD DIO/AI/AO");
-MODULE_VERSION("0.0.10");
+MODULE_VERSION("0.0.12");
 MODULE_LICENSE("GPL");
 MODULE_ALIAS("spi:spigert");
