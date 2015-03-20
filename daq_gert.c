@@ -276,33 +276,6 @@ extern unsigned int system_serial_high;
 static unsigned int RPisys_rev;
 static int gert_detected = FALSE;
 
-static int bcm2708_check_pinmode(void) {
-#define INP_GPIO(g) *(gpio+((g)/10)) &= ~(7<<(((g)%10)*3))
-#define SET_GPIO_ALT(g,a) *(gpio+(((g)/10))) |= (((a)<=3?(a)+4:(a)==4?3:2)<<(((g)%10)*3))
-#define GPIO_PULL *(gpio+37)
-#define GPIO_PULLCLK0 *(gpio+38)
-int pin;
-/* enable pull-up on GPIO */
-GPIO_PULL = 2;
-udelay(50);
-/* clock on GPIO */
-GPIO_PULLCLK0 = 0x0000c403;
-udelay(50);
-GPIO_PULL = 0;
-GPIO_PULLCLK0 = 0;
-/* SPI is on GPIO 7..11 */
-for (pin = 7; pin <= 11; pin++) {
-INP_GPIO(pin); /* set mode to GPIO input first */
-SET_GPIO_ALT(pin, 0); /* set mode to ALT 0 */
-}
-/* look for SPI offboard chip responses later */
-/* Just set gert_detected for now */
-for (pin = 14; pin <= 15; pin++) {
-INP_GPIO(pin); /* set RS-232 mode to GPIO input again */
-}
-return TRUE;
-}
-
 static void bcm2708_set_gpio_alt(int pin, int alt)
 {
 /*
@@ -856,7 +829,6 @@ static int daqgert_attach(struct comedi_device *dev, struct comedi_devconfig *it
         dev_info(dev->class_dev, "GertBoard GPIO set [8..16/20/29] to inputs\n");
 
 	/* assume we have DON"T a gertboard */
-	bcm2708_check_pinmode();
 	dev_info(dev->class_dev, "GertBoard Detection Started\n");
 	num_subdev = 1;
         gert_detected = FALSE;
