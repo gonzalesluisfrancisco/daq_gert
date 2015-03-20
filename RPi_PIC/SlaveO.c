@@ -3,7 +3,7 @@
  *  http://www.d.umn.edu/~cprince/PubRes/Hardware/SPI/
  * examples
  *
- * Fully interrupt drived SPI slave ADC for RPi via the daq_gert linux module
+ * Fully interrupt driven SPI slave ADC for RPi via the daq_gert linux module
  * 8722
  * Port E is the main led diag port
  * PORT H is the LCD port
@@ -128,14 +128,71 @@
 #endif
 
 #ifdef P25K22
+// PIC18F25K22 Configuration Bit Settings
+
+// 'C' source line config statements
+
 #include <p18f25k22.h>
-#pragma	config	FOSC = INTIO67
-#pragma config	PLLCFG=ON
-#pragma config	WDTEN = ON, WDTPS = 1024
-#pragma config	CCP2MX = PORTC1, PBADEN = OFF, T3CMX = PORTC0
-#pragma config	BOREN = OFF
-#pragma config	STVREN = ON
-#pragma config	LVP=OFF
+
+// CONFIG1H
+#pragma config FOSC = INTIO67   // Oscillator Selection bits (Internal oscillator block)
+#pragma config PLLCFG = ON      // 4X PLL Enable (Oscillator multiplied by 4)
+#pragma config PRICLKEN = ON    // Primary clock enable bit (Primary clock enabled)
+#pragma config FCMEN = OFF      // Fail-Safe Clock Monitor Enable bit (Fail-Safe Clock Monitor disabled)
+#pragma config IESO = OFF       // Internal/External Oscillator Switchover bit (Oscillator Switchover mode disabled)
+
+// CONFIG2L
+#pragma config PWRTEN = OFF     // Power-up Timer Enable bit (Power up timer disabled)
+#pragma config BOREN = OFF      // Brown-out Reset Enable bits (Brown-out Reset disabled in hardware and software)
+#pragma config BORV = 190       // Brown Out Reset Voltage bits (VBOR set to 1.90 V nominal)
+
+// CONFIG2H
+#pragma config WDTEN = ON       // Watchdog Timer Enable bits (WDT is always enabled. SWDTEN bit has no effect)
+#pragma config WDTPS = 1024     // Watchdog Timer Postscale Select bits (1:1024)
+
+// CONFIG3H
+#pragma config CCP2MX = PORTC1  // CCP2 MUX bit (CCP2 input/output is multiplexed with RC1)
+#pragma config PBADEN = OFF     // PORTB A/D Enable bit (PORTB<5:0> pins are configured as digital I/O on Reset)
+#pragma config CCP3MX = PORTB5  // P3A/CCP3 Mux bit (P3A/CCP3 input/output is multiplexed with RB5)
+#pragma config HFOFST = ON      // HFINTOSC Fast Start-up (HFINTOSC output and ready status are not delayed by the oscillator stable status)
+#pragma config T3CMX = PORTC0   // Timer3 Clock input mux bit (T3CKI is on RC0)
+#pragma config P2BMX = PORTB5   // ECCP2 B output mux bit (P2B is on RB5)
+#pragma config MCLRE = EXTMCLR  // MCLR Pin Enable bit (MCLR pin enabled, RE3 input pin disabled)
+
+// CONFIG4L
+#pragma config STVREN = ON      // Stack Full/Underflow Reset Enable bit (Stack full/underflow will cause Reset)
+#pragma config LVP = OFF        // Single-Supply ICSP Enable bit (Single-Supply ICSP disabled)
+#pragma config XINST = ON       // Extended Instruction Set Enable bit (Instruction set extension and Indexed Addressing mode enabled)
+
+// CONFIG5L
+#pragma config CP0 = OFF        // Code Protection Block 0 (Block 0 (000800-001FFFh) not code-protected)
+#pragma config CP1 = OFF        // Code Protection Block 1 (Block 1 (002000-003FFFh) not code-protected)
+#pragma config CP2 = OFF        // Code Protection Block 2 (Block 2 (004000-005FFFh) not code-protected)
+#pragma config CP3 = OFF        // Code Protection Block 3 (Block 3 (006000-007FFFh) not code-protected)
+
+// CONFIG5H
+#pragma config CPB = OFF        // Boot Block Code Protection bit (Boot block (000000-0007FFh) not code-protected)
+#pragma config CPD = OFF        // Data EEPROM Code Protection bit (Data EEPROM not code-protected)
+
+// CONFIG6L
+#pragma config WRT0 = OFF       // Write Protection Block 0 (Block 0 (000800-001FFFh) not write-protected)
+#pragma config WRT1 = OFF       // Write Protection Block 1 (Block 1 (002000-003FFFh) not write-protected)
+#pragma config WRT2 = OFF       // Write Protection Block 2 (Block 2 (004000-005FFFh) not write-protected)
+#pragma config WRT3 = OFF       // Write Protection Block 3 (Block 3 (006000-007FFFh) not write-protected)
+
+// CONFIG6H
+#pragma config WRTC = OFF       // Configuration Register Write Protection bit (Configuration registers (300000-3000FFh) not write-protected)
+#pragma config WRTB = OFF       // Boot Block Write Protection bit (Boot Block (000000-0007FFh) not write-protected)
+#pragma config WRTD = OFF       // Data EEPROM Write Protection bit (Data EEPROM not write-protected)
+
+// CONFIG7L
+#pragma config EBTR0 = OFF      // Table Read Protection Block 0 (Block 0 (000800-001FFFh) not protected from table reads executed in other blocks)
+#pragma config EBTR1 = OFF      // Table Read Protection Block 1 (Block 1 (002000-003FFFh) not protected from table reads executed in other blocks)
+#pragma config EBTR2 = OFF      // Table Read Protection Block 2 (Block 2 (004000-005FFFh) not protected from table reads executed in other blocks)
+#pragma config EBTR3 = OFF      // Table Read Protection Block 3 (Block 3 (006000-007FFFh) not protected from table reads executed in other blocks)
+
+// CONFIG7H
+#pragma config EBTRB = OFF      // Boot Block Table Read Protection bit (Boot Block (000000-0007FFh) not protected from table reads executed in other blocks)
 #endif
 
 #include <spi.h>
@@ -165,7 +222,7 @@
 #define SLAVE_ACTIVE	10		// Activity counter level
 
 /* PIC Slave commands */
-#define CMD_ADC_GO	0b10000000
+#define CMD_ADC_GO      0b10000000
 #define CMD_ADC_GO_H	0b11000000
 #define CMD_ADC_DIAG	0b11110000
 #define CMD_ADC_DATA	0b10010000
@@ -173,8 +230,8 @@
 
 #define CMD_DUMMY_CFG	0b01000000
 #ifdef P8722
-#define CMD_DUMMY	0b01001100	/* 12 channels VDD */
-#define NUM_AI_CHAN	12
+#define CMD_DUMMY       0b01001100	/* 12 channels VDD */
+#define NUM_AI_CHAN     12
 #endif
 #ifdef P25K22
 #define CMD_DUMMY	0b01101110	/* 14 channels 2.048 but only 13 are ADC */
@@ -207,7 +264,7 @@
 #define	DS5		5
 /* DIO defines */
 #define LOW		(unsigned char)0        // digital output state levels, sink
-#define	HIGH            (unsigned char)1        // digital output state levels, source
+#define	HIGH		(unsigned char)1        // digital output state levels, source
 #define	ON		LOW       		//
 #define OFF		HIGH			//
 #define	S_ON            LOW       		// low select/on for chip/led
@@ -300,7 +357,9 @@ void InterruptVectorHigh(void)
 // High priority interrupt routine
 
 #pragma code
-#pragma interrupt InterruptHandlerHigh
+
+#pragma tmpdata ISRHtmpdata
+#pragma interrupt InterruptHandlerHigh nosave=section (".tmpdata")
 
 void InterruptHandlerHigh(void)
 {
@@ -418,7 +477,7 @@ void InterruptHandlerHigh(void)
 	}
 
 }
-#pragma code
+#pragma	tmpdata
 
 void wdtdelay(unsigned long delay)
 {
