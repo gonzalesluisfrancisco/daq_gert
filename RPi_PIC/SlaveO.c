@@ -409,6 +409,7 @@ void InterruptHandlerHigh(void)
 		data_in2 = SSP2BUF;
 		command = data_in2 & 0xf0;
 		if ((command == CMD_ADC_GO) || (command == CMD_ADC_GO_H)) { // Found a GO command
+			spi_adc.ADC_DATA = FALSE;
 			flip = TRUE;
 			if ((data_in2 & 0b01000000) > 0) {
 				upper = TRUE;
@@ -427,23 +428,31 @@ void InterruptHandlerHigh(void)
 #endif
 			if (!ADCON0bits.GO) {
 				ADCON0 = ((channel << 2) & 0b00111100) | (ADCON0 & 0b11000011);
-				spi_adc.ADC_DATA = FALSE;
 				adc_buffer[channel] = 0xffff; // fill with bits
 				ADCON0bits.GO = HIGH; // start a conversion
 				DLED2 = !DLED2;
 			} else {
 				ADCON0bits.GO = LOW; // stop a conversion
 				SSP2BUF = CMD_DUMMY; // Tell master  we are here
-				spi_adc.ADC_DATA = FALSE;
 				DLED3 = !DLED3;
 			}
+			_asm clrwdt _endasm // reset the WDT timer
+			spi_adc.REMOTE_LINK = TRUE;
+			link = TRUE;
+			DLED0 = HIGH;
+			/* reset link data timer if we are talking */
+			timer.lt = TIMEROFFSET; // Copy timer value into union
+			TMR0H = timer.bt[HIGH]; // Write high byte to Timer0
+			TMR0L = timer.bt[LOW]; // Write low byte to Timer0
+			INTCONbits.TMR0IF = LOW; //clear possible interrupt flag	
 		}
 		if (data_in2 == CMD_DUMMY_CFG) {
 			SSP2BUF = CMD_DUMMY; // Tell master  we are here
 			DLED4 = !DLED4;
 		}
 
-		if (data_in2 == CMD_ZERO) {
+		if ((data_in2 == CMD_ZERO) && spi_adc.ADC_DATA) { // don't sent unless we have valid data
+			last_slave_int_count = slave_int_count;
 			if (flip) {
 				SSP2BUF = (uint8_t) adc_buffer[channel]; // stuff with lower 8 bits
 			} else {
@@ -453,7 +462,7 @@ void InterruptHandlerHigh(void)
 			DLED6 = !DLED6;
 		}
 		if (data_in2 == CMD_ADC_DATA) {
-			if (!ADCON0bits.GO) {
+			if (spi_adc.ADC_DATA) {
 				if (upper) {
 					SSP2BUF = (uint8_t) adc_buffer[channel]; // stuff with lower 8 bits
 				} else {
@@ -461,15 +470,6 @@ void InterruptHandlerHigh(void)
 				}
 				DLED5 = !DLED5;
 				last_slave_int_count = slave_int_count;
-				_asm clrwdt _endasm // reset the WDT timer
-				spi_adc.REMOTE_LINK = TRUE;
-				link = TRUE;
-				DLED0 = HIGH;
-				/* reset link data timer if we are talking */
-				timer.lt = TIMEROFFSET; // Copy timer value into union
-				TMR0H = timer.bt[HIGH]; // Write high byte to Timer0
-				TMR0L = timer.bt[LOW]; // Write low byte to Timer0
-				INTCONbits.TMR0IF = LOW; //clear possible interrupt flag
 			} else {
 				SSP2BUF = CMD_DUMMY;
 			}
