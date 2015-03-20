@@ -363,54 +363,21 @@ void InterruptVectorHigh(void)
 
 void InterruptHandlerHigh(void)
 {
-	static uint8_t channel = 0, link, upper, command, flip = FALSE;
+	static uint8_t channel = 0, link, upper, command;
 	static union Timers timer;
-
-	if (INTCONbits.TMR0IF) { // check timer0 irq 1 second timer int handler
-		INTCONbits.TMR0IF = LOW; //clear interrupt flag
-		//check for TMR0 overflow
-
-		timer.lt = TIMEROFFSET; // Copy timer value into union
-		TMR0H = timer.bt[HIGH]; // Write high byte to Timer0
-		TMR0L = timer.bt[LOW]; // Write low byte to Timer0
-		/* if we are just idle don't reset the PIC */
-		if ((slave_int_count - last_slave_int_count) < SLAVE_ACTIVE) {
-			_asm clrwdt _endasm // reset the WDT timer
-			DLED1 = HIGH;
-			DLED2 = HIGH;
-			DLED3 = HIGH;
-			DLED4 = HIGH;
-			DLED5 = HIGH;
-			DLED6 = HIGH;
-			DLED7 = HIGH;
-		}
-		link = FALSE;
-		spi_adc.REMOTE_LINK = FALSE;
-		DLED0 = LOW;
-	}
-
-	if (PIR1bits.ADIF) { // ADC conversion complete flag
-		PIR1bits.ADIF = LOW;
-		adc_count++; // just keep count
-		adc_buffer[channel] = ADRES;
-		if (upper) {
-			SSP2BUF = (uint8_t) (adc_buffer[channel] >> 8); // stuff with upper 8 bits
-		} else {
-			SSP2BUF = (uint8_t) adc_buffer[channel]; // stuff with lower 8 bits
-		}
-		spi_adc.ADC_DATA = TRUE;
-		DLED1 = !DLED1;
-	}
 
 	/* we only get this when the master  wants data, the slave never generates one */
 	if (PIR3bits.SSP2IF) { // SPI port #2 SLAVE receiver
 		PIR3bits.SSP2IF = LOW;
+#ifdef P8722
+		LATJbits.LATJ7 = !LATJbits.LATJ7;
+#endif
+
 		slave_int_count++;
 		data_in2 = SSP2BUF;
 		command = data_in2 & 0xf0;
-		if ((command == CMD_ADC_GO) || (command == CMD_ADC_GO_H)) { // Found a GO command
+		if ((command == CMD_ADC_GO) || (command == CMD_ADC_GO_H)) { // Found a GO for a conversion command
 			spi_adc.ADC_DATA = FALSE;
-			flip = TRUE;
 			if ((data_in2 & 0b01000000) > 0) {
 				upper = TRUE;
 				DLED7 = LOW;
@@ -453,17 +420,16 @@ void InterruptHandlerHigh(void)
 
 		if ((data_in2 == CMD_ZERO) && spi_adc.ADC_DATA) { // don't sent unless we have valid data
 			last_slave_int_count = slave_int_count;
-			if (flip) {
+			if (upper) {
 				SSP2BUF = (uint8_t) adc_buffer[channel]; // stuff with lower 8 bits
 			} else {
 				SSP2BUF = (uint8_t) (adc_buffer[channel] >> 8); // stuff with upper 8 bits
 			}
-			flip = !flip;
 			DLED6 = !DLED6;
 		}
 		if (data_in2 == CMD_ADC_DATA) {
 			if (spi_adc.ADC_DATA) {
-				if (upper) {
+				if (!upper) {
 					SSP2BUF = (uint8_t) adc_buffer[channel]; // stuff with lower 8 bits
 				} else {
 					SSP2BUF = (uint8_t) (adc_buffer[channel] >> 8); // stuff with upper 8 bits
@@ -476,6 +442,39 @@ void InterruptHandlerHigh(void)
 		}
 	}
 
+	if (INTCONbits.TMR0IF) { // check timer0 irq 1 second timer int handler
+		INTCONbits.TMR0IF = LOW; //clear interrupt flag
+		//check for TMR0 overflow
+
+		timer.lt = TIMEROFFSET; // Copy timer value into union
+		TMR0H = timer.bt[HIGH]; // Write high byte to Timer0
+		TMR0L = timer.bt[LOW]; // Write low byte to Timer0
+		/* if we are just idle don't reset the PIC */
+		if ((slave_int_count - last_slave_int_count) < SLAVE_ACTIVE) {
+			_asm clrwdt _endasm // reset the WDT timer
+			DLED1 = HIGH;
+			DLED2 = HIGH;
+			DLED3 = HIGH;
+			DLED4 = HIGH;
+			DLED5 = HIGH;
+			DLED6 = HIGH;
+			DLED7 = HIGH;
+#ifdef P8722
+			LATJ = 0xff;
+#endif
+		}
+		link = FALSE;
+		spi_adc.REMOTE_LINK = FALSE;
+		DLED0 = LOW;
+	}
+
+	if (PIR1bits.ADIF) { // ADC conversion complete flag
+		PIR1bits.ADIF = LOW;
+		adc_count++; // just keep count
+		adc_buffer[channel] = ADRES; // data is ready but must be written to the SPI buffer after a master command is received 
+		spi_adc.ADC_DATA = TRUE; // so the transmit buffer will not be overwritten, WCOL set
+		DLED1 = !DLED1;
+	}
 }
 #pragma	tmpdata
 
@@ -713,6 +712,8 @@ void main(void) /* SPI Master/Slave loopback */
 		if (SSP2CON1bits.WCOL || SSP2CON1bits.SSPOV) { // check for overruns/collisions
 #ifdef P8722
 			LATHbits.LATH0 = !LATHbits.LATH0;
+			if (SSP2CON1bits.WCOL) LATJbits.LATJ0 = !LATJbits.LATJ0;
+			if (SSP2CON1bits.SSPOV) LATJbits.LATJ1 = !LATJbits.LATJ1;
 #endif
 			SSP2CON1bits.WCOL = SSP2CON1bits.SSPOV = 0;
 			adc_error_count = adc_count - adc_error_count;
