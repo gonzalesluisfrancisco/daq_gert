@@ -23,8 +23,8 @@
 /*
 Driver: "experimental" daq_gert in progress ... for 3.18+ kernels
 Test program code in /fujitsu/nidaq700/raspigert/bmc/bmc 
-*** edit arch/arm/mach-bcm2709/bcm2709.c to add spigert device info to spidev info
-*** edit arch/arm/mach-bcm2708/bcm2708.c
+ *** edit arch/arm/mach-bcm2709/bcm2709.c to add spigert device info to spidev info
+ *** edit arch/arm/mach-bcm2708/bcm2708.c
 recompile kernel
 
         {
@@ -64,9 +64,9 @@ recompile kernel
  * section COMEDI_MISC_DRIVERS
 
  config COMEDI_DAQ_GERT
-	tristate "GERTBOARD support"
-	depends on COMEDI_KCOMEDILIB
-	---help---
+        tristate "GERTBOARD support"
+        depends on COMEDI_KCOMEDILIB
+        ---help---
        Enable support for a raspi gertboard
 
        To compile this driver as a module, choose M here: the module will be
@@ -172,40 +172,40 @@ IRQ is assigned but not used.
 #include <linux/device.h>
 
 /* Function stubs */
-void (*pinMode) (int pin, int mode) ;
-void (*pullUpDnControl) (int pin, int pud) ;
-void (*digitalWrite) (int pin, int value) ;
-void (*setPadDrive) (int group, int value) ;
-int (*digitalRead) (int pin) ;
+void (*pinMode) (int pin, int mode);
+void (*pullUpDnControl) (int pin, int pud);
+void (*digitalWrite) (int pin, int value);
+void (*setPadDrive) (int group, int value);
+int (*digitalRead) (int pin);
 int SPI_probe(struct comedi_device *);
 
 //static struct spi_device *comedi_spi_ai, *comedi_spi_ao;
 
 struct comedi_control {
-	u8 *tx_buff;
-	u8 *rx_buff;
-        struct mutex            drvdata_lock;
-} ;
+    u8 *tx_buff;
+    u8 *rx_buff;
+    struct mutex drvdata_lock;
+};
 static struct comedi_control comedi_ctl;
 
 struct spi_adc_type {
-	uint16_t range : 1;
-	uint16_t bits : 1;
-	uint16_t link : 1;
-	uint16_t pic18 : 2;
-	uint16_t chan : 4;
-	struct spi_device *spi;
-} ;
+    uint16_t range : 1;
+    uint16_t bits : 1;
+    uint16_t link : 1;
+    uint16_t pic18 : 2;
+    uint16_t chan : 4;
+    struct spi_device *spi;
+};
 static struct spi_adc_type spi_adc, spi_dac;
 
 struct pic_platform_data {
-	uint16_t conv_delay_usecs,cmd_delay_usecs;
-        struct mutex            drvdata_lock;
-} ;
+    uint16_t conv_delay_usecs, cmd_delay_usecs;
+    struct mutex drvdata_lock;
+};
 
 static struct pic_platform_data pic_info_pic18 = {
-        .cmd_delay_usecs = 20,
-	.conv_delay_usecs = 50
+    .cmd_delay_usecs = 20,
+    .conv_delay_usecs = 50
 };
 
 #define CSnA    0       /* GPIO 8  Gertboard ADC */
@@ -276,33 +276,32 @@ extern unsigned int system_serial_high;
 static unsigned int RPisys_rev;
 static int gert_detected = FALSE;
 
-static void bcm2708_set_gpio_alt(int pin, int alt)
-{
-/*
- * This is the common way to handle the GPIO pins for
- * the Raspberry Pi.
- * TODO This is a hack. Use pinmux / pinctrl.
-*/
+static void bcm2708_set_gpio_alt(int pin, int alt) {
+    /*
+     * This is the common way to handle the GPIO pins for
+     * the Raspberry Pi.
+     * TODO This is a hack. Use pinmux / pinctrl.
+     */
 
 #define INP_GPIO(g) *(gpio+((g)/10)) &= ~(7<<(((g)%10)*3))
 #define SET_GPIO_ALT(g,a) *(gpio+(((g)/10))) |= (((a)<=3?(a)+4:(a)==4?3:2)<<(((g)%10)*3))
-INP_GPIO(pin);
-SET_GPIO_ALT(pin, alt);
+    INP_GPIO(pin);
+    SET_GPIO_ALT(pin, alt);
 }
 
 static const struct comedi_lrange daqgert_ai_range3_300 = {1,
-	{
-		RANGE(0, 3.300),
-	}};
+    {
+        RANGE(0, 3.300),
+    }};
 static const struct comedi_lrange daqgert_ai_range2_048 = {1,
-	{
-		RANGE(0, 2.048),
-	}};
+    {
+        RANGE(0, 2.048),
+    }};
 
 static const struct comedi_lrange daqgert_ao_range = {1,
-	{
-		RANGE(0, 2.048),
-	}};
+    {
+        RANGE(0, 2.048),
+    }};
 
 /*
  Doing it the Arduino way with lookup tables...
@@ -317,34 +316,34 @@ static const int *pinToGpio;
 
 /* From the Original Wiki - GPIO 0 through 7 */
 static const int pinToGpioR1 [64] = {
-	17, 18, 21, 22, 23, 24, 25, 4,
-	0, 1, /* I2C  - SDA0, SCL0            wpi  8 -  9 */
-	8, 7, /* SPI  - CE1, CE0              wpi 10 - 11 */
-	10, 9, 11, /* SPI  - MOSI, MISO, SCLK      wpi 12 - 14 */
-	14, 15, /* UART - Tx, Rx                wpi 15 - 16 */
+    17, 18, 21, 22, 23, 24, 25, 4,
+    0, 1, /* I2C  - SDA0, SCL0            wpi  8 -  9 */
+    8, 7, /* SPI  - CE1, CE0              wpi 10 - 11 */
+    10, 9, 11, /* SPI  - MOSI, MISO, SCLK      wpi 12 - 14 */
+    14, 15, /* UART - Tx, Rx                wpi 15 - 16 */
 
-	/* Padding: */
+    /* Padding: */
 
-	-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, /* ... 31 */
-	-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, /* . 47 */
-	-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, /* ..63 */
+    -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, /* ... 31 */
+    -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, /* . 47 */
+    -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, /* ..63 */
 };
 
 /* From the Original Wiki - GPIO 0 through 7:   wpi  0 -  7 */
 static const int pinToGpioR2 [64] = {
-	17, 18, 27, 22, 23, 24, 25, 4,
-	2, 3, /* I2C  - SDA0, SCL0            wpi  8 -  9 */
-	8, 7, /* SPI  - CE1, CE0              wpi 10 - 11 */
-	10, 9, 11, /* SPI  - MOSI, MISO, SCLK      wpi 12 - 14 */
-	14, 15, /* UART - Tx, Rx                wpi 15 - 16 */
-	28, 29, 30, 31, /* New GPIOs 8 though 11        wpi 17 - 20 */
-	5, 6, 12, 13, 16, 19, 20, 21, 26, /* Rev 3 New GPIOs */
+    17, 18, 27, 22, 23, 24, 25, 4,
+    2, 3, /* I2C  - SDA0, SCL0            wpi  8 -  9 */
+    8, 7, /* SPI  - CE1, CE0              wpi 10 - 11 */
+    10, 9, 11, /* SPI  - MOSI, MISO, SCLK      wpi 12 - 14 */
+    14, 15, /* UART - Tx, Rx                wpi 15 - 16 */
+    28, 29, 30, 31, /* New GPIOs 8 though 11        wpi 17 - 20 */
+    5, 6, 12, 13, 16, 19, 20, 21, 26, /* Rev 3 New GPIOs */
 
-        /* Padding: */
+    /* Padding: */
 
-	-1, -1, /* ... 31 */
-	-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, /* . 47 */
-	-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, /* . 63 */
+    -1, -1, /* ... 31 */
+    -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, /* . 47 */
+    -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, /* . 63 */
 };
 
 /*
@@ -352,12 +351,12 @@ static const int pinToGpioR2 [64] = {
       Map a BCM_GPIO pin to it's control port. (GPFSEL 0-5)
  */
 static const uint8_t gpioToGPFSEL [] = {
-	0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-	1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
-	2, 2, 2, 2, 2, 2, 2, 2, 2, 2,
-	3, 3, 3, 3, 3, 3, 3, 3, 3, 3,
-	4, 4, 4, 4, 4, 4, 4, 4, 4, 4,
-	5, 5, 5, 5, 5, 5, 5, 5, 5, 5,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+    2, 2, 2, 2, 2, 2, 2, 2, 2, 2,
+    3, 3, 3, 3, 3, 3, 3, 3, 3, 3,
+    4, 4, 4, 4, 4, 4, 4, 4, 4, 4,
+    5, 5, 5, 5, 5, 5, 5, 5, 5, 5,
 };
 
 /*
@@ -365,11 +364,11 @@ static const uint8_t gpioToGPFSEL [] = {
       Define the shift up for the 3 bits per pin in each GPFSEL port
  */
 static const uint8_t gpioToShift [] = {
-	0, 3, 6, 9, 12, 15, 18, 21, 24, 27,
-	0, 3, 6, 9, 12, 15, 18, 21, 24, 27,
-	0, 3, 6, 9, 12, 15, 18, 21, 24, 27,
-	0, 3, 6, 9, 12, 15, 18, 21, 24, 27,
-	0, 3, 6, 9, 12, 15, 18, 21, 24, 27,
+    0, 3, 6, 9, 12, 15, 18, 21, 24, 27,
+    0, 3, 6, 9, 12, 15, 18, 21, 24, 27,
+    0, 3, 6, 9, 12, 15, 18, 21, 24, 27,
+    0, 3, 6, 9, 12, 15, 18, 21, 24, 27,
+    0, 3, 6, 9, 12, 15, 18, 21, 24, 27,
 };
 
 /*
@@ -377,10 +376,10 @@ static const uint8_t gpioToShift [] = {
       (Word) offset to the GPIO Set registers for each GPIO pin
  */
 static const uint8_t gpioToGPSET [] = {
-	7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7,
-	7, 7, 7, 7, 7, 7, 7, 7,
-	8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8,
-	8, 8, 8, 8, 8, 8, 8, 8,
+    7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7,
+    7, 7, 7, 7, 7, 7, 7, 7,
+    8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8,
+    8, 8, 8, 8, 8, 8, 8, 8,
 };
 
 /*
@@ -388,10 +387,10 @@ static const uint8_t gpioToGPSET [] = {
       (Word) offset to the GPIO Clear registers for each GPIO pin
  */
 static const uint8_t gpioToGPCLR [] = {
-	10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10,
-	10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10,
-	11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11,
-	11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11,
+    10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10,
+    10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10,
+    11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11,
+    11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11,
 };
 
 /*
@@ -399,10 +398,10 @@ static const uint8_t gpioToGPCLR [] = {
       (Word) offset to the GPIO Input level registers for each GPIO pin
  */
 static const uint8_t gpioToGPLEV [] = {
-	13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13,
-	13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13,
-	14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14,
-	14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14,
+    13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13,
+    13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13,
+    14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14,
+    14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14,
 };
 
 /*
@@ -411,14 +410,12 @@ static const uint8_t gpioToGPLEV [] = {
  ************************************************************
  */
 
-void pinModeGpio(int pin, int mode)
-{
-bcm2708_set_gpio_alt(pin, mode);
+void pinModeGpio(int pin, int mode) {
+    bcm2708_set_gpio_alt(pin, mode);
 }
 
-void pinModeWPi(int pin, int mode)
-{
-	pinModeGpio(pinToGpio [pin & 63], mode);
+void pinModeWPi(int pin, int mode) {
+    pinModeGpio(pinToGpio [pin & 63], mode);
 }
 
 /*
@@ -427,24 +424,22 @@ void pinModeWPi(int pin, int mode)
  *****************************************************************
  */
 
-void digitalWriteWPi(int pin, int value)
-{
-	pin = pinToGpio [pin & 63];
+void digitalWriteWPi(int pin, int value) {
+    pin = pinToGpio [pin & 63];
 
-	if (value == LOW)
-		*(gpio + gpioToGPCLR [pin]) = 1 << (pin & 31);
-	else
-		*(gpio + gpioToGPSET [pin]) = 1 << (pin & 31);
+    if (value == LOW)
+        *(gpio + gpioToGPCLR [pin]) = 1 << (pin & 31);
+    else
+        *(gpio + gpioToGPSET [pin]) = 1 << (pin & 31);
 }
 
-void digitalWriteGpio(int pin, int value)
-{
-	pin &= 63;
+void digitalWriteGpio(int pin, int value) {
+    pin &= 63;
 
-	if (value == LOW)
-		*(gpio + gpioToGPCLR [pin]) = 1 << (pin & 31);
-	else
-		*(gpio + gpioToGPSET [pin]) = 1 << (pin & 31);
+    if (value == LOW)
+        *(gpio + gpioToGPCLR [pin]) = 1 << (pin & 31);
+    else
+        *(gpio + gpioToGPSET [pin]) = 1 << (pin & 31);
 }
 
 /*
@@ -453,24 +448,22 @@ void digitalWriteGpio(int pin, int value)
  *******************************************************************
  */
 
-int digitalReadWPi(int pin)
-{
-	pin = pinToGpio [pin & 63];
+int digitalReadWPi(int pin) {
+    pin = pinToGpio [pin & 63];
 
-	if ((*(gpio + gpioToGPLEV [pin]) & (1 << (pin & 31))) != 0)
-		return HIGH;
-	else
-		return LOW;
+    if ((*(gpio + gpioToGPLEV [pin]) & (1 << (pin & 31))) != 0)
+        return HIGH;
+    else
+        return LOW;
 }
 
-int digitalReadGpio(int pin)
-{
-	pin &= 63;
+int digitalReadGpio(int pin) {
+    pin &= 63;
 
-	if ((*(gpio + gpioToGPLEV [pin]) & (1 << (pin & 31))) != 0)
-		return HIGH;
-	else
-		return LOW;
+    if ((*(gpio + gpioToGPLEV [pin]) & (1 << (pin & 31))) != 0)
+        return HIGH;
+    else
+        return LOW;
 }
 
 /*
@@ -498,51 +491,50 @@ V=1 1
  *********************************************************************
  */
 
-int piBoardRev(struct comedi_device *dev)
-{
-	int r = -1,nscheme=0;
-	static int boardRev = -1;
+int piBoardRev(struct comedi_device *dev) {
+    int r = -1, nscheme = 0;
+    static int boardRev = -1;
 
-	if (boardRev != -1)
-		return boardRev;
+    if (boardRev != -1)
+        return boardRev;
 
-	if (RPisys_rev&0x800000) {
-		nscheme=1;
-       		r = RPisys_rev&0xf;
-        	dev_info(dev->class_dev, "RPi Board new scheme Rev %x, Serial %08x%08x, New Rev %x\n",
-                RPisys_rev, system_serial_high, system_serial_low,r);
-	} else {
-       		r = RPisys_rev&0xff;
-       		dev_info(dev->class_dev, "RPi Board old scheme Rev %x, Serial %08x%08x\n",
+    if (RPisys_rev & 0x800000) {
+        nscheme = 1;
+        r = RPisys_rev & 0xf;
+        dev_info(dev->class_dev, "RPi Board new scheme Rev %x, Serial %08x%08x, New Rev %x\n",
+                RPisys_rev, system_serial_high, system_serial_low, r);
+    } else {
+        r = RPisys_rev & 0xff;
+        dev_info(dev->class_dev, "RPi Board old scheme Rev %x, Serial %08x%08x\n",
                 RPisys_rev, system_serial_high, system_serial_low);
-	}
+    }
 
-	if (nscheme) {
-		switch (r) {
-                case 1:
-                        boardRev = 3;
-                        break;
-                default:
-                        boardRev= -1;
-		}
-	} else {
-        	switch (r) {
-        	case 2:
-		case 3:
-                	boardRev = 1;
-                	break;
-        	case 0:
-		case 1:
-                	boardRev = -1;
-                	break;
-        	default:
-                	boardRev = 2;
-        	}
-	}
+    if (nscheme) {
+        switch (r) {
+            case 1:
+                boardRev = 3;
+                break;
+            default:
+                boardRev = -1;
+        }
+    } else {
+        switch (r) {
+            case 2:
+            case 3:
+                boardRev = 1;
+                break;
+            case 0:
+            case 1:
+                boardRev = -1;
+                break;
+            default:
+                boardRev = 2;
+        }
+    }
 
-        dev_info(dev->class_dev, "Comedi Gpio board rev %u\n",
-        boardRev);
-	return boardRev;
+    dev_info(dev->class_dev, "Comedi Gpio board rev %u\n",
+            boardRev);
+    return boardRev;
 }
 
 /*
@@ -554,22 +546,21 @@ int piBoardRev(struct comedi_device *dev)
  ************************************************************************
  */
 
-int wiringPiSetup(struct comedi_device *dev)
-{
-	int boardRev;
+int wiringPiSetup(struct comedi_device *dev) {
+    int boardRev;
 
-	pinMode = pinModeWPi;
-	digitalWrite = digitalWriteWPi;
-	digitalRead = digitalReadWPi;
+    pinMode = pinModeWPi;
+    digitalWrite = digitalWriteWPi;
+    digitalRead = digitalReadWPi;
 
-	if ((boardRev = piBoardRev(dev)) < 0)
-		return -1;
+    if ((boardRev = piBoardRev(dev)) < 0)
+        return -1;
 
-	if (boardRev == 1)
-		pinToGpio = pinToGpioR1;
-	else
-		pinToGpio = pinToGpioR2;
-	return 0;
+    if (boardRev == 1)
+        pinToGpio = pinToGpioR1;
+    else
+        pinToGpio = pinToGpioR2;
+    return 0;
 }
 
 /*
@@ -581,480 +572,468 @@ int wiringPiSetup(struct comedi_device *dev)
  *************************************************************************
  */
 
-int wiringPiSetupGpio(struct comedi_device *dev)
-{
-	int x;
+int wiringPiSetupGpio(struct comedi_device *dev) {
+    int x;
 
-	if ((x = wiringPiSetup(dev)) < 0)
-		return x;
+    if ((x = wiringPiSetup(dev)) < 0)
+        return x;
 
-	pinMode = pinModeGpio;
-	digitalWrite = digitalWriteGpio;
-	digitalRead = digitalReadGpio;
+    pinMode = pinModeGpio;
+    digitalWrite = digitalWriteGpio;
+    digitalRead = digitalReadGpio;
 
-	return 0;
+    return 0;
 }
 
 struct daqgert_board {
-	const char *name;
-} ;
+    const char *name;
+};
 
 /* FIXME Slow brute forced IO bits, 5us reads from userland */
 
 /* need to use (fix) state to optimize changes */
 static int daqgert_dio_insn_bits(struct comedi_device *dev,
-				 struct comedi_subdevice *s,
-				 struct comedi_insn *insn, unsigned int *data)
-{
-	int pinWPi;
+        struct comedi_subdevice *s,
+        struct comedi_insn *insn, unsigned int *data) {
+    int pinWPi;
 
-	if (data[0]) { /* write data to pin */
-		s->state &= ~data[0];
-		s->state |= (data[0] & data[1]);
-		/* s->state contains the GPIO bits */
-		/* s->io_bits contains the GPIO direction */
+    if (data[0]) { /* write data to pin */
+        s->state &= ~data[0];
+        s->state |= (data[0] & data[1]);
+        /* s->state contains the GPIO bits */
+        /* s->io_bits contains the GPIO direction */
 
-		/* OUT testing with gpio pins  */
-		/* We need to shift a single bit from state to set or clear the GPIO */
-		for (pinWPi = 0; pinWPi < num_dio_chan; pinWPi++) {
-			if (!(gert_detected && ((pinWPi >= 10) && (pinWPi <= 14)))) {
-				/* Do nothing on SPI AUX pins when detected */
-				digitalWriteWPi(pinWPi,
-						(s->state & (0x01 << pinWPi)) >> pinWPi);
-			}
-		}
-	}
+        /* OUT testing with gpio pins  */
+        /* We need to shift a single bit from state to set or clear the GPIO */
+        for (pinWPi = 0; pinWPi < num_dio_chan; pinWPi++) {
+            if (!(gert_detected && ((pinWPi >= 10) && (pinWPi <= 14)))) {
+                /* Do nothing on SPI AUX pins when detected */
+                digitalWriteWPi(pinWPi,
+                        (s->state & (0x01 << pinWPi)) >> pinWPi);
+            }
+        }
+    }
 
-	data[1] = s->state & 0xffffff;
-	/* IN testing with gpio pins */
-	/* Rev #1 num_dio_chan 17 ,Rev #2 num_dio_pins 21 */
-	for (pinWPi = 0; pinWPi < num_dio_chan; pinWPi++) {
-		if (!(gert_detected && ((pinWPi >= 10) && (pinWPi <= 14)))) {
-			data[1] |= digitalReadWPi(pinWPi) << pinWPi; /* shift */
-		}
-	}
-	return insn->n;
+    data[1] = s->state & 0xffffff;
+    /* IN testing with gpio pins */
+    /* Rev #1 num_dio_chan 17 ,Rev #2 num_dio_pins 21 */
+    for (pinWPi = 0; pinWPi < num_dio_chan; pinWPi++) {
+        if (!(gert_detected && ((pinWPi >= 10) && (pinWPi <= 14)))) {
+            data[1] |= digitalReadWPi(pinWPi) << pinWPi; /* shift */
+        }
+    }
+    return insn->n;
 }
 
 /* query or change DIO config */
 static int daqgert_dio_insn_config(struct comedi_device *dev,
-				   struct comedi_subdevice *s,
-				   struct comedi_insn *insn, unsigned int *data)
-{
-	unsigned int wpi_pin = CR_CHAN(insn->chanspec), chan = 1 << wpi_pin;
+        struct comedi_subdevice *s,
+        struct comedi_insn *insn, unsigned int *data) {
+    unsigned int wpi_pin = CR_CHAN(insn->chanspec), chan = 1 << wpi_pin;
 
-	switch (data[0]) {
-	case INSN_CONFIG_DIO_OUTPUT:
-		if (!(gert_detected && ((wpi_pin >= 10) && (wpi_pin <= 14)))) {
-			s->io_bits |= chan;
-			pinModeWPi(wpi_pin, OUTPUT);
-		}
-		break;
-	case INSN_CONFIG_DIO_INPUT:
-		if (!(gert_detected && ((wpi_pin >= 10) && (wpi_pin <= 14)))) {
-			s->io_bits &= (~chan);
-			pinModeWPi(wpi_pin, INPUT);
-		}
-		break;
-	case INSN_CONFIG_DIO_QUERY:
-		data[1] = (s->io_bits & chan) ? COMEDI_OUTPUT : COMEDI_INPUT;
-		return insn->n;
-	default:
-		return -EINVAL;
-	}
-	dev_dbg(dev->class_dev, "%s: GPIO wpi-pins setting 0x%x\n",
-		dev->board_name,
-		(unsigned int) s->io_bits);
-	return 1;
+    switch (data[0]) {
+        case INSN_CONFIG_DIO_OUTPUT:
+            if (!(gert_detected && ((wpi_pin >= 10) && (wpi_pin <= 14)))) {
+                s->io_bits |= chan;
+                pinModeWPi(wpi_pin, OUTPUT);
+            }
+            break;
+        case INSN_CONFIG_DIO_INPUT:
+            if (!(gert_detected && ((wpi_pin >= 10) && (wpi_pin <= 14)))) {
+                s->io_bits &= (~chan);
+                pinModeWPi(wpi_pin, INPUT);
+            }
+            break;
+        case INSN_CONFIG_DIO_QUERY:
+            data[1] = (s->io_bits & chan) ? COMEDI_OUTPUT : COMEDI_INPUT;
+            return insn->n;
+        default:
+            return -EINVAL;
+    }
+    dev_dbg(dev->class_dev, "%s: GPIO wpi-pins setting 0x%x\n",
+            dev->board_name,
+            (unsigned int) s->io_bits);
+    return 1;
 
 }
 
 /* Have the SPI driver execute our message to the selected slave */
-static int comedi_do_one_message(unsigned char msgdata, unsigned char cs_select, unsigned char msg_len)
-{
-	int data16;
+static int comedi_do_one_message(unsigned char msgdata, unsigned char cs_select, unsigned char msg_len) {
+    int data16;
 
-	if (cs_select==CSnA) {
-		if (msg_len==1) {
-			comedi_ctl.rx_buff[0]=spi_w8r8(spi_adc.spi,msgdata);
-		} else {
-                        data16=spi_w8r16(spi_adc.spi,msgdata);
-                        comedi_ctl.rx_buff[0]=data16>>8;
-                        comedi_ctl.rx_buff[1]=data16;
-		}
-	}
-
-        if (cs_select==CSnB) {
-                if (msg_len==1) {
-                        comedi_ctl.rx_buff[2]=spi_w8r8(spi_dac.spi,msgdata);
-                } else {
-                        comedi_ctl.rx_buff[2]=spi_w8r8(spi_dac.spi,msgdata);
-                        comedi_ctl.rx_buff[3]=spi_w8r8(spi_dac.spi,comedi_ctl.tx_buff[1]);
-                }
+    if (cs_select == CSnA) {
+        if (msg_len == 1) {
+            comedi_ctl.rx_buff[0] = spi_w8r8(spi_adc.spi, msgdata);
+        } else {
+            data16 = spi_w8r16(spi_adc.spi, msgdata);
+            comedi_ctl.rx_buff[0] = data16 >> 8;
+            comedi_ctl.rx_buff[1] = data16;
         }
-	return 0;
+    }
+
+    if (cs_select == CSnB) {
+        if (msg_len == 1) {
+            comedi_ctl.rx_buff[2] = spi_w8r8(spi_dac.spi, msgdata);
+        } else {
+            comedi_ctl.rx_buff[2] = spi_w8r8(spi_dac.spi, msgdata);
+            comedi_ctl.rx_buff[3] = spi_w8r8(spi_dac.spi, comedi_ctl.tx_buff[1]);
+        }
+    }
+    return 0;
 }
 
 /* Talk to the ADC via the SPI */
 static int daqgert_ai_rinsn(struct comedi_device *dev,
-			    struct comedi_subdevice *s,
-			    struct comedi_insn *insn, unsigned int *data)
-{
+        struct comedi_subdevice *s,
+        struct comedi_insn *insn, unsigned int *data) {
 
-	int n, chan;
-	struct pic_platform_data *pic_data = s->private;
+    int n, chan;
+    struct pic_platform_data *pic_data = s->private;
 
-	chan = CR_CHAN(insn->chanspec);
-	/* convert n samples */
-	for (n = 0; n < insn->n; n++) {
-		/* Make SPI messages for the type of ADC are we talking to */
-		/* The PIC Slave needs 8 bit transfers only */
-		if (spi_adc.pic18 > 1) { /*  PIC18 SPI slave device */
-                        mutex_lock(&pic_data->drvdata_lock);
-                        udelay(pic_data->cmd_delay_usecs); /* ADC conversion delay */
-			comedi_ctl.tx_buff[0]=CMD_ADC_GO+chan;
-			spi_write_then_read(spi_adc.spi,comedi_ctl.tx_buff,1,comedi_ctl.rx_buff,1); /* rx buffer has old data */
-                        udelay(pic_data->conv_delay_usecs); /* ADC conversion delay */
-                        comedi_ctl.tx_buff[0]=CMD_ZERO;
-                        spi_write_then_read(spi_adc.spi,comedi_ctl.tx_buff,1,comedi_ctl.rx_buff,1); /* rx buffer has old data */
-                        udelay(pic_data->cmd_delay_usecs); /* ADC conversion delay */
-                        comedi_ctl.tx_buff[0]=CMD_ADC_DATA;
-                        spi_write_then_read(spi_adc.spi,comedi_ctl.tx_buff,1,comedi_ctl.rx_buff,1);
-                        data[n] = comedi_ctl.rx_buff[0];
-                        udelay(pic_data->cmd_delay_usecs); /* ADC conversion delay */
-                        comedi_ctl.tx_buff[0]=CMD_ZERO;
-                        spi_write_then_read(spi_adc.spi,comedi_ctl.tx_buff,1,comedi_ctl.rx_buff,1);
-                        data[n] += comedi_ctl.rx_buff[0]<<8;
-       			mutex_unlock(&pic_data->drvdata_lock);
-		} else { /* Gertboard device */
-			comedi_do_one_message((0b01100000 | ((chan & 0x01) << 4)), CSnA, 2); /* set ADC channel SE, send two bytes */
-			data[n] = (comedi_ctl.rx_buff[0]&0b00000011) << 8; /* two bytes were received from the FIFO */
-			data[n] += comedi_ctl.rx_buff[1];
-		}
-	}
-	return n;
+    chan = CR_CHAN(insn->chanspec);
+    /* convert n samples */
+    for (n = 0; n < insn->n; n++) {
+        /* Make SPI messages for the type of ADC are we talking to */
+        /* The PIC Slave needs 8 bit transfers only */
+        if (spi_adc.pic18 > 1) { /*  PIC18 SPI slave device */
+            mutex_lock(&pic_data->drvdata_lock);
+            udelay(pic_data->cmd_delay_usecs); /* ADC conversion delay */
+            comedi_ctl.tx_buff[0] = CMD_ADC_GO + chan;
+            spi_write_then_read(spi_adc.spi, comedi_ctl.tx_buff, 1, comedi_ctl.rx_buff, 1); /* rx buffer has old data */
+            udelay(pic_data->conv_delay_usecs); /* ADC conversion delay */
+            comedi_ctl.tx_buff[0] = CMD_ZERO;
+            spi_write_then_read(spi_adc.spi, comedi_ctl.tx_buff, 1, comedi_ctl.rx_buff, 1); /* rx buffer has old data */
+            udelay(pic_data->cmd_delay_usecs); /* ADC conversion delay */
+            comedi_ctl.tx_buff[0] = CMD_ADC_DATA;
+            spi_write_then_read(spi_adc.spi, comedi_ctl.tx_buff, 1, comedi_ctl.rx_buff, 1);
+            data[n] = comedi_ctl.rx_buff[0];
+            udelay(pic_data->cmd_delay_usecs); /* ADC conversion delay */
+            comedi_ctl.tx_buff[0] = CMD_ZERO;
+            spi_write_then_read(spi_adc.spi, comedi_ctl.tx_buff, 1, comedi_ctl.rx_buff, 1);
+            data[n] += comedi_ctl.rx_buff[0] << 8;
+            mutex_unlock(&pic_data->drvdata_lock);
+        } else { /* Gertboard device */
+            comedi_do_one_message((0b01100000 | ((chan & 0x01) << 4)), CSnA, 2); /* set ADC channel SE, send two bytes */
+            data[n] = (comedi_ctl.rx_buff[0]&0b00000011) << 8; /* two bytes were received from the FIFO */
+            data[n] += comedi_ctl.rx_buff[1];
+        }
+    }
+    return n;
 }
 
 static int daqgert_ao_winsn(struct comedi_device *dev,
-			    struct comedi_subdevice *s,
-			    struct comedi_insn *insn, unsigned int *data)
-{
-	unsigned int n, junk;
-	unsigned int chan;
+        struct comedi_subdevice *s,
+        struct comedi_insn *insn, unsigned int *data) {
+    unsigned int n, junk;
+    unsigned int chan;
 
-	chan = CR_CHAN(insn->chanspec);
-	for (n = 0; n < insn->n; n++) {
-		junk = data[n]&0xfff; /* strip to 12 bits */
-		comedi_ctl.tx_buff[1] = junk & 0xff; /* load lsb SPI data into transfer buffer */
-		udelay(15); /*  delay */
-		comedi_do_one_message((0b00110000 | ((chan & 0x01) << 7) | (junk >> 8)), CSnB, 2); /* Load DAC channel, send two bytes */
-	}
-	return n;
+    chan = CR_CHAN(insn->chanspec);
+    for (n = 0; n < insn->n; n++) {
+        junk = data[n]&0xfff; /* strip to 12 bits */
+        comedi_ctl.tx_buff[1] = junk & 0xff; /* load lsb SPI data into transfer buffer */
+        udelay(15); /*  delay */
+        comedi_do_one_message((0b00110000 | ((chan & 0x01) << 7) | (junk >> 8)), CSnB, 2); /* Load DAC channel, send two bytes */
+    }
+    return n;
 }
 
 static int daqgert_ao_rinsn(struct comedi_device *dev,
-			    struct comedi_subdevice *s,
-			    struct comedi_insn *insn, unsigned int *data)
-{
-	unsigned int n;
-	unsigned int chan;
+        struct comedi_subdevice *s,
+        struct comedi_insn *insn, unsigned int *data) {
+    unsigned int n;
+    unsigned int chan;
 
-	chan = CR_CHAN(insn->chanspec);
-	for (n = 0; n < insn->n; n++) {
-		data[n] = 128;
-	}
-	return n;
+    chan = CR_CHAN(insn->chanspec);
+    for (n = 0; n < insn->n; n++) {
+        data[n] = 128;
+    }
+    return n;
 }
 
 static int daqgert_ai_config(struct comedi_device *dev,
-			     struct comedi_subdevice *s)
-{
-	return spi_adc.chan;
+        struct comedi_subdevice *s) {
+    return spi_adc.chan;
 }
 
 static int daqgert_ao_config(struct comedi_device *dev,
-			     struct comedi_subdevice *s)
-{
+        struct comedi_subdevice *s) {
 
-	/* Stuff here? */
-	return NUM_AO_CHAN;
+    /* Stuff here? */
+    return NUM_AO_CHAN;
 }
 
-static int daqgert_attach(struct comedi_device *dev, struct comedi_devconfig *it)
-{
-	const struct daqgert_board *thisboard = dev->board_ptr;
-	struct comedi_subdevice *s;
-	int ret, num_subdev = 1, i, d;
+static int daqgert_attach(struct comedi_device *dev, struct comedi_devconfig *it) {
+    const struct daqgert_board *thisboard = dev->board_ptr;
+    struct comedi_subdevice *s;
+    int ret, num_subdev = 1, i, d;
 
-        comedi_ctl.tx_buff = kmalloc(SPI_BUFF_SIZE, GFP_KERNEL | GFP_DMA);
-        if (!comedi_ctl.tx_buff) {
-                return -ENOMEM;
+    comedi_ctl.tx_buff = kmalloc(SPI_BUFF_SIZE, GFP_KERNEL | GFP_DMA);
+    if (!comedi_ctl.tx_buff) {
+        return -ENOMEM;
+    }
+    comedi_ctl.rx_buff = kmalloc(SPI_BUFF_SIZE, GFP_KERNEL | GFP_DMA);
+    if (!comedi_ctl.rx_buff) {
+
+        return -ENOMEM;
+    }
+
+    /* Use the kernel system_rev EXPORT_SYMBOL */
+    RPisys_rev = system_rev; /* what board are we running on? */
+    if (RPisys_rev < 2) {
+        dev_err(dev->class_dev, "Invalid RPi board revision! %u\n", RPisys_rev);
+        return -EINVAL;
+    }
+
+    gpio = ioremap(GPIO_BASE, SZ_16K); /* lets get access to the GPIO base */
+    if (!gpio) {
+        dev_err(dev->class_dev, "Invalid io base address!\n");
+        return -EINVAL;
+    }
+    dev->iobase = GPIO_BASE; /* filler */
+
+    /* setup the pins in a static matter for now */
+    /* PIN mode for all */
+    dev_info(dev->class_dev, "GertBoard WiringPiSetup\n");
+    wiringPiSetup(dev);
+    for (i = 0; i < NUM_DIO_OUTPUTS; i++) { /* [0..7] OUTPUTS */
+        pinModeWPi(i, OUTPUT);
+    }
+    dev_info(dev->class_dev, "GertBoard GPIO set [0..7] to outputs\n");
+    num_dio_chan = NUM_DIO_CHAN; /* Rev 1 board setup first */
+    if (piBoardRev(dev) > 1) /* This a Rev 2 or higher board "I hope" */
+        num_dio_chan = NUM_DIO_CHAN_REV2;
+    if (piBoardRev(dev) > 2) /* This a Rev 3 or higher board "I hope" */
+        num_dio_chan = NUM_DIO_CHAN_REV3;
+    for (i = NUM_DIO_OUTPUTS; i < num_dio_chan; i++) { /* [8..16/20/29] INPUTS */
+        pinModeWPi(i, INPUT);
+    }
+    dev_info(dev->class_dev, "GertBoard GPIO set [8..16/20/29] to inputs\n");
+
+    /* assume we have DON"T a gertboard */
+    dev_info(dev->class_dev, "GertBoard Detection Started\n");
+    num_subdev = 1;
+    gert_detected = FALSE;
+    if (SPI_probe(dev)) num_subdev += 2;
+    ; // add AI and AO channels */
+    dev_info(dev->class_dev, "GertBoard Detection Completed\n");
+    dev->board_name = thisboard->name;
+    ret = comedi_alloc_subdevices(dev, num_subdev);
+    if (ret)
+        return ret;
+
+    /* daq_gert dio */
+    s = &dev->subdevices[0];
+    s->type = COMEDI_SUBD_DIO;
+    s->subdev_flags = SDF_READABLE | SDF_WRITABLE;
+    s->n_chan = num_dio_chan;
+    s->len_chanlist = num_dio_chan;
+    s->range_table = &range_digital;
+    s->maxdata = 1;
+    s->insn_bits = daqgert_dio_insn_bits;
+    s->insn_config = daqgert_dio_insn_config;
+    s->state = 0;
+    s->io_bits = DIO_PINS_DEFAULT; /* set output bits */
+    d = s->io_bits;
+
+    if (num_subdev > 1) { /* we have the SPI ADC DAC on board */
+        /* daq_gert ai */
+        s = &dev->subdevices[1];
+        s->private = &pic_info_pic18; /* SPI adc slave conv delay */
+        num_ai_chan = daqgert_ai_config(dev, s); /* config SPI ports for ai use */
+        s->type = COMEDI_SUBD_AI;
+        /* we support single-ended (ground)  */
+        s->subdev_flags = SDF_READABLE | SDF_GROUND;
+        s->n_chan = num_ai_chan;
+        s->len_chanlist = num_ai_chan;
+        if (spi_adc.bits) {
+            s->maxdata = (1 << 12) - 1;
+        } else {
+            s->maxdata = (1 << 10) - 1;
         }
-        comedi_ctl.rx_buff = kmalloc(SPI_BUFF_SIZE, GFP_KERNEL | GFP_DMA);
-        if (!comedi_ctl.rx_buff) {
-
-                return -ENOMEM;
+        if (spi_adc.range) {
+            s->range_table = &daqgert_ai_range2_048;
+        } else {
+            s->range_table = &daqgert_ai_range3_300;
         }
+        s->insn_read = daqgert_ai_rinsn;
 
-	/* Use the kernel system_rev EXPORT_SYMBOL */
-	RPisys_rev = system_rev; /* what board are we running on? */
-	if (RPisys_rev < 2) {
-		dev_err(dev->class_dev, "Invalid RPi board revision! %u\n", RPisys_rev);
-		return -EINVAL;
-	}
+        /* daq-gert ao */
+        s = &dev->subdevices[2];
+        num_ao_chan = daqgert_ao_config(dev, s); /* config SPI ports for ao use */
+        s->type = COMEDI_SUBD_AO;
+        /* we support single-ended (ground)  */
+        s->subdev_flags = SDF_WRITABLE | SDF_GROUND;
+        s->n_chan = num_ao_chan;
+        s->len_chanlist = num_ao_chan;
+        s->maxdata = (1 << 12) - 1;
+        s->range_table = &daqgert_ao_range;
+        s->insn_write = daqgert_ao_winsn;
+        s->insn_read = daqgert_ao_rinsn;
+    }
 
-	gpio = ioremap(GPIO_BASE, SZ_16K); /* lets get access to the GPIO base */
-	if (!gpio) {
-		dev_err(dev->class_dev, "Invalid io base address!\n");
-		return -EINVAL;
-	}
-	dev->iobase = GPIO_BASE; /* filler */
+    dev_info(dev->class_dev, "%s attached: GPIO iobase 0x%lx, ioremap 0x%lx, GPIO wpi-pins 0x%x\n",
+            dev->driver->driver_name,
+            dev->iobase,
+            (long unsigned int) gpio,
+            (unsigned int) d);
 
-	/* setup the pins in a static matter for now */
-	/* PIN mode for all */
-        dev_info(dev->class_dev, "GertBoard WiringPiSetup\n");
-	wiringPiSetup(dev);
-	for (i = 0; i < NUM_DIO_OUTPUTS; i++) { /* [0..7] OUTPUTS */
-		pinModeWPi(i, OUTPUT);
-	}
-        dev_info(dev->class_dev, "GertBoard GPIO set [0..7] to outputs\n");
-	num_dio_chan = NUM_DIO_CHAN; /* Rev 1 board setup first */
-	if (piBoardRev(dev) > 1) /* This a Rev 2 or higher board "I hope" */
-		num_dio_chan = NUM_DIO_CHAN_REV2;
-        if (piBoardRev(dev) > 2) /* This a Rev 3 or higher board "I hope" */
-                num_dio_chan = NUM_DIO_CHAN_REV3;
-	for (i = NUM_DIO_OUTPUTS; i < num_dio_chan; i++) { /* [8..16/20/29] INPUTS */
-		pinModeWPi(i, INPUT);
-	}
-        dev_info(dev->class_dev, "GertBoard GPIO set [8..16/20/29] to inputs\n");
-
-	/* assume we have DON"T a gertboard */
-	dev_info(dev->class_dev, "GertBoard Detection Started\n");
-	num_subdev = 1;
-        gert_detected = FALSE;
-	if (SPI_probe(dev)) num_subdev +=2;; // add AI and AO channels */
-        dev_info(dev->class_dev, "GertBoard Detection Completed\n");
-	dev->board_name = thisboard->name;
-	ret = comedi_alloc_subdevices(dev, num_subdev);
-	if (ret)
-		return ret;
-
-	/* daq_gert dio */
-	s = &dev->subdevices[0];
-	s->type = COMEDI_SUBD_DIO;
-	s->subdev_flags = SDF_READABLE | SDF_WRITABLE;
-	s->n_chan = num_dio_chan;
-	s->len_chanlist = num_dio_chan;
-	s->range_table = &range_digital;
-	s->maxdata = 1;
-	s->insn_bits = daqgert_dio_insn_bits;
-	s->insn_config = daqgert_dio_insn_config;
-	s->state = 0;
-	s->io_bits = DIO_PINS_DEFAULT; /* set output bits */
-	d = s->io_bits;
-
-	if (num_subdev > 1) { /* we have the SPI ADC DAC on board */
-		/* daq_gert ai */
-		s = &dev->subdevices[1];
-		s->private = &pic_info_pic18; /* SPI adc slave conv delay */
-		num_ai_chan = daqgert_ai_config(dev, s); /* config SPI ports for ai use */
-		s->type = COMEDI_SUBD_AI;
-		/* we support single-ended (ground)  */
-		s->subdev_flags = SDF_READABLE | SDF_GROUND;
-		s->n_chan = num_ai_chan;
-		s->len_chanlist = num_ai_chan;
-		if (spi_adc.bits) {
-			s->maxdata = (1 << 12) - 1;
-		} else {
-			s->maxdata = (1 << 10) - 1;
-		}
-		if (spi_adc.range) {
-			s->range_table = &daqgert_ai_range2_048;
-		} else {
-			s->range_table = &daqgert_ai_range3_300;
-		}
-		s->insn_read = daqgert_ai_rinsn;
-
-		/* daq-gert ao */
-		s = &dev->subdevices[2];
-		num_ao_chan = daqgert_ao_config(dev, s); /* config SPI ports for ao use */
-		s->type = COMEDI_SUBD_AO;
-		/* we support single-ended (ground)  */
-		s->subdev_flags = SDF_WRITABLE | SDF_GROUND;
-		s->n_chan = num_ao_chan;
-		s->len_chanlist = num_ao_chan;
-		s->maxdata = (1 << 12) - 1;
-		s->range_table = &daqgert_ao_range;
-		s->insn_write = daqgert_ao_winsn;
-		s->insn_read = daqgert_ao_rinsn;
-	}
-
-	dev_info(dev->class_dev, "%s attached: GPIO iobase 0x%lx, ioremap 0x%lx, GPIO wpi-pins 0x%x\n",
-		dev->driver->driver_name,
-		dev->iobase,
-		(long unsigned int) gpio,
-		(unsigned int) d);
-
-	return 0;
+    return 0;
 }
 
-static void daqgert_detach(struct comedi_device *dev)
-{
-	iounmap(gpio);
-        if (comedi_ctl.tx_buff)
-                kfree(comedi_ctl.tx_buff);
-        if (comedi_ctl.rx_buff)
-                kfree(comedi_ctl.rx_buff);
-	dev_info(dev->class_dev, "daq_gert detached\n");
+static void daqgert_detach(struct comedi_device *dev) {
+    iounmap(gpio);
+    if (comedi_ctl.tx_buff)
+        kfree(comedi_ctl.tx_buff);
+    if (comedi_ctl.rx_buff)
+        kfree(comedi_ctl.rx_buff);
+    dev_info(dev->class_dev, "daq_gert detached\n");
 }
 
 static const struct daqgert_board daqgert_boards[] = {
-	{
-		.name = "daq-gert",
-	},
-	{
-		.name = "daq_gert",
-	},
+    {
+        .name = "daq-gert",
+    },
+    {
+        .name = "daq_gert",
+    },
 };
 
 static struct comedi_driver daqgert_driver = {
-	.driver_name = "daq_gert",
-	.module = THIS_MODULE,
-	.attach = daqgert_attach,
-	.detach = daqgert_detach,
-	.board_name = &daqgert_boards[0].name,
-	.num_names = ARRAY_SIZE(daqgert_boards),
-	.offset = sizeof (struct daqgert_board),
+    .driver_name = "daq_gert",
+    .module = THIS_MODULE,
+    .attach = daqgert_attach,
+    .detach = daqgert_detach,
+    .board_name = &daqgert_boards[0].name,
+    .num_names = ARRAY_SIZE(daqgert_boards),
+    .offset = sizeof (struct daqgert_board),
 };
 
 static struct spi_driver spidev_spi_driver;
 
 /* called for each listed spigert device in the bcm270*.c file */
-static int spidev_spi_probe(struct spi_device *spi)
- {
-       struct comedi_control *pdata;
-	int ret;
- 
-         pdata = kzalloc(sizeof(struct comedi_control), GFP_KERNEL);
-         if (!pdata)
-                 return -ENOMEM;
-         spi->dev.platform_data = pdata;
-	 mutex_init(&pic_info_pic18.drvdata_lock);
-      	 if (spi->chip_select == CSnA) {
-		/* get a copy of the slave device 0 */  /* we need a device to talk to the ADC */
-		spi_adc.spi = spi;
-	 }
-         if (spi->chip_select == CSnB) {
-		/* get a copy of the slave device 1 */  /* we need a device to talk to the DAC */
-		spi_dac.spi = spi;
-	}
-	 spi->max_speed_hz=1000000;
-	 spi->bits_per_word=8;
-	 spi->mode = SPI_MODE_3; /* mode 3 for ADC & DAC*/
-	 spi_setup(spi);
-         dev_info(&spi->dev,
-                        "setup: cd %d: %d Hz, bpw %u, mode 0x%x\n",
-                        spi->chip_select, spi->max_speed_hz, spi->bits_per_word,
-                        spi->mode);
- 
-         /* Check */
-         ret = spi_w8r8(spi, CMD_DUMMY_CFG);
-         if (ret < 0 ) {
-                 dev_err(&spi->dev, "not found.\n");
-                 goto kfree_exit;
-         }
-        if (!(spi->mode & SPI_NO_CS) &&
-                (spi->chip_select > spi->master->num_chipselect)) {
-                dev_err(&spi->dev,
-                        "setup: invalid chipselect %u (%u defined)\n",
-                        spi->chip_select, spi->master->num_chipselect);
-                ret = -EINVAL;
-                goto kfree_exit;
-        }
- 
-         return 0;
+static int spidev_spi_probe(struct spi_device *spi) {
+    struct comedi_control *pdata;
+    int ret;
+
+    pdata = kzalloc(sizeof (struct comedi_control), GFP_KERNEL);
+    if (!pdata)
+        return -ENOMEM;
+    spi->dev.platform_data = pdata;
+    mutex_init(&pic_info_pic18.drvdata_lock);
+    if (spi->chip_select == CSnA) {
+        /* get a copy of the slave device 0 */ /* we need a device to talk to the ADC */
+        spi_adc.spi = spi;
+    }
+    if (spi->chip_select == CSnB) {
+        /* get a copy of the slave device 1 */ /* we need a device to talk to the DAC */
+        spi_dac.spi = spi;
+    }
+    spi->max_speed_hz = 1000000;
+    spi->bits_per_word = 8;
+    spi->mode = SPI_MODE_3; /* mode 3 for ADC & DAC*/
+    spi_setup(spi);
+    dev_info(&spi->dev,
+            "setup: cd %d: %d Hz, bpw %u, mode 0x%x\n",
+            spi->chip_select, spi->max_speed_hz, spi->bits_per_word,
+            spi->mode);
+
+    /* Check */
+    ret = spi_w8r8(spi, CMD_DUMMY_CFG);
+    if (ret < 0) {
+        dev_err(&spi->dev, "not found.\n");
+        goto kfree_exit;
+    }
+    if (!(spi->mode & SPI_NO_CS) &&
+            (spi->chip_select > spi->master->num_chipselect)) {
+        dev_err(&spi->dev,
+                "setup: invalid chipselect %u (%u defined)\n",
+                spi->chip_select, spi->master->num_chipselect);
+        ret = -EINVAL;
+        goto kfree_exit;
+    }
+
+    return 0;
 kfree_exit:
-         kfree(pdata);
-         return ret;
- }
+    kfree(pdata);
+    return ret;
+}
 
-static int spidev_spi_remove(struct spi_device *spi)
- {
-         struct comedi_control *pdata = spi->dev.platform_data;
- 
-         kfree(pdata);
-         return 0;
- }
+static int spidev_spi_remove(struct spi_device *spi) {
+    struct comedi_control *pdata = spi->dev.platform_data;
 
- static struct spi_driver spidev_spi_driver = {
-         .driver = {
-                 .name =         "spigert",
-                 .owner =        THIS_MODULE,
-         },
-         .probe =  spidev_spi_probe,
-         .remove = spidev_spi_remove,
- };
+    kfree(pdata);
+    return 0;
+}
+
+static struct spi_driver spidev_spi_driver = {
+    .driver =
+    {
+        .name = "spigert",
+        .owner = THIS_MODULE,
+    },
+    .probe = spidev_spi_probe,
+    .remove = spidev_spi_remove,
+};
 
 /*
  * setup and probe the spi buss for devices
-*/
-int SPI_probe(struct comedi_device *dev)
-{
-	int ret;
+ */
+int SPI_probe(struct comedi_device *dev) {
+    int ret;
 
-        dev_info(dev->class_dev, "SPI probe\n");
-	if (!spi_adc.spi) {
-        	dev_info(dev->class_dev, "No SPI channel detected\n");
-                gert_detected = FALSE;
-		spi_adc.chan = 0;
-                return spi_adc.chan;
-	}
-        /* SPI data transfers, send a few dummys for config info */
-        ret = spi_w8r8(spi_adc.spi, CMD_DUMMY_CFG);
-        ret = spi_w8r8(spi_adc.spi, CMD_DUMMY_CFG);
-        ret = spi_w8r8(spi_adc.spi, CMD_DUMMY_CFG);
-        if ((ret&0b11000000) != 0b01000000) {
-        	ret = spi_w8r8(spi_adc.spi, 0b01100000); /* check for channel 0 SE */
-                if ((ret&0b00000100) == 0) {
-                        spi_adc.pic18 = 1; /* MCP3002 mode */
-                        spi_adc.chan = NUM_AI_CHAN;
-                        spi_adc.range = 0; /* range 2.048 */
-                        spi_adc.bits = 0; /* 10 bits */
-                        dev_info(dev->class_dev,
-                                "Gertboard ADC chip Board Detected, %i Channels, Range code %i, Bits code %i, PIC code %i, Detect Code %i\n",
-                                spi_adc.chan, spi_adc.range, spi_adc.bits, spi_adc.pic18, ret);
-                       	gert_detected = TRUE;
-                        return spi_adc.chan;
-                }
-                spi_adc.pic18 = 0; /* SPI probes found nothing */
-                dev_info(dev->class_dev, "No GERT Board Found, GPIO pins only. Detect Code %i\n",
-                        ret);
-                gert_detected = FALSE;
-                spi_adc.chan = 0;
-                return spi_adc.chan;
+    dev_info(dev->class_dev, "SPI probe\n");
+    if (!spi_adc.spi) {
+        dev_info(dev->class_dev, "No SPI channel detected\n");
+        gert_detected = FALSE;
+        spi_adc.chan = 0;
+        return spi_adc.chan;
+    }
+    /* SPI data transfers, send a few dummys for config info */
+    ret = spi_w8r8(spi_adc.spi, CMD_DUMMY_CFG);
+    ret = spi_w8r8(spi_adc.spi, CMD_DUMMY_CFG);
+    ret = spi_w8r8(spi_adc.spi, CMD_DUMMY_CFG);
+    if ((ret & 0b11000000) != 0b01000000) {
+        ret = spi_w8r8(spi_adc.spi, 0b01100000); /* check for channel 0 SE */
+        if ((ret & 0b00000100) == 0) {
+            spi_adc.pic18 = 1; /* MCP3002 mode */
+            spi_adc.chan = NUM_AI_CHAN;
+            spi_adc.range = 0; /* range 2.048 */
+            spi_adc.bits = 0; /* 10 bits */
+            dev_info(dev->class_dev,
+                    "Gertboard ADC chip Board Detected, %i Channels, Range code %i, Bits code %i, PIC code %i, Detect Code %i\n",
+                    spi_adc.chan, spi_adc.range, spi_adc.bits, spi_adc.pic18, ret);
+            gert_detected = TRUE;
+            return spi_adc.chan;
         }
-	if (ret) {
-        	spi_adc.pic18 = 2; /* PIC18 single-end mode 10 bits */
-        	spi_adc.chan = ret&0x0f;
-        	spi_adc.range = (ret&0b00100000) >> 5;
-        	spi_adc.bits = (ret&0b00010000) >> 4;
-        	if (spi_adc.bits) {
-                	spi_adc.pic18 = 3; /* PIC18 diff mode 12 bits */
-        	}
-        	dev_info(dev->class_dev,
+        spi_adc.pic18 = 0; /* SPI probes found nothing */
+        dev_info(dev->class_dev, "No GERT Board Found, GPIO pins only. Detect Code %i\n",
+                ret);
+        gert_detected = FALSE;
+        spi_adc.chan = 0;
+        return spi_adc.chan;
+    }
+    if (ret) {
+        spi_adc.pic18 = 2; /* PIC18 single-end mode 10 bits */
+        spi_adc.chan = ret & 0x0f;
+        spi_adc.range = (ret & 0b00100000) >> 5;
+        spi_adc.bits = (ret & 0b00010000) >> 4;
+        if (spi_adc.bits) {
+            spi_adc.pic18 = 3; /* PIC18 diff mode 12 bits */
+        }
+        dev_info(dev->class_dev,
                 "PIC spi slave ADC chip Board Detected, %i Channels, Range code %i, Bits code %i, PIC code %i\n",
                 spi_adc.chan, spi_adc.range, spi_adc.bits, spi_adc.pic18);
-	} else {
-                spi_adc.pic18 = 0; /* SPI probes found nothing */
-                /* look for the gertboard SPI devices .pic18 code 1 */
-                dev_info(dev->class_dev, "No GERT Board Found, GPIO pins only. Detect Code %i\n",
-                        ret);
-                gert_detected = FALSE;
-                spi_adc.chan = 0;
-                return spi_adc.chan;
-	}
-        gert_detected = TRUE;
-       	return spi_adc.chan;
+    } else {
+        spi_adc.pic18 = 0; /* SPI probes found nothing */
+        /* look for the gertboard SPI devices .pic18 code 1 */
+        dev_info(dev->class_dev, "No GERT Board Found, GPIO pins only. Detect Code %i\n",
+                ret);
+        gert_detected = FALSE;
+        spi_adc.chan = 0;
+        return spi_adc.chan;
+    }
+    gert_detected = TRUE;
+    return spi_adc.chan;
 }
 
 static int __init daqgert_init(void) {
@@ -1078,7 +1057,7 @@ module_exit(daqgert_exit);
 
 MODULE_AUTHOR("Fred Brooks <spam@sma2.rain.com>");
 MODULE_DESCRIPTION(
-		   "Comedi driver for RASPI GERTBOARD DIO/AI/AO");
+        "Comedi driver for RASPI GERTBOARD DIO/AI/AO");
 MODULE_VERSION("0.0.12");
 MODULE_LICENSE("GPL");
 MODULE_ALIAS("spi:spigert");
