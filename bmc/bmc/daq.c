@@ -134,6 +134,13 @@ double get_adc_volts(int chan) {
     return comedi_to_phys(data, ad_range, maxdata_ai);
 }
 
+int set_dio_output(int chan) {
+    return comedi_dio_config(it,
+            subdev_dio,
+            chan,
+            COMEDI_OUTPUT);
+}
+
 int set_dio_input(int chan) {
     return comedi_dio_config(it,
             subdev_dio,
@@ -163,7 +170,7 @@ int put_dio_bit(int chan, int bit_data) {
     DIO_ERROR = FALSE;
     retval = comedi_data_write(it, subdev_dio, chan, range_dio, aref_dio, data);
     if (retval < 0) {
-        comedi_perror("comedi_data_read in put_dio_bits");
+        comedi_perror("comedi_data_write in put_dio_bits");
         DIO_ERROR = TRUE;
         return -1;
     }
@@ -232,10 +239,10 @@ int get_data_sample(void) {
     bmc.datain.D5 = get_dio_bit(13);
     bmc.datain.D6 = get_dio_bit(15); // GPIO 14 
     bmc.datain.D7 = get_dio_bit(16); // GPIO 15 
-    put_dio_bit(0, bmc.dataout.D0);
-    put_dio_bit(1, bmc.dataout.D1);
-    put_dio_bit(2, bmc.dataout.D2);
-    put_dio_bit(3, bmc.dataout.D3);
+    put_dio_bit(0, bmc.dataout.D0); // GPIO 17
+    put_dio_bit(1, bmc.dataout.D1); // GPIO 18
+    put_dio_bit(2, bmc.dataout.D2); // GPIO 21
+    put_dio_bit(3, bmc.dataout.D3); // GPIO 22
     put_dio_bit(4, bmc.dataout.D4);
     put_dio_bit(5, bmc.dataout.D5);
     put_dio_bit(6, bmc.dataout.D6);

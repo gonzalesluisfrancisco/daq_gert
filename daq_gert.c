@@ -657,31 +657,6 @@ static int daqgert_dio_insn_config(struct comedi_device *dev,
 
 }
 
-/* Have the SPI driver execute our message to the selected slave */
-static int comedi_do_one_message(unsigned char msgdata, unsigned char cs_select, unsigned char msg_len) {
-    int data16;
-
-    if (cs_select == CSnA) {
-        if (msg_len == 1) {
-            comedi_ctl.rx_buff[0] = spi_w8r8(spi_adc.spi, msgdata);
-        } else {
-            data16 = spi_w8r16(spi_adc.spi, msgdata);
-            comedi_ctl.rx_buff[0] = data16 >> 8;
-            comedi_ctl.rx_buff[1] = data16;
-        }
-    }
-
-    if (cs_select == CSnB) {
-        if (msg_len == 1) {
-            comedi_ctl.rx_buff[2] = spi_w8r8(spi_dac.spi, msgdata);
-        } else {
-            comedi_ctl.rx_buff[2] = spi_w8r8(spi_dac.spi, msgdata);
-            comedi_ctl.rx_buff[3] = spi_w8r8(spi_dac.spi, comedi_ctl.tx_buff[1]);
-        }
-    }
-    return 0;
-}
-
 /* Talk to the ADC via the SPI */
 static int daqgert_ai_rinsn(struct comedi_device *dev,
         struct comedi_subdevice *s,
@@ -712,9 +687,12 @@ static int daqgert_ai_rinsn(struct comedi_device *dev,
             spi_write_then_read(spi_adc.spi, comedi_ctl.tx_buff, 1, comedi_ctl.rx_buff, 1);
             data[n] += comedi_ctl.rx_buff[0] << 8;
             mutex_unlock(&pic_data->drvdata_lock);
-        } else { /* Gertboard device */
-            comedi_do_one_message((0b01100000 | ((chan & 0x01) << 4)), CSnA, 2); /* set ADC channel SE, send two bytes */
-            data[n] = (comedi_ctl.rx_buff[0]&0b00000011) << 8; /* two bytes were received from the FIFO */
+        } else { /* Gertboard onboard ADC device */
+	    comedi_ctl.tx_buff[0]=(0b01100000 | ((chan & 0x01) << 4));
+            spi_write_then_read(spi_adc.spi, comedi_ctl.tx_buff, 1, comedi_ctl.rx_buff, 2); /* Send ADC channel, get two byte result */
+	/* needs ADC type code config */
+            data[n] = (comedi_ctl.rx_buff[0]&0x03) << 8; /* two bytes were received from the FIFO 10 bit */
+            data[n] = (comedi_ctl.rx_buff[0]&0x0f) << 8; /* two bytes were received from the FIFO 12 bit */
             data[n] += comedi_ctl.rx_buff[1];
         }
     }
@@ -726,13 +704,15 @@ static int daqgert_ao_winsn(struct comedi_device *dev,
         struct comedi_insn *insn, unsigned int *data) {
     unsigned int n, junk;
     unsigned int chan;
+    struct pic_platform_data *pic_data = s->private;
 
     chan = CR_CHAN(insn->chanspec);
     for (n = 0; n < insn->n; n++) {
+        udelay(pic_data->cmd_delay_usecs); /*  delay */
         junk = data[n]&0xfff; /* strip to 12 bits */
         comedi_ctl.tx_buff[1] = junk & 0xff; /* load lsb SPI data into transfer buffer */
-        udelay(15); /*  delay */
-        comedi_do_one_message((0b00110000 | ((chan & 0x01) << 7) | (junk >> 8)), CSnB, 2); /* Load DAC channel, send two bytes */
+	comedi_ctl.tx_buff[0]=(0b00110000 | ((chan & 0x01) << 7) | (junk >> 8));
+        spi_write_then_read(spi_dac.spi, comedi_ctl.tx_buff, 2, comedi_ctl.rx_buff, 2); /* Load DAC channel, send two bytes */
     }
     return n;
 }

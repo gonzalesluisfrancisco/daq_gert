@@ -26,8 +26,10 @@ int main(int argc, char *argv[]) {
         printf("Missing Digital subdevice(s)\n");
         return -1;
     }
-    put_dio_bit(0, 0);
-    put_dio_bit(1, 0);
+    set_dio_output(0);
+    set_dio_output(1);
+    put_dio_bit(0, 1);
+    put_dio_bit(1, 1);
     get_data_sample();
 
     while (1) {
@@ -39,7 +41,7 @@ int main(int argc, char *argv[]) {
                 bmc.pv_voltage, bmc.cc_voltage, bmc.input_voltage, bmc.b1_voltage, bmc.b2_voltage, bmc.system_voltage, bmc.logic_voltage,
                 bmc.datain.D0, bmc.datain.D1, bmc.datain.D2, bmc.datain.D3, bmc.datain.D6, bmc.datain.D7,bmc.adc_sample[0],bmc.adc_sample[1]);
         usleep(4990);
-        if (bmc.datain.D6 == 0) {
+        if ((bmc.datain.D6 == 0) || 1) {
             if (((blink[0]++) % 150) == 0) {
                 flip[0] = !flip[0];
                 set_dio_input(6); // wpi channel
@@ -51,7 +53,7 @@ int main(int argc, char *argv[]) {
             set_dac_volts(0, 0.666);
             bmc.dataout.D0 = 0;
         }
-        if (bmc.datain.D7 == 0) {
+        if ((bmc.datain.D7 == 0) || 1) {
             if (((blink[1]++) % 150) == 0) {
                 flip[1] = !flip[1];
                 set_dio_input(7); // wpi channel
