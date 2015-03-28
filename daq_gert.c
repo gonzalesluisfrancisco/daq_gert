@@ -606,10 +606,10 @@ static int daqgert_dio_insn_bits(struct comedi_device *dev,
         /* OUT testing with gpio pins  */
         /* We need to shift a single bit from state to set or clear the GPIO */
         for (pinWPi = 0; pinWPi < num_dio_chan; pinWPi++) {
-            if (!(gert_detected && ((pinWPi >= 10) && (pinWPi <= 14)))) {
+            if ((pinWPi >= 10) && (pinWPi <= 14)) {
                 /* Do nothing on SPI AUX pins when detected */
                 digitalWriteWPi(pinWPi,
-                        (s->state & (0x01 << pinWPi)) >> pinWPi);
+                (s->state & (0x01 << pinWPi)) >> pinWPi);
             }
         }
     }
@@ -618,7 +618,7 @@ static int daqgert_dio_insn_bits(struct comedi_device *dev,
     /* IN testing with gpio pins */
     /* Rev #1 num_dio_chan 17 ,Rev #2 num_dio_pins 21 */
     for (pinWPi = 0; pinWPi < num_dio_chan; pinWPi++) {
-        if (!(gert_detected && ((pinWPi >= 10) && (pinWPi <= 14)))) {
+        if ((pinWPi >= 10) && (pinWPi <= 14)) {
             data[1] |= digitalReadWPi(pinWPi) << pinWPi; /* shift */
         }
     }
@@ -839,6 +839,7 @@ static int daqgert_attach(struct comedi_device *dev, struct comedi_devconfig *it
 
         /* daq-gert ao */
         s = &dev->subdevices[2];
+        s->private = &pic_info_pic18; /* SPI dac conv delay */
         num_ao_chan = daqgert_ao_config(dev, s); /* config SPI ports for ao use */
         s->type = COMEDI_SUBD_AO;
         /* we support single-ended (ground)  */
