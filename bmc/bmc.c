@@ -48,7 +48,7 @@ int main(int argc, char *argv[]) {
             }
             printf(" Flip led 0 %x ", flip[0]);
             bmc.dataout.D0 = flip[0];
-            set_dac_volts(0, 1.333);
+            set_dac_volts(0, bmc.cc_voltage);
         } else {
             set_dac_volts(0, 0.666);
             bmc.dataout.D0 = 0;
