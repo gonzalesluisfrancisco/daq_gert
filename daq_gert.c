@@ -1016,7 +1016,7 @@ int SPI_probe(struct comedi_device *dev) {
     dev_info(dev->class_dev,
                "Gertboard ADC Board pre Detect Code %i\n",
                ret);
-    if (1) {
+    if ((ret != 76) && (ret != 110)) { // PIC slave adc codes
         ret = spi_w8r8(spi_adc.spi, 0b01100000); /* check for channel 0 SE */
         if (1) {
             spi_adc.pic18 = 1; /* MCP3002/MCP3202 mode */
