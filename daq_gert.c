@@ -145,8 +145,14 @@ channel numbers [0..7] will be outputs, [8..16/20/29] will be inputs
 Digital direction configuration: [0..1] are input only due to pullups,
  * all other ports can be input or outputs
 
-Analog: The input  range is 0 to 1023 for 0.0 to 3.3 or 2.048 volts 
-IRQ is assigned but not used.
+Analog: The type and resolution of the onboard ADC/DAC chips are set
+by the module option variable daqgert_conf
+0 = Factory Gertboard configuratin of MCP3002 ADC and MCP4802 ADC: 10bit in/8bit out
+1 = MCP3202 ADC and MCP4822 DAC: 12bit in/12bit out 
+2 = MCP3002 ADC and MCP4822 DAC: 10bit in/12bit out
+3 = MCP3202 ADC and MCP4802 DAC: 12bit in/8bit out
+The input  range is 0 to 1023/4095 for 0.0 to 3.3(Vdd) onboard devices or 2.048 volts/Vdd for PIC slaves 
+The output range is 0 to 4095 for 0.0 to 2.048 onboard devices (output resolution depends on the device)
 
  *  PIC Slave Info:
  * 
@@ -1093,6 +1099,6 @@ module_exit(daqgert_exit);
 MODULE_AUTHOR("Fred Brooks <spam@sma2.rain.com>");
 MODULE_DESCRIPTION(
         "Comedi driver for RASPI GERTBOARD DIO/AI/AO");
-MODULE_VERSION("0.0.12");
+MODULE_VERSION("0.0.13");
 MODULE_LICENSE("GPL");
 MODULE_ALIAS("spi:spigert");
