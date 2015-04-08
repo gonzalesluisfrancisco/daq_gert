@@ -53,7 +53,7 @@ FFLAGS=
 ASFLAGS=
 
 # Link Libraries and Options
-LDLIBSOPTIONS=
+LDLIBSOPTIONS=`pkg-config --libs comedilib`  
 
 # Build Targets
 .build-conf: ${BUILD_SUBPROJECTS}
@@ -65,13 +65,13 @@ ${CND_DISTDIR}/${CND_CONF}/${CND_PLATFORM}/bmc: ${OBJECTFILES}
 
 ${OBJECTDIR}/_ext/1472/bmc.o: ../bmc.c 
 	${MKDIR} -p ${OBJECTDIR}/_ext/1472
-	${RM} $@.d
-	$(COMPILE.c) -O2 -MMD -MP -MF $@.d -o ${OBJECTDIR}/_ext/1472/bmc.o ../bmc.c
+	${RM} "$@.d"
+	$(COMPILE.c) -O2 `pkg-config --cflags comedilib`   -MMD -MP -MF "$@.d" -o ${OBJECTDIR}/_ext/1472/bmc.o ../bmc.c
 
 ${OBJECTDIR}/daq.o: daq.c 
 	${MKDIR} -p ${OBJECTDIR}
-	${RM} $@.d
-	$(COMPILE.c) -O2 -MMD -MP -MF $@.d -o ${OBJECTDIR}/daq.o daq.c
+	${RM} "$@.d"
+	$(COMPILE.c) -O2 `pkg-config --cflags comedilib`   -MMD -MP -MF "$@.d" -o ${OBJECTDIR}/daq.o daq.c
 
 # Subprojects
 .build-subprojects:
