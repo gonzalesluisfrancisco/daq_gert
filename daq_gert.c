@@ -700,19 +700,13 @@ static int daqgert_dio_insn_bits(struct comedi_device *dev,
             if (!((pinWPi >= 10) && (pinWPi <= 14))) {
                 /* Do nothing on SPI AUX pins */
                 digitalWriteWPi(pinWPi,
-                        (s->state & (0x01 << pinWPi)) >> pinWPi);
+                        (s->state & (0x01 << pinWPi)) >> pinWPi); /* output writes */
+                data[1] |= (digitalReadWPi(pinWPi) << pinWPi); /* input reads shift */
             }
         }
     }
 
     data[1] = s->state & 0xffffff;
-    /* IN testing with gpio pins */
-    /* Rev #1 num_dio_chan 17 ,Rev #2 num_dio_pins 21 */
-    for (pinWPi = 0; pinWPi < num_dio_chan; pinWPi++) {
-        if (!((pinWPi >= 10) && (pinWPi <= 14))) {
-            data[1] |= (digitalReadWPi(pinWPi) << pinWPi); /* shift */
-        }
-    }
     return insn->n;
 }
 
@@ -886,16 +880,12 @@ static int daqgert_attach(struct comedi_device *dev, struct comedi_devconfig *it
     for (i = 0; i < NUM_DIO_OUTPUTS; i++) { /* [0..7] OUTPUTS */
         pinModeWPi(i, OUTPUT);
     }
-    dev_info(dev->class_dev, "GertBoard GPIO set [0..7] to outputs\n");
+    dev_info(dev->class_dev, "GertBoard WPi pins set [0..7] to outputs\n");
     num_dio_chan = NUM_DIO_CHAN; /* Rev 1 board setup first */
     if (piBoardRev(dev) > 1) /* This a Rev 2 or higher board "I hope" */
         num_dio_chan = NUM_DIO_CHAN_REV2;
     if (piBoardRev(dev) > 2) /* This a Rev 3 or higher board "I hope" */
         num_dio_chan = NUM_DIO_CHAN_REV3;
-    for (i = NUM_DIO_OUTPUTS; i < num_dio_chan; i++) { /* [8..16/20/29] INPUTS */
-    //    pinModeWPi(i, INPUT);
-    }
-    dev_info(dev->class_dev, "GertBoard GPIO set [8..16/20/29] to inputs\n");
 
     /* assume we have DON"T a gertboard */
     dev_info(dev->class_dev, "GertBoard Detection Started\n");
