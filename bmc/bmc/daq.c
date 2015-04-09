@@ -235,10 +235,10 @@ int get_data_sample(void) {
     bmc.datain.D1 = get_dio_bit(9); // GPIO 1/3
     bmc.datain.D2 = get_dio_bit(0); // read output bit wpi 0
     bmc.datain.D3 = get_dio_bit(1); // read output bit wpi 1
-    bmc.datain.D4 = get_dio_bit(12);
-    bmc.datain.D5 = get_dio_bit(13);
-    bmc.datain.D6 = get_dio_bit(15); // GPIO 14 
-    bmc.datain.D7 = get_dio_bit(16); // GPIO 15 
+//    bmc.datain.D4 = get_dio_bit(12);
+//    bmc.datain.D5 = get_dio_bit(13);
+//    bmc.datain.D6 = get_dio_bit(15); // GPIO 14 
+//    bmc.datain.D7 = get_dio_bit(16); // GPIO 15 
     put_dio_bit(0, bmc.dataout.D0); // GPIO 17
     put_dio_bit(1, bmc.dataout.D1); // GPIO 18
     put_dio_bit(2, bmc.dataout.D2); // GPIO 21

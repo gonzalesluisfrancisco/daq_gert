@@ -278,8 +278,8 @@ static struct pic_platform_data pic_info_pic18 = {
 
 /* driver hardware numbers */
 #define NUM_DIO_CHAN  17
-#define NUM_DIO_CHAN_REV2       21
-#define NUM_DIO_CHAN_REV3       30
+#define NUM_DIO_CHAN_REV2       17
+#define NUM_DIO_CHAN_REV3       17
 #define NUM_DIO_OUTPUTS 8
 #define DIO_PINS_DEFAULT        0xff
 
@@ -893,7 +893,7 @@ static int daqgert_attach(struct comedi_device *dev, struct comedi_devconfig *it
     if (piBoardRev(dev) > 2) /* This a Rev 3 or higher board "I hope" */
         num_dio_chan = NUM_DIO_CHAN_REV3;
     for (i = NUM_DIO_OUTPUTS; i < num_dio_chan; i++) { /* [8..16/20/29] INPUTS */
-        pinModeWPi(i, INPUT);
+    //    pinModeWPi(i, INPUT);
     }
     dev_info(dev->class_dev, "GertBoard GPIO set [8..16/20/29] to inputs\n");
 
