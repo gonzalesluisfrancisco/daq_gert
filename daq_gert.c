@@ -279,7 +279,7 @@ static struct pic_platform_data pic_info_pic18 = {
 /* driver hardware numbers */
 #define NUM_DIO_CHAN  17
 #define NUM_DIO_CHAN_REV2       21
-#define NUM_DIO_CHAN_REV3       30
+#define NUM_DIO_CHAN_REV3       21
 #define NUM_DIO_OUTPUTS 8
 #define DIO_PINS_DEFAULT        0xff
 
@@ -427,6 +427,7 @@ void pinModeGpio(int pin, int mode) {
 
     fSel = gpioToGPFSEL [pin];
     shift = gpioToShift [pin];
+	return;
 
     /**/ if (mode == INPUT) /* Sets bits to zero = input */
         *(gpio + fSel) = (*(gpio + fSel) & ~(7 << shift));
