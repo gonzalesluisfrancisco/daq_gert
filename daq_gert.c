@@ -283,6 +283,9 @@ static struct pic_platform_data pic_info_pic18 = {
 #define NUM_DIO_OUTPUTS 8
 #define DIO_PINS_DEFAULT        0xff
 
+#define INP_GPIO(g) *(gpio+((g)/10)) &= ~(7<<(((g)%10)*3))
+#define SET_GPIO_ALT(g,a) *(gpio+(((g)/10))) |= (((a)<=3?(a)+4:(a)==4?3:2)<<(((g)%10)*3))
+
 /* Locals to hold pointers to the hardware */
 
 static volatile uint32_t *gpio;
@@ -295,19 +298,6 @@ extern unsigned int system_serial_high;
 
 static unsigned int RPisys_rev;
 static int gert_detected = FALSE;
-
-static void bcm2708_set_gpio_alt(int pin, int alt) {
-    /*
-     * This is the common way to handle the GPIO pins for
-     * the Raspberry Pi.
-     * TODO This is a hack. Use pinmux / pinctrl.
-     */
-
-#define INP_GPIO(g) *(gpio+((g)/10)) &= ~(7<<(((g)%10)*3))
-#define SET_GPIO_ALT(g,a) *(gpio+(((g)/10))) |= (((a)<=3?(a)+4:(a)==4?3:2)<<(((g)%10)*3))
-    INP_GPIO(pin);
-    SET_GPIO_ALT(pin, alt);
-}
 
 static const struct comedi_lrange daqgert_ai_range3_300 = {1,
     {
@@ -431,8 +421,19 @@ static const uint8_t gpioToGPLEV [] = {
  */
 
 void pinModeGpio(int pin, int mode) {
-    bcm2708_set_gpio_alt(pin, mode);
+    int fSel, shift;
+
+    pin &= 63;
+
+    fSel = gpioToGPFSEL [pin];
+    shift = gpioToShift [pin];
+
+    /**/ if (mode == INPUT) /* Sets bits to zero = input */
+        *(gpio + fSel) = (*(gpio + fSel) & ~(7 << shift));
+    else if (mode == OUTPUT)
+        *(gpio + fSel) = (*(gpio + fSel) & ~(7 << shift)) | (1 << shift);
 }
+
 
 void pinModeWPi(int pin, int mode) {
     pinModeGpio(pinToGpio [pin & 63], mode);
@@ -642,10 +643,6 @@ static int daqgert_dio_insn_bits(struct comedi_device *dev,
             data[1] |= (digitalReadWPi(pinWPi) << pinWPi); /* shift */
         }
     }
-    bcm2708_set_gpio_alt(18, 1);
-    digitalWriteGpio(18, 1);
-    bcm2708_set_gpio_alt(25, 1);
-    digitalWriteGpio(25, 0);
     return insn->n;
 }
 
