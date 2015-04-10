@@ -101,8 +101,10 @@ Status: inprogress (DIO 95%) (AI 90%) AO (90%) (My code cleanup 65%)
 Updated: Apr 2015 12:07:20 +0000
 
 The DAQ-GERT appears in Comedi as a  digital I/O subdevice (0) with
-17 or 21 or 30 channels, a analog input subdevice (1) with 2 single-ended channels,
-a analog output subdevice(2) with 2 channels
+17 or 21 or 30 channels, 
+a analog input subdevice (1) with 2 single-ended channels with onboard adc, OR
+a analog input subdevice (1) with single-ended channels set by the SPI slave device
+a analog output subdevice(2) with 2 channels with onboard dac
 
 Digital:  The comedi channel 0 corresponds to the GPIO WPi table order
 channel numbers [0..7] will be outputs, [8..16/20/29] will be inputs
@@ -197,6 +199,10 @@ int SPI_probe(struct comedi_device *);
 
 static int daqgert_conf = 0;
 module_param(daqgert_conf, int, S_IRUGO);
+static int pullups = 2;
+module_param(pullups, int, S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);
+static int gpiosafe = 1;
+module_param(gpiosafe, int, S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);
 
 struct comedi_control {
     u8 *tx_buff;
@@ -309,9 +315,11 @@ static const struct comedi_lrange daqgert_ao_range = {1,
         RANGE(0, 2.048),
     }};
 
+/* pin exclude list */
 static int wpi_pin_safe(int pin)
 {
-	if ((pin <10) || (pin >14)) return TRUE;
+	if (!gpiosafe) return TRUE;
+	if ((pin <8) || (pin >14)) return TRUE;
 	return FALSE;
 }
 
@@ -783,7 +791,7 @@ static int daqgert_dio_insn_config(struct comedi_device *dev,
             if (wpi_pin_safe(wpi_pin)) {
                 s->io_bits &= (~chan);
                 pinModeWPi(wpi_pin, INPUT);
-		pullUpDnControl(wpi_pin,2);
+		pullUpDnControl(wpi_pin,pullups);
             }
             break;
         case INSN_CONFIG_DIO_QUERY:
@@ -1213,6 +1221,6 @@ module_exit(daqgert_exit);
 MODULE_AUTHOR("Fred Brooks <spam@sma2.rain.com>");
 MODULE_DESCRIPTION(
         "Comedi driver for RASPI GERTBOARD DIO/AI/AO");
-MODULE_VERSION("0.0.13");
+MODULE_VERSION("0.0.14");
 MODULE_LICENSE("GPL");
 MODULE_ALIAS("spi:spigert");
