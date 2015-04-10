@@ -28,16 +28,13 @@ int main(int argc, char *argv[]) {
     }
     set_dio_output(0);
     set_dio_output(1);
-    set_dio_input(8);
-    set_dio_input(9);
+    set_dio_input(6);
+    set_dio_input(7);
     put_dio_bit(0, 1);
     put_dio_bit(1, 1);
     get_data_sample();
 
     while (1) {
-
-    set_dio_input(8);
-    set_dio_input(9);
 
         printf("         \r");
         get_data_sample();

@@ -231,8 +231,8 @@ int get_data_sample(void) {
     //    bmc.system_voltage = get_adc_volts(SYV_C);
     //    bmc.logic_voltage = get_adc_volts(VD5_C);
 
-    bmc.datain.D0 = get_dio_bit(8); // GPIO 0/2
-    bmc.datain.D1 = get_dio_bit(9); // GPIO 1/3
+    bmc.datain.D0 = get_dio_bit(6); // GPIO 25
+    bmc.datain.D1 = get_dio_bit(7); // GPIO 4
     bmc.datain.D2 = get_dio_bit(0); // read output bit wpi 0
     bmc.datain.D3 = get_dio_bit(1); // read output bit wpi 1
 //    bmc.datain.D4 = get_dio_bit(12);

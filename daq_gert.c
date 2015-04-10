@@ -179,7 +179,6 @@ The output range is 0 to 4095 for 0.0 to 2.048 onboard devices (output resolutio
 
 /* Function stubs */
 void (*pinMode) (int pin, int mode);
-void (*pullUpDnControl) (int pin, int pud);
 void (*digitalWrite) (int pin, int value);
 void (*setPadDrive) (int group, int value);
 int (*digitalRead) (int pin);
@@ -491,6 +490,40 @@ static uint8_t gpioToGPLEV [] =
   14,14,14,14,14,14,14,14,14,14,14,14,14,14,14,14,14,14,14,14,14,14,14,14,14,14,14,14,14,14,14,14,
 } ;
 
+// GPPUD:
+//      GPIO Pin pull up/down register
+
+#define GPPUD   37
+
+// gpioToPUDCLK
+//      (Word) offset to the Pull Up Down Clock regsiter
+
+static uint8_t gpioToPUDCLK [] =
+{
+  38,38,38,38,38,38,38,38,38,38,38,38,38,38,38,38,38,38,38,38,38,38,38,38,38,38,38,38,38,38,38,38,
+  39,39,39,39,39,39,39,39,39,39,39,39,39,39,39,39,39,39,39,39,39,39,39,39,39,39,39,39,39,39,39,39,
+} ;
+
+/*
+ * pullUpDownCtrl:
+ *      Control the internal pull-up/down resistors on a GPIO pin
+ *      The Arduino only has pull-ups and these are enabled by writing 1
+ *      to a port when in input mode - this paradigm doesn't quite apply
+ *      here though.
+ *********************************************************************************
+ */
+
+void pullUpDnControl (int pin, int pud)
+{
+      pin = pinToGpio [pin] ;
+
+    *(gpio + GPPUD)              = pud & 3 ;            udelay(5) ;
+    *(gpio + gpioToPUDCLK [pin]) = 1 << (pin & 31) ;    udelay(5) ;
+
+    *(gpio + GPPUD)              = 0 ;                  udelay(5) ;
+    *(gpio + gpioToPUDCLK [pin]) = 0 ;                  udelay(5) ;
+}
+
 /*
  * pinMode:
  *      Sets the mode of a pin to be input, output
@@ -750,6 +783,7 @@ static int daqgert_dio_insn_config(struct comedi_device *dev,
             if (wpi_pin_safe(wpi_pin)) {
                 s->io_bits &= (~chan);
                 pinModeWPi(wpi_pin, INPUT);
+		pullUpDnControl(wpi_pin,2);
             }
             break;
         case INSN_CONFIG_DIO_QUERY:
