@@ -36,6 +36,8 @@ int main(int argc, char *argv[]) {
 
     while (1) {
 
+    set_dio_input(8);
+    set_dio_input(9);
 
         printf("         \r");
         get_data_sample();

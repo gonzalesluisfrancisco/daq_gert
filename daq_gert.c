@@ -320,6 +320,7 @@ static const struct comedi_lrange daqgert_ao_range = {1,
       Cope for 2 different board revisions here
  */
 static int *pinToGpio;
+static int *physToGpio ;
 
 static int pinToGpioR1 [64] =
 {
@@ -509,6 +510,17 @@ void pinModeWPi(int pin, int mode) {
     pinModeGpio(pinToGpio [pin & 63], mode);
 }
 
+/* physPinToGpio:
+ *      Translate a physical Pin number to native GPIO pin number.
+ *      Provided for external support.
+ *********************************************************************************
+ */
+
+int physPinToGpio (int physPin)
+{
+  return physToGpio [physPin & 63] ;
+}
+
 /*
  * digitalWrite:
  *      Set an output bit
@@ -647,10 +659,13 @@ int wiringPiSetup(struct comedi_device *dev) {
     if ((boardRev = piBoardRev(dev)) < 0)
         return -1;
 
-    if (boardRev == 1)
+    if (boardRev == 1) {
         pinToGpio = pinToGpioR1;
-    else
+        physToGpio = physToGpioR1;
+    } else {
         pinToGpio = pinToGpioR2;
+        physToGpio = physToGpioR2;
+	}
     return 0;
 }
 
@@ -687,26 +702,28 @@ static int daqgert_dio_insn_bits(struct comedi_device *dev,
         struct comedi_subdevice *s,
         struct comedi_insn *insn, unsigned int *data) {
     int pinWPi;
+    unsigned int val=0,mask=0;
 
-    if (data[0]) { /* write data to pin */
-        s->state &= ~data[0];
-        s->state |= (data[0] & data[1]);
         /* s->state contains the GPIO bits */
         /* s->io_bits contains the GPIO direction */
 
-        /* OUT testing with gpio pins  */
+        /* i/o testing with gpio pins  */
         /* We need to shift a single bit from state to set or clear the GPIO */
         for (pinWPi = 0; pinWPi < num_dio_chan; pinWPi++) {
+            mask = comedi_dio_update_state(s, data);
             if (!((pinWPi >= 10) && (pinWPi <= 14))) {
                 /* Do nothing on SPI AUX pins */
-                digitalWriteWPi(pinWPi,
-                        (s->state & (0x01 << pinWPi)) >> pinWPi); /* output writes */
-                data[1] |= (digitalReadWPi(pinWPi) << pinWPi); /* input reads shift */
+		if (mask) {
+			if (mask & 0xffffffff)
+                		digitalWriteWPi(pinWPi,
+                        	(s->state & (0x01 << pinWPi)) >> pinWPi); /* output writes */
+		}
+		val = s->state & 0xffffffff;
+                val |= (digitalReadWPi(pinWPi) << pinWPi); /* input reads shift */
             }
+            data[1] = val;
         }
-    }
 
-    data[1] = s->state & 0xffffff;
     return insn->n;
 }
 
