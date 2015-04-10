@@ -130,7 +130,7 @@ double get_adc_volts(int chan) {
         ADC_ERROR = TRUE;
         return 0.0;
     }
-	bmc.adc_sample[chan]=data;
+    bmc.adc_sample[chan] = data;
     return comedi_to_phys(data, ad_range, maxdata_ai);
 }
 
@@ -220,14 +220,14 @@ typedef struct bmcdata {
 int get_data_sample(void) {
     int i;
 
-        bmc.pv_voltage = get_adc_volts(PVV_C);
-        bmc.cc_voltage = get_adc_volts(CCV_C);
-        //        bmc.input_voltage = lp_filter(get_adc_volts(INV_C), INV_C, TRUE);
-        //        bmc.b1_voltage = lp_filter(get_adc_volts(B1V_C), B1V_C, TRUE);
-        //        bmc.b2_voltage = lp_filter(get_adc_volts(B2V_C), B2V_C, TRUE);
-        //        bmc.pv_current = lp_filter(get_adc_volts(PVC_C), PVC_C, TRUE);
-        //        bmc.cc_current = lp_filter(get_adc_volts(CCC_C), CCC_C, TRUE);
-        //        bmc.battery_current = lp_filter(get_adc_volts(BAC_C), BAC_C, TRUE);
+    bmc.pv_voltage = get_adc_volts(PVV_C);
+    bmc.cc_voltage = get_adc_volts(CCV_C);
+    //        bmc.input_voltage = lp_filter(get_adc_volts(INV_C), INV_C, TRUE);
+    //        bmc.b1_voltage = lp_filter(get_adc_volts(B1V_C), B1V_C, TRUE);
+    //        bmc.b2_voltage = lp_filter(get_adc_volts(B2V_C), B2V_C, TRUE);
+    //        bmc.pv_current = lp_filter(get_adc_volts(PVC_C), PVC_C, TRUE);
+    //        bmc.cc_current = lp_filter(get_adc_volts(CCC_C), CCC_C, TRUE);
+    //        bmc.battery_current = lp_filter(get_adc_volts(BAC_C), BAC_C, TRUE);
     //    bmc.system_voltage = get_adc_volts(SYV_C);
     //    bmc.logic_voltage = get_adc_volts(VD5_C);
 
@@ -235,10 +235,10 @@ int get_data_sample(void) {
     bmc.datain.D1 = get_dio_bit(7); // GPIO 4
     bmc.datain.D2 = get_dio_bit(0); // read output bit wpi 0
     bmc.datain.D3 = get_dio_bit(1); // read output bit wpi 1
-//    bmc.datain.D4 = get_dio_bit(12);
-//    bmc.datain.D5 = get_dio_bit(13);
-//    bmc.datain.D6 = get_dio_bit(15); // GPIO 14 
-//    bmc.datain.D7 = get_dio_bit(16); // GPIO 15 
+    //    bmc.datain.D4 = get_dio_bit(12);
+    //    bmc.datain.D5 = get_dio_bit(13);
+    //    bmc.datain.D6 = get_dio_bit(15); // GPIO 14 
+    //    bmc.datain.D7 = get_dio_bit(16); // GPIO 15 
     put_dio_bit(0, bmc.dataout.D0); // GPIO 17
     put_dio_bit(1, bmc.dataout.D1); // GPIO 18
     put_dio_bit(2, bmc.dataout.D2); // GPIO 21

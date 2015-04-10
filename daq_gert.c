@@ -316,11 +316,10 @@ static const struct comedi_lrange daqgert_ao_range = {1,
     }};
 
 /* pin exclude list */
-static int wpi_pin_safe(int pin)
-{
-	if (!gpiosafe) return TRUE;
-	if ((pin <8) || (pin >14)) return TRUE;
-	return FALSE;
+static int wpi_pin_safe(int pin) {
+    if (!gpiosafe) return TRUE;
+    if ((pin < 8) || (pin > 14)) return TRUE;
+    return FALSE;
 }
 
 /*
@@ -333,170 +332,161 @@ static int wpi_pin_safe(int pin)
       Cope for 2 different board revisions here
  */
 static int *pinToGpio;
-static int *physToGpio ;
+static int *physToGpio;
 
-static int pinToGpioR1 [64] =
-{
-  17, 18, 21, 22, 23, 24, 25, 4,        // From the Original Wiki - GPIO 0 through 7:   wpi  0 -  7
-   0,  1,                               // I2C  - SDA1, SCL1                            wpi  8 -  9
-   8,  7,                               // SPI  - CE1, CE0                              wpi 10 - 11
-  10,  9, 11,                           // SPI  - MOSI, MISO, SCLK                      wpi 12 - 14
-  14, 15,                               // UART - Tx, Rx                                wpi 15 - 16
+static int pinToGpioR1 [64] ={
+    17, 18, 21, 22, 23, 24, 25, 4, // From the Original Wiki - GPIO 0 through 7:   wpi  0 -  7
+    0, 1, // I2C  - SDA1, SCL1                            wpi  8 -  9
+    8, 7, // SPI  - CE1, CE0                              wpi 10 - 11
+    10, 9, 11, // SPI  - MOSI, MISO, SCLK                      wpi 12 - 14
+    14, 15, // UART - Tx, Rx                                wpi 15 - 16
 
-// Padding:
+    // Padding:
 
-      -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,       // ... 31
-  -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,       // ... 47
-  -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,       // ... 63
-} ;
+    -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, // ... 31
+    -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, // ... 47
+    -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, // ... 63
+};
 
 // Revision 2:
 
-static int pinToGpioR2 [64] =
-{
-  17, 18, 27, 22, 23, 24, 25, 4,        // From the Original Wiki - GPIO 0 through 7:   wpi  0 -  7
-   2,  3,                               // I2C  - SDA0, SCL0                            wpi  8 -  9
-   8,  7,                               // SPI  - CE1, CE0                              wpi 10 - 11
-  10,  9, 11,                           // SPI  - MOSI, MISO, SCLK                      wpi 12 - 14
-  14, 15,                               // UART - Tx, Rx                                wpi 15 - 16
-  28, 29, 30, 31,                       // Rev 2: New GPIOs 8 though 11                 wpi 17 - 20
-   5,  6, 13, 19, 26,                   // B+                                           wpi 21, 22, 23, 24, 25
-  12, 16, 20, 21,                       // B+                                           wpi 26, 27, 28, 29
-   0,  1,                               // B+                                           wpi 30, 31
+static int pinToGpioR2 [64] ={
+    17, 18, 27, 22, 23, 24, 25, 4, // From the Original Wiki - GPIO 0 through 7:   wpi  0 -  7
+    2, 3, // I2C  - SDA0, SCL0                            wpi  8 -  9
+    8, 7, // SPI  - CE1, CE0                              wpi 10 - 11
+    10, 9, 11, // SPI  - MOSI, MISO, SCLK                      wpi 12 - 14
+    14, 15, // UART - Tx, Rx                                wpi 15 - 16
+    28, 29, 30, 31, // Rev 2: New GPIOs 8 though 11                 wpi 17 - 20
+    5, 6, 13, 19, 26, // B+                                           wpi 21, 22, 23, 24, 25
+    12, 16, 20, 21, // B+                                           wpi 26, 27, 28, 29
+    0, 1, // B+                                           wpi 30, 31
 
-// Padding:
+    // Padding:
 
-  -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,       // ... 47
-  -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,       // ... 63
-} ;
+    -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, // ... 47
+    -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, // ... 63
+};
 
 // physToGpio:
 //      Take a physical pin (1 through 26) and re-map it to the BCM_GPIO pin
 //      Cope for 2 different board revisions here.
 //      Also add in the P5 connector, so the P5 pins are 3,4,5,6, so 53,54,55,56
 
-static int *physToGpio ;
+static int *physToGpio;
 
-static int physToGpioR1 [64] =
-{
-  -1,           // 0
-  -1, -1,       // 1, 2
-   0, -1,
-   1, -1,
-   4, 14,
-  -1, 15,
-  17, 18,
-  21, -1,
-  22, 23,
-  -1, 24,
-  10, -1,
-   9, 25,
-  11,  8,
-  -1,  7,       // 25, 26
+static int physToGpioR1 [64] ={
+    -1, // 0
+    -1, -1, // 1, 2
+    0, -1,
+    1, -1,
+    4, 14,
+    -1, 15,
+    17, 18,
+    21, -1,
+    22, 23,
+    -1, 24,
+    10, -1,
+    9, 25,
+    11, 8,
+    -1, 7, // 25, 26
 
-                                              -1, -1, -1, -1, -1,       // ... 31
-  -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,       // ... 47
-  -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,       // ... 63
-} ;
+    -1, -1, -1, -1, -1, // ... 31
+    -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, // ... 47
+    -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, // ... 63
+};
 
-static int physToGpioR2 [64] =
-{
-  -1,           // 0
-  -1, -1,       // 1, 2
-   2, -1,
-   3, -1,
-   4, 14,
-  -1, 15,
-  17, 18,
-  27, -1,
-  22, 23,
-  -1, 24,
-  10, -1,
-   9, 25,
-  11,  8,
-  -1,  7,       // 25, 26
+static int physToGpioR2 [64] ={
+    -1, // 0
+    -1, -1, // 1, 2
+    2, -1,
+    3, -1,
+    4, 14,
+    -1, 15,
+    17, 18,
+    27, -1,
+    22, 23,
+    -1, 24,
+    10, -1,
+    9, 25,
+    11, 8,
+    -1, 7, // 25, 26
 
-// B+
+    // B+
 
-   0,  1,
-   5, -1,
-   6, 12,
-  13, -1,
-  19, 16,
-  26, 20,
-  -1, 21,
+    0, 1,
+    5, -1,
+    6, 12,
+    13, -1,
+    19, 16,
+    26, 20,
+    -1, 21,
 
-// the P5 connector on the Rev 2 boards:
+    // the P5 connector on the Rev 2 boards:
 
-  -1, -1,
-  -1, -1,
-  -1, -1,
-  -1, -1,
-  -1, -1,
-  28, 29,
-  30, 31,
-  -1, -1,
-  -1, -1,
-  -1, -1,
-  -1, -1,
-} ;
+    -1, -1,
+    -1, -1,
+    -1, -1,
+    -1, -1,
+    -1, -1,
+    28, 29,
+    30, 31,
+    -1, -1,
+    -1, -1,
+    -1, -1,
+    -1, -1,
+};
 
 // gpioToGPFSEL:
 //      Map a BCM_GPIO pin to it's Function Selection
 //      control port. (GPFSEL 0-5)
 //      Groups of 10 - 3 bits per Function - 30 bits per port
 
-static uint8_t gpioToGPFSEL [] =
-{
-  0,0,0,0,0,0,0,0,0,0,
-  1,1,1,1,1,1,1,1,1,1,
-  2,2,2,2,2,2,2,2,2,2,
-  3,3,3,3,3,3,3,3,3,3,
-  4,4,4,4,4,4,4,4,4,4,
-  5,5,5,5,5,5,5,5,5,5,
-} ;
+static uint8_t gpioToGPFSEL [] ={
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+    2, 2, 2, 2, 2, 2, 2, 2, 2, 2,
+    3, 3, 3, 3, 3, 3, 3, 3, 3, 3,
+    4, 4, 4, 4, 4, 4, 4, 4, 4, 4,
+    5, 5, 5, 5, 5, 5, 5, 5, 5, 5,
+};
 
 
 // gpioToShift
 //      Define the shift up for the 3 bits per pin in each GPFSEL port
 
-static uint8_t gpioToShift [] =
-{
-  0,3,6,9,12,15,18,21,24,27,
-  0,3,6,9,12,15,18,21,24,27,
-  0,3,6,9,12,15,18,21,24,27,
-  0,3,6,9,12,15,18,21,24,27,
-  0,3,6,9,12,15,18,21,24,27,
-} ;
+static uint8_t gpioToShift [] ={
+    0, 3, 6, 9, 12, 15, 18, 21, 24, 27,
+    0, 3, 6, 9, 12, 15, 18, 21, 24, 27,
+    0, 3, 6, 9, 12, 15, 18, 21, 24, 27,
+    0, 3, 6, 9, 12, 15, 18, 21, 24, 27,
+    0, 3, 6, 9, 12, 15, 18, 21, 24, 27,
+};
 
 
 // gpioToGPSET:
 //      (Word) offset to the GPIO Set registers for each GPIO pin
 
-static uint8_t gpioToGPSET [] =
-{
-   7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7,
-   8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8,
-} ;
+static uint8_t gpioToGPSET [] ={
+    7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7,
+    8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8,
+};
 
 // gpioToGPCLR:
 //      (Word) offset to the GPIO Clear registers for each GPIO pin
 
-static uint8_t gpioToGPCLR [] =
-{
-  10,10,10,10,10,10,10,10,10,10,10,10,10,10,10,10,10,10,10,10,10,10,10,10,10,10,10,10,10,10,10,10,
-  11,11,11,11,11,11,11,11,11,11,11,11,11,11,11,11,11,11,11,11,11,11,11,11,11,11,11,11,11,11,11,11,
-} ;
+static uint8_t gpioToGPCLR [] ={
+    10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10,
+    11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11,
+};
 
 
 // gpioToGPLEV:
 //      (Word) offset to the GPIO Input level registers for each GPIO pin
 
-static uint8_t gpioToGPLEV [] =
-{
-  13,13,13,13,13,13,13,13,13,13,13,13,13,13,13,13,13,13,13,13,13,13,13,13,13,13,13,13,13,13,13,13,
-  14,14,14,14,14,14,14,14,14,14,14,14,14,14,14,14,14,14,14,14,14,14,14,14,14,14,14,14,14,14,14,14,
-} ;
+static uint8_t gpioToGPLEV [] ={
+    13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13,
+    14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14,
+};
 
 // GPPUD:
 //      GPIO Pin pull up/down register
@@ -506,11 +496,10 @@ static uint8_t gpioToGPLEV [] =
 // gpioToPUDCLK
 //      (Word) offset to the Pull Up Down Clock regsiter
 
-static uint8_t gpioToPUDCLK [] =
-{
-  38,38,38,38,38,38,38,38,38,38,38,38,38,38,38,38,38,38,38,38,38,38,38,38,38,38,38,38,38,38,38,38,
-  39,39,39,39,39,39,39,39,39,39,39,39,39,39,39,39,39,39,39,39,39,39,39,39,39,39,39,39,39,39,39,39,
-} ;
+static uint8_t gpioToPUDCLK [] ={
+    38, 38, 38, 38, 38, 38, 38, 38, 38, 38, 38, 38, 38, 38, 38, 38, 38, 38, 38, 38, 38, 38, 38, 38, 38, 38, 38, 38, 38, 38, 38, 38,
+    39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39,
+};
 
 /*
  * pullUpDownCtrl:
@@ -521,15 +510,18 @@ static uint8_t gpioToPUDCLK [] =
  *********************************************************************************
  */
 
-void pullUpDnControl (int pin, int pud)
-{
-      pin = pinToGpio [pin] ;
+void pullUpDnControl(int pin, int pud) {
+    pin = pinToGpio [pin];
 
-    *(gpio + GPPUD)              = pud & 3 ;            udelay(5) ;
-    *(gpio + gpioToPUDCLK [pin]) = 1 << (pin & 31) ;    udelay(5) ;
+    *(gpio + GPPUD) = pud & 3;
+    udelay(5);
+    *(gpio + gpioToPUDCLK [pin]) = 1 << (pin & 31);
+    udelay(5);
 
-    *(gpio + GPPUD)              = 0 ;                  udelay(5) ;
-    *(gpio + gpioToPUDCLK [pin]) = 0 ;                  udelay(5) ;
+    *(gpio + GPPUD) = 0;
+    udelay(5);
+    *(gpio + gpioToPUDCLK [pin]) = 0;
+    udelay(5);
 }
 
 /*
@@ -552,7 +544,6 @@ void pinModeGpio(int pin, int mode) {
         *(gpio + fSel) = (*(gpio + fSel) & ~(7 << shift)) | (1 << shift);
 }
 
-
 void pinModeWPi(int pin, int mode) {
     pinModeGpio(pinToGpio [pin & 63], mode);
 }
@@ -563,9 +554,8 @@ void pinModeWPi(int pin, int mode) {
  *********************************************************************************
  */
 
-int physPinToGpio (int physPin)
-{
-  return physToGpio [physPin & 63] ;
+int physPinToGpio(int physPin) {
+    return physToGpio [physPin & 63];
 }
 
 /*
@@ -712,7 +702,7 @@ int wiringPiSetup(struct comedi_device *dev) {
     } else {
         pinToGpio = pinToGpioR2;
         physToGpio = physToGpioR2;
-	}
+    }
     return 0;
 }
 
@@ -749,27 +739,27 @@ static int daqgert_dio_insn_bits(struct comedi_device *dev,
         struct comedi_subdevice *s,
         struct comedi_insn *insn, unsigned int *data) {
     int pinWPi;
-    unsigned int val=0,mask=0;
+    unsigned int val = 0, mask = 0;
 
-        /* s->state contains the GPIO bits */
-        /* s->io_bits contains the GPIO direction */
+    /* s->state contains the GPIO bits */
+    /* s->io_bits contains the GPIO direction */
 
-        /* i/o testing with gpio pins  */
-        /* We need to shift a single bit from state to set or clear the GPIO */
-        for (pinWPi = 0; pinWPi < num_dio_chan; pinWPi++) {
-            mask = comedi_dio_update_state(s, data);
-            if (wpi_pin_safe(pinWPi)) {
-                /* Do nothing on SPI AUX pins */
-		if (mask) {
-			if (mask & 0xffffffff)
-                		digitalWriteWPi(pinWPi,
-                        	(s->state & (0x01 << pinWPi)) >> pinWPi); /* output writes */
-		}
-		val = s->state & 0xffffffff;
-                val |= (digitalReadWPi(pinWPi) << pinWPi); /* input reads shift */
+    /* i/o testing with gpio pins  */
+    /* We need to shift a single bit from state to set or clear the GPIO */
+    for (pinWPi = 0; pinWPi < num_dio_chan; pinWPi++) {
+        mask = comedi_dio_update_state(s, data);
+        if (wpi_pin_safe(pinWPi)) {
+            /* Do nothing on SPI AUX pins */
+            if (mask) {
+                if (mask & 0xffffffff)
+                    digitalWriteWPi(pinWPi,
+                        (s->state & (0x01 << pinWPi)) >> pinWPi); /* output writes */
             }
-            data[1] = val;
+            val = s->state & 0xffffffff;
+            val |= (digitalReadWPi(pinWPi) << pinWPi); /* input reads shift */
         }
+        data[1] = val;
+    }
 
     return insn->n;
 }
@@ -791,7 +781,7 @@ static int daqgert_dio_insn_config(struct comedi_device *dev,
             if (wpi_pin_safe(wpi_pin)) {
                 s->io_bits &= (~chan);
                 pinModeWPi(wpi_pin, INPUT);
-		pullUpDnControl(wpi_pin,pullups);
+                pullUpDnControl(wpi_pin, pullups);
             }
             break;
         case INSN_CONFIG_DIO_QUERY:
