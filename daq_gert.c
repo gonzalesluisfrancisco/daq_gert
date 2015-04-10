@@ -310,6 +310,12 @@ static const struct comedi_lrange daqgert_ao_range = {1,
         RANGE(0, 2.048),
     }};
 
+static int wpi_pin_safe(int pin)
+{
+	if ((pin <10) || (pin >14)) return TRUE;
+	return FALSE;
+}
+
 /*
  Doing it the Arduino way with lookup tables...
       Yes, it's probably more inefficient than all the bit-twidling, but it
@@ -711,7 +717,7 @@ static int daqgert_dio_insn_bits(struct comedi_device *dev,
         /* We need to shift a single bit from state to set or clear the GPIO */
         for (pinWPi = 0; pinWPi < num_dio_chan; pinWPi++) {
             mask = comedi_dio_update_state(s, data);
-            if (!((pinWPi >= 10) && (pinWPi <= 14))) {
+            if (wpi_pin_safe(pinWPi)) {
                 /* Do nothing on SPI AUX pins */
 		if (mask) {
 			if (mask & 0xffffffff)
@@ -735,13 +741,13 @@ static int daqgert_dio_insn_config(struct comedi_device *dev,
 
     switch (data[0]) {
         case INSN_CONFIG_DIO_OUTPUT:
-            if (!(gert_detected && ((wpi_pin >= 10) && (wpi_pin <= 14)))) {
+            if (wpi_pin_safe(wpi_pin)) {
                 s->io_bits |= chan;
                 pinModeWPi(wpi_pin, OUTPUT);
             }
             break;
         case INSN_CONFIG_DIO_INPUT:
-            if (!(gert_detected && ((wpi_pin >= 10) && (wpi_pin <= 14)))) {
+            if (wpi_pin_safe(wpi_pin)) {
                 s->io_bits &= (~chan);
                 pinModeWPi(wpi_pin, INPUT);
             }
