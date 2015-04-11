@@ -203,6 +203,8 @@ static int pullups = 2;
 module_param(pullups, int, S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);
 static int gpiosafe = 1;
 module_param(gpiosafe, int, S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);
+static int dio_conf = 0;
+module_param(dio_conf, int, S_IRUGO);
 
 struct comedi_control {
     u8 *tx_buff;
@@ -211,7 +213,7 @@ struct comedi_control {
 };
 static struct comedi_control comedi_ctl;
 
-struct spi_adc_type {
+struct spi_param_type {
     uint16_t range : 1;
     uint16_t bits : 2;
     uint16_t link : 1;
@@ -220,7 +222,7 @@ struct spi_adc_type {
     struct spi_device *spi;
     uint8_t device_type;
 };
-static struct spi_adc_type spi_adc = {
+static struct spi_param_type spi_adc = {
     .device_type = MCP3002
 }, spi_dac = {
     .device_type = MCP4802
@@ -299,7 +301,6 @@ extern unsigned int system_serial_low;
 extern unsigned int system_serial_high;
 
 static unsigned int RPisys_rev;
-static int gert_detected = FALSE;
 
 static const struct comedi_lrange daqgert_ai_range3_300 = {1,
     {
@@ -674,6 +675,7 @@ int piBoardRev(struct comedi_device *dev) {
 
     dev_info(dev->class_dev, "Comedi Gpio board rev %u\n",
             boardRev);
+    dio_conf=boardRev;
     return boardRev;
 }
 
@@ -945,7 +947,6 @@ static int daqgert_attach(struct comedi_device *dev, struct comedi_devconfig *it
     /* assume we have DON"T a gertboard */
     dev_info(dev->class_dev, "GertBoard Detection Started\n");
     num_subdev = 1;
-    gert_detected = FALSE;
     if (SPI_probe(dev)) num_subdev += 2;
     ; // add AI and AO channels */
     dev_info(dev->class_dev, "GertBoard Detection Completed\n");
@@ -1115,7 +1116,6 @@ int SPI_probe(struct comedi_device *dev) {
     dev_info(dev->class_dev, "SPI probe\n");
     if (!spi_adc.spi) {
         dev_info(dev->class_dev, "No SPI channel detected\n");
-        gert_detected = FALSE;
         spi_adc.chan = 0;
         return spi_adc.chan;
     }
@@ -1153,13 +1153,11 @@ int SPI_probe(struct comedi_device *dev) {
             dev_info(dev->class_dev,
                     "Gertboard ADC chip Board Detected, %i Channels, Range code %i, Device code %i, PIC code %i, Detect Code %i\n",
                     spi_adc.chan, spi_adc.range, spi_adc.device_type, spi_adc.pic18, ret);
-            gert_detected = TRUE;
             return spi_adc.chan;
         }
         spi_adc.pic18 = 0; /* SPI probes found nothing */
         dev_info(dev->class_dev, "No GERT Board ADC Found, GPIO pins only. Detect Code %i\n",
                 ret);
-        gert_detected = FALSE;
         spi_adc.chan = 0;
         return spi_adc.chan;
     }
@@ -1181,11 +1179,9 @@ int SPI_probe(struct comedi_device *dev) {
         /* look for the gertboard SPI devices .pic18 code 1 */
         dev_info(dev->class_dev, "No GERT Board PIC Found, GPIO pins only. Detect Code %i\n",
                 ret);
-        gert_detected = FALSE;
         spi_adc.chan = 0;
         return spi_adc.chan;
     }
-    gert_detected = TRUE;
     return spi_adc.chan;
 }
 
