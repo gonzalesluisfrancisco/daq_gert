@@ -750,16 +750,14 @@ struct daqgert_board {
 };
 
 static void daqgert_ai_set_chan_range(struct comedi_device *dev,
-				     unsigned int chanspec, char wait)
-{
+        unsigned int chanspec, char wait) {
     pic_info_pic18.chan = CR_CHAN(chanspec);
-if (wait)
-		udelay(5);
+    if (wait)
+        udelay(5);
 }
 
 static unsigned int daqgert_ai_get_sample(struct comedi_device *dev,
-					 struct comedi_subdevice *s)
-{
+        struct comedi_subdevice *s) {
     int chan;
     unsigned int val;
     struct pic_platform_data *pic_data = s->private;
@@ -767,105 +765,105 @@ static unsigned int daqgert_ai_get_sample(struct comedi_device *dev,
     struct spi_message m;
 
     chan = CR_CHAN(pic_data->chan);
-        /* Make SPI messages for the type of ADC are we talking to */
-        /* The PIC Slave needs 8 bit transfers only */
-        if (spi_adc.pic18) { /*  PIC18 SPI slave device */
-            mutex_lock(&pic_data->drvdata_lock);
-            udelay(pic_data->cmd_delay_usecs); /* ADC conversion delay */
-            comedi_ctl.tx_buff[0] = CMD_ADC_GO + chan;
-            spi_write_then_read(spi_adc.spi, comedi_ctl.tx_buff, 1, comedi_ctl.rx_buff, 1); /* rx buffer has old data */
-            udelay(pic_data->conv_delay_usecs); /* ADC conversion delay */
-            comedi_ctl.tx_buff[0] = CMD_ZERO;
-            spi_write_then_read(spi_adc.spi, comedi_ctl.tx_buff, 1, comedi_ctl.rx_buff, 1); /* rx buffer has old data */
-            udelay(pic_data->cmd_delay_usecs); /* ADC conversion delay */
-            comedi_ctl.tx_buff[0] = CMD_ADC_DATA;
-            spi_write_then_read(spi_adc.spi, comedi_ctl.tx_buff, 1, comedi_ctl.rx_buff, 1);
-            val = comedi_ctl.rx_buff[0];
-            udelay(pic_data->cmd_delay_usecs); /* ADC conversion delay */
-            comedi_ctl.tx_buff[0] = CMD_ZERO;
-            spi_write_then_read(spi_adc.spi, comedi_ctl.tx_buff, 1, comedi_ctl.rx_buff, 1);
-            val += comedi_ctl.rx_buff[0] << 8;
-            mutex_unlock(&pic_data->drvdata_lock);
-        } else { /* Gertboard onboard ADC device */
-            mutex_lock(&pic_data->drvdata_lock);
-            comedi_ctl.tx_buff[2] = 0; // format the ADC data as a single transmission
-            comedi_ctl.tx_buff[1] = 0;
-            comedi_ctl.tx_buff[0] = 0b11010000 | ((chan & 0x01) << 5);
-            memset(&t, 0, sizeof (t)); // clear the tranfer array
-            t[0].tx_buf = comedi_ctl.tx_buff;
-            if (spi_adc.device_type == MCP3002) { // 10 bit adc data
-                t[0].len = 2;
-            } else {
-                t[0].len = 3;
-            }
-            t[0].rx_buf = comedi_ctl.rx_buff;
-            spi_message_init_with_transfers(&m, &t[0], 1); // make the proper message with the transfer
-            spi_sync(spi_adc.spi, &m); // exchange SPI data
-            /* ADC type code result munging */
-            if (spi_adc.device_type == MCP3002) { // 10 bit adc data
-                val = ((comedi_ctl.rx_buff[0] << 7) | (comedi_ctl.rx_buff[1] >> 1)) & 0x3FF;
-            } else { // 12 bit adc data
-                val = (comedi_ctl.rx_buff[2]&0x80) >> 7;
-                val += comedi_ctl.rx_buff[1] << 1;
-                val += (comedi_ctl.rx_buff[0]&0x0f) << 9;
-            }
-            mutex_unlock(&pic_data->drvdata_lock);
+    /* Make SPI messages for the type of ADC are we talking to */
+    /* The PIC Slave needs 8 bit transfers only */
+    if (spi_adc.pic18) { /*  PIC18 SPI slave device */
+        mutex_lock(&pic_data->drvdata_lock);
+        udelay(pic_data->cmd_delay_usecs); /* ADC conversion delay */
+        comedi_ctl.tx_buff[0] = CMD_ADC_GO + chan;
+        spi_write_then_read(spi_adc.spi, comedi_ctl.tx_buff, 1, comedi_ctl.rx_buff, 1); /* rx buffer has old data */
+        udelay(pic_data->conv_delay_usecs); /* ADC conversion delay */
+        comedi_ctl.tx_buff[0] = CMD_ZERO;
+        spi_write_then_read(spi_adc.spi, comedi_ctl.tx_buff, 1, comedi_ctl.rx_buff, 1); /* rx buffer has old data */
+        udelay(pic_data->cmd_delay_usecs); /* ADC conversion delay */
+        comedi_ctl.tx_buff[0] = CMD_ADC_DATA;
+        spi_write_then_read(spi_adc.spi, comedi_ctl.tx_buff, 1, comedi_ctl.rx_buff, 1);
+        val = comedi_ctl.rx_buff[0];
+        udelay(pic_data->cmd_delay_usecs); /* ADC conversion delay */
+        comedi_ctl.tx_buff[0] = CMD_ZERO;
+        spi_write_then_read(spi_adc.spi, comedi_ctl.tx_buff, 1, comedi_ctl.rx_buff, 1);
+        val += comedi_ctl.rx_buff[0] << 8;
+        mutex_unlock(&pic_data->drvdata_lock);
+    } else { /* Gertboard onboard ADC device */
+        mutex_lock(&pic_data->drvdata_lock);
+        comedi_ctl.tx_buff[2] = 0; // format the ADC data as a single transmission
+        comedi_ctl.tx_buff[1] = 0;
+        comedi_ctl.tx_buff[0] = 0b11010000 | ((chan & 0x01) << 5);
+        memset(&t, 0, sizeof (t)); // clear the tranfer array
+        t[0].tx_buf = comedi_ctl.tx_buff;
+        if (spi_adc.device_type == MCP3002) { // 10 bit adc data
+            t[0].len = 2;
+        } else {
+            t[0].len = 3;
         }
+        t[0].rx_buf = comedi_ctl.rx_buff;
+        spi_message_init_with_transfers(&m, &t[0], 1); // make the proper message with the transfer
+        spi_sync(spi_adc.spi, &m); // exchange SPI data
+        /* ADC type code result munging */
+        if (spi_adc.device_type == MCP3002) { // 10 bit adc data
+            val = ((comedi_ctl.rx_buff[0] << 7) | (comedi_ctl.rx_buff[1] >> 1)) & 0x3FF;
+        } else { // 12 bit adc data
+            val = (comedi_ctl.rx_buff[2]&0x80) >> 7;
+            val += comedi_ctl.rx_buff[1] << 1;
+            val += (comedi_ctl.rx_buff[0]&0x0f) << 9;
+        }
+        mutex_unlock(&pic_data->drvdata_lock);
+    }
 
-	return val & s->maxdata;
+    return val & s->maxdata;
 }
 
 static bool daqgert_ai_next_chan(struct comedi_device *dev,
-				struct comedi_subdevice *s)
-{
-	struct comedi_cmd *cmd = &s->async->cmd;
+        struct comedi_subdevice *s) {
+    struct comedi_cmd *cmd = &s->async->cmd;
 
-	s->async->events |= COMEDI_CB_BLOCK;
+    s->async->events |= COMEDI_CB_BLOCK;
 
-	s->async->cur_chan++;
-	if (s->async->cur_chan >= cmd->chanlist_len) {
-		s->async->cur_chan = 0;
-		s->async->events |= COMEDI_CB_EOS;
-	}
+    s->async->cur_chan++;
+    if (s->async->cur_chan >= cmd->chanlist_len) {
+        s->async->cur_chan = 0;
+        s->async->events |= COMEDI_CB_EOS;
+    }
 
-	if (cmd->stop_src == TRIG_COUNT) { 
-		/* all data sampled */
-		s->async->events |= COMEDI_CB_EOA;
-		return false;
-	}
+    if (cmd->stop_src == TRIG_COUNT) {
+        /* all data sampled */
+        s->async->events |= COMEDI_CB_EOA;
+        return false;
+    }
 
-	return true;
+    return true;
 }
 
 static void daqgert_handle_eoc(struct comedi_device *dev,
-			      struct comedi_subdevice *s)
-{
-	struct comedi_cmd *cmd = &s->async->cmd;
-	unsigned int next_chan;
+        struct comedi_subdevice *s) {
+    struct comedi_cmd *cmd = &s->async->cmd;
+    unsigned int next_chan;
 
-	comedi_buf_put(s, daqgert_ai_get_sample(dev, s));
+    comedi_buf_put(s, daqgert_ai_get_sample(dev, s));
 
-	next_chan = s->async->cur_chan + 1;
-	if (next_chan >= cmd->chanlist_len)
-		next_chan = 0;
-	if (cmd->chanlist[s->async->cur_chan] != cmd->chanlist[next_chan])
-		daqgert_ai_set_chan_range(dev, cmd->chanlist[next_chan], 0);
+    next_chan = s->async->cur_chan + 1;
+    if (next_chan >= cmd->chanlist_len)
+        next_chan = 0;
+    if (cmd->chanlist[s->async->cur_chan] != cmd->chanlist[next_chan])
+        daqgert_ai_set_chan_range(dev, cmd->chanlist[next_chan], 0);
 
-	daqgert_ai_next_chan(dev, s);
+    daqgert_ai_next_chan(dev, s);
 }
 
 static int daqgert_ai_cmd(struct comedi_device *dev, struct comedi_subdevice *s) {
-struct comedi_cmd *cmd = &s->async->cmd;
+    struct comedi_cmd *cmd = &s->async->cmd;
 
-daqgert_ai_set_chan_range(dev, cmd->chanlist[0], 1);
-s->async->cur_chan = 0;
- daqgert_handle_eoc(dev,s);
+    daqgert_ai_set_chan_range(dev, cmd->chanlist[0], 1);
+    s->async->cur_chan = 0;
+    daqgert_handle_eoc(dev, s);
 
- return 0;
+    dev_info(dev->class_dev, "ai_cmd\n");
+    return 0;
 }
 
 static int daqgert_ai_poll(struct comedi_device *dev, struct comedi_subdevice *s) {
-    return 1;
+    dev_info(dev->class_dev, "ai_poll\n");
+    return 2;
 }
 
 static int daqgert_ai_cancel(struct comedi_device *dev,
@@ -879,6 +877,7 @@ static int daqgert_ai_cmdtest(struct comedi_device *dev,
     int err = 0;
     unsigned int flags;
 
+    dev_info(dev->class_dev, "ai_cmdtest\n");
     /* Step 1 : check if triggers are trivially valid */
 
     err |= cfc_check_trigger_src(&cmd->start_src, TRIG_NOW);
@@ -929,6 +928,7 @@ static int daqgert_ai_cmdtest(struct comedi_device *dev,
     if (err)
         return 4;
 
+    dev_info(dev->class_dev, "ai_cmdtest PASS\n");
     return 0;
 }
 
@@ -1008,7 +1008,7 @@ static int daqgert_ai_rinsn(struct comedi_device *dev,
     pic_data->chan = CR_CHAN(insn->chanspec);
     /* convert n samples */
     for (n = 0; n < insn->n; n++) {
-	data[n] = daqgert_ai_get_sample(dev, s); 
+        data[n] = daqgert_ai_get_sample(dev, s);
     }
     return insn->n;
 }
@@ -1146,7 +1146,7 @@ static int daqgert_attach(struct comedi_device *dev, struct comedi_devconfig *it
         s->range_table = &daqgert_ao_range;
         s->insn_write = daqgert_ao_winsn;
         s->insn_read = comedi_readback_insn_read;
-	comedi_alloc_subdev_readback(s);
+        comedi_alloc_subdev_readback(s);
     }
 
     dev_info(dev->class_dev, "%s attached: GPIO iobase 0x%lx, ioremap 0x%lx, GPIO wpi-pins 0x%x\n",
