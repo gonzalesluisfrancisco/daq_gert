@@ -244,12 +244,17 @@ static struct pic_platform_data pic_info_pic18 = {
 #define SPI_BUFF_SIZE 16
 
 /* PIC Slave commands */
-#define CMD_ADC_GO	0b10000000      // send data low byte first
-#define CMD_ADC_GO_H	0b11000000      // send data high byte first
-#define CMD_ADC_DATA	0b10010000
-#define CMD_ADC_DIAG	0b11110000
-#define CMD_DUMMY_CFG	0b01000000
-#define	CMD_ZERO	0b00000000
+#define CMD_ZERO        0b00000000
+#define CMD_ADC_GO	0b10000000
+#define CMD_PORT_GO	0b10100000	// send data LO_NIBBLE to port buffer
+#define CMD_CHAR_GO	0b10110000	// send data LO_NIBBLE to TX buffer
+#define CMD_ADC_DATA	0b11000000
+#define CMD_PORT_DATA	0b11010000	// send data HI_NIBBLE to port buffer ->PORT and return input PORT data in received SPI data byte
+#define CMD_CHAR_DATA	0b11100000	// send data HI_NIBBLE to TX buffer and return RX buffer in received SPI data byte
+#define CMD_XXXX	0b11110000	//
+#define CMD_CHAR_RX	0b00010000	// Get RX buffer
+#define CMD_DUMMY_CFG	0b01000000	// stuff config data in SPI buffer
+#define CMD_DEAD        0b11111111      // This is usually a bad response
 
 #define WPI_MODE_PINS            0
 #define WPI_MODE_GPIO            1
@@ -335,7 +340,7 @@ static int wpi_pin_safe(int pin) {
 static int *pinToGpio;
 static int *physToGpio;
 
-static int pinToGpioR1 [64] ={
+static int pinToGpioR1 [64] = {
     17, 18, 21, 22, 23, 24, 25, 4, // From the Original Wiki - GPIO 0 through 7:   wpi  0 -  7
     0, 1, // I2C  - SDA1, SCL1                            wpi  8 -  9
     8, 7, // SPI  - CE1, CE0                              wpi 10 - 11
@@ -351,7 +356,7 @@ static int pinToGpioR1 [64] ={
 
 // Revision 2:
 
-static int pinToGpioR2 [64] ={
+static int pinToGpioR2 [64] = {
     17, 18, 27, 22, 23, 24, 25, 4, // From the Original Wiki - GPIO 0 through 7:   wpi  0 -  7
     2, 3, // I2C  - SDA0, SCL0                            wpi  8 -  9
     8, 7, // SPI  - CE1, CE0                              wpi 10 - 11
@@ -375,7 +380,7 @@ static int pinToGpioR2 [64] ={
 
 static int *physToGpio;
 
-static int physToGpioR1 [64] ={
+static int physToGpioR1 [64] = {
     -1, // 0
     -1, -1, // 1, 2
     0, -1,
@@ -396,7 +401,7 @@ static int physToGpioR1 [64] ={
     -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, // ... 63
 };
 
-static int physToGpioR2 [64] ={
+static int physToGpioR2 [64] = {
     -1, // 0
     -1, -1, // 1, 2
     2, -1,
@@ -442,7 +447,7 @@ static int physToGpioR2 [64] ={
 //      control port. (GPFSEL 0-5)
 //      Groups of 10 - 3 bits per Function - 30 bits per port
 
-static uint8_t gpioToGPFSEL [] ={
+static uint8_t gpioToGPFSEL [] = {
     0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
     1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
     2, 2, 2, 2, 2, 2, 2, 2, 2, 2,
@@ -455,7 +460,7 @@ static uint8_t gpioToGPFSEL [] ={
 // gpioToShift
 //      Define the shift up for the 3 bits per pin in each GPFSEL port
 
-static uint8_t gpioToShift [] ={
+static uint8_t gpioToShift [] = {
     0, 3, 6, 9, 12, 15, 18, 21, 24, 27,
     0, 3, 6, 9, 12, 15, 18, 21, 24, 27,
     0, 3, 6, 9, 12, 15, 18, 21, 24, 27,
@@ -467,7 +472,7 @@ static uint8_t gpioToShift [] ={
 // gpioToGPSET:
 //      (Word) offset to the GPIO Set registers for each GPIO pin
 
-static uint8_t gpioToGPSET [] ={
+static uint8_t gpioToGPSET [] = {
     7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7,
     8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8,
 };
@@ -475,7 +480,7 @@ static uint8_t gpioToGPSET [] ={
 // gpioToGPCLR:
 //      (Word) offset to the GPIO Clear registers for each GPIO pin
 
-static uint8_t gpioToGPCLR [] ={
+static uint8_t gpioToGPCLR [] = {
     10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10,
     11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11,
 };
@@ -484,7 +489,7 @@ static uint8_t gpioToGPCLR [] ={
 // gpioToGPLEV:
 //      (Word) offset to the GPIO Input level registers for each GPIO pin
 
-static uint8_t gpioToGPLEV [] ={
+static uint8_t gpioToGPLEV [] = {
     13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13,
     14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14,
 };
@@ -497,7 +502,7 @@ static uint8_t gpioToGPLEV [] ={
 // gpioToPUDCLK
 //      (Word) offset to the Pull Up Down Clock regsiter
 
-static uint8_t gpioToPUDCLK [] ={
+static uint8_t gpioToPUDCLK [] = {
     38, 38, 38, 38, 38, 38, 38, 38, 38, 38, 38, 38, 38, 38, 38, 38, 38, 38, 38, 38, 38, 38, 38, 38, 38, 38, 38, 38, 38, 38, 38, 38,
     39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39, 39,
 };
@@ -675,7 +680,7 @@ int piBoardRev(struct comedi_device *dev) {
 
     dev_info(dev->class_dev, "Comedi Gpio board rev %u\n",
             boardRev);
-    dio_conf=boardRev;
+    dio_conf = boardRev;
     return boardRev;
 }
 
@@ -1207,6 +1212,6 @@ module_exit(daqgert_exit);
 MODULE_AUTHOR("Fred Brooks <spam@sma2.rain.com>");
 MODULE_DESCRIPTION(
         "Comedi driver for RASPI GERTBOARD DIO/AI/AO");
-MODULE_VERSION("0.0.14");
+MODULE_VERSION("0.0.15");
 MODULE_LICENSE("GPL");
 MODULE_ALIAS("spi:spigert");
