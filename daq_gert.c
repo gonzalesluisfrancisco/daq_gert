@@ -172,6 +172,8 @@ The output range is 0 to 4095 for 0.0 to 2.048 onboard devices (output resolutio
  */
 
 #include "../comedidev.h"
+#include "comedi_fc.h"
+#include "../comedidev.h"
 #include <linux/interrupt.h>
 #include <linux/kernel.h>
 #include <linux/module.h>
@@ -742,6 +744,78 @@ struct daqgert_board {
     const char *name;
 };
 
+static int daqgert_ai_cmd(struct comedi_device *dev, struct comedi_subdevice *s) {
+    return 0;
+}
+
+static int daqgert_ai_poll(struct comedi_device *dev, struct comedi_subdevice *s) {
+    return 0;
+}
+
+static int daqgert_ai_cancel(struct comedi_device *dev,
+        struct comedi_subdevice *s) {
+    return 0;
+}
+
+static int daqgert_ai_cmdtest(struct comedi_device *dev,
+        struct comedi_subdevice *s, struct comedi_cmd *cmd) {
+    const struct daqgert_board *thisboard = dev->board_ptr;
+    int err = 0;
+    unsigned int flags;
+
+    /* Step 1 : check if triggers are trivially valid */
+
+    err |= cfc_check_trigger_src(&cmd->start_src, TRIG_NOW);
+    err |= cfc_check_trigger_src(&cmd->scan_begin_src, TRIG_FOLLOW);
+
+    flags = TRIG_TIMER;
+    err |= cfc_check_trigger_src(&cmd->convert_src, flags);
+
+    err |= cfc_check_trigger_src(&cmd->scan_end_src, TRIG_COUNT);
+    err |= cfc_check_trigger_src(&cmd->stop_src, TRIG_COUNT | TRIG_NONE);
+
+    if (err)
+        return 1;
+
+    /* Step 2a : make sure trigger sources are unique */
+
+    err |= cfc_check_trigger_is_unique(cmd->stop_src);
+
+    /* Step 2b : and mutually compatible */
+
+    if (err)
+        return 2;
+
+    /* Step 3: check if arguments are trivially valid */
+
+    err |= cfc_check_trigger_arg_is(&cmd->start_arg, 0);
+    err |= cfc_check_trigger_arg_is(&cmd->scan_begin_arg, 0);
+
+    if (cmd->convert_src == TRIG_TIMER)
+        err |= cfc_check_trigger_arg_min(&cmd->convert_arg,
+            board->ai_ns_min);
+    else /* TRIG_EXT */
+        err |= cfc_check_trigger_arg_is(&cmd->convert_arg, 0);
+
+    err |= cfc_check_trigger_arg_min(&cmd->chanlist_len, 1);
+    err |= cfc_check_trigger_arg_is(&cmd->scan_end_arg, cmd->chanlist_len);
+
+    if (cmd->stop_src == TRIG_COUNT)
+        err |= cfc_check_trigger_arg_min(&cmd->stop_arg, 1);
+    else /* TRIG_NONE */
+        err |= cfc_check_trigger_arg_is(&cmd->stop_arg, 0);
+
+    if (err)
+        return 3;
+
+    /* step 4: fix up any arguments */
+
+    if (err)
+        return 4;
+
+    return 0;
+}
+
 /* FIXME Slow brute forced IO bits, 5us reads from userland */
 
 /* need to use (fix) state to optimize changes */
@@ -865,36 +939,25 @@ static int daqgert_ai_rinsn(struct comedi_device *dev,
             mutex_unlock(&pic_data->drvdata_lock);
         }
     }
-    return n;
+    return insn->n;
 }
 
 static int daqgert_ao_winsn(struct comedi_device *dev,
         struct comedi_subdevice *s,
         struct comedi_insn *insn, unsigned int *data) {
-    unsigned int n, junk;
-    unsigned int chan;
 
-    chan = CR_CHAN(insn->chanspec);
+    unsigned int chan = CR_CHAN(insn->chanspec);
+    unsigned int n, junk, val = s->readback[chan];
+
     for (n = 0; n < insn->n; n++) {
-        junk = data[n]&0xfff; /* strip to 12 bits */
+        val = data[n];
+        junk = val & 0xfff; /* strip to 12 bits */
         comedi_ctl.tx_buff[1] = junk & 0xff; /* load lsb SPI data into transfer buffer */
         comedi_ctl.tx_buff[0] = (0b00110000 | ((chan & 0x01) << 7) | (junk >> 8));
         spi_write_then_read(spi_dac.spi, comedi_ctl.tx_buff, 2, comedi_ctl.rx_buff, 2); /* Load DAC channel, send two bytes */
     }
-    return n;
-}
-
-static int daqgert_ao_rinsn(struct comedi_device *dev,
-        struct comedi_subdevice *s,
-        struct comedi_insn *insn, unsigned int *data) {
-    unsigned int n;
-    unsigned int chan;
-
-    chan = CR_CHAN(insn->chanspec);
-    for (n = 0; n < insn->n; n++) {
-        data[n] = 128;
-    }
-    return n;
+    s->readback[chan] = val;
+    return insn->n;
 }
 
 static int daqgert_ai_config(struct comedi_device *dev,
@@ -994,6 +1057,10 @@ static int daqgert_attach(struct comedi_device *dev, struct comedi_devconfig *it
             s->range_table = &daqgert_ai_range3_300;
         }
         s->insn_read = daqgert_ai_rinsn;
+        s->do_cmdtest = daqgert_ai_cmdtest;
+        s->do_cmd = daqgert_ai_cmd;
+        s->poll = daqgert_ai_poll;
+        s->cancel = daqgert_ai_cancel;
 
         /* daq-gert ao */
         s = &dev->subdevices[2];
@@ -1007,7 +1074,7 @@ static int daqgert_attach(struct comedi_device *dev, struct comedi_devconfig *it
         s->maxdata = (1 << 12) - 1; /* the actual analog resolution depends on the DAC chip 8,10,12 */
         s->range_table = &daqgert_ao_range;
         s->insn_write = daqgert_ao_winsn;
-        s->insn_read = daqgert_ao_rinsn;
+        s->insn_read = comedi_readback_insn_read;
     }
 
     dev_info(dev->class_dev, "%s attached: GPIO iobase 0x%lx, ioremap 0x%lx, GPIO wpi-pins 0x%x\n",
@@ -1031,9 +1098,15 @@ static void daqgert_detach(struct comedi_device *dev) {
 static const struct daqgert_board daqgert_boards[] = {
     {
         .name = "daq-gert",
+        .board_type = RPi,
+        .n_aochan = 2,
+        .ai_ns_min = 150000,
     },
     {
         .name = "daq_gert",
+        .board_type = RPi,
+        .n_aochan = 2,
+        .ai_ns_min = 150000,
     },
 };
 
