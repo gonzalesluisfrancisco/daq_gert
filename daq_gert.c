@@ -742,6 +742,9 @@ int wiringPiSetupGpio(struct comedi_device *dev) {
 
 struct daqgert_board {
     const char *name;
+    int board_type;
+    int n_aochan;
+    unsigned int ai_ns_min;
 };
 
 static int daqgert_ai_cmd(struct comedi_device *dev, struct comedi_subdevice *s) {
@@ -759,7 +762,7 @@ static int daqgert_ai_cancel(struct comedi_device *dev,
 
 static int daqgert_ai_cmdtest(struct comedi_device *dev,
         struct comedi_subdevice *s, struct comedi_cmd *cmd) {
-    const struct daqgert_board *thisboard = dev->board_ptr;
+    const struct daqgert_board *board = dev->board_ptr;
     int err = 0;
     unsigned int flags;
 
@@ -1047,7 +1050,7 @@ static int daqgert_attach(struct comedi_device *dev, struct comedi_devconfig *it
         num_ai_chan = daqgert_ai_config(dev, s); /* config SPI ports for ai use */
         s->type = COMEDI_SUBD_AI;
         /* we support single-ended (ground)  */
-        s->subdev_flags = SDF_READABLE | SDF_GROUND;
+        s->subdev_flags = SDF_READABLE | SDF_GROUND | SDF_CMD_READ;
         s->n_chan = num_ai_chan;
         s->len_chanlist = num_ai_chan;
         s->maxdata = (1 << (12 - spi_adc.device_type)) - 1;
@@ -1075,6 +1078,7 @@ static int daqgert_attach(struct comedi_device *dev, struct comedi_devconfig *it
         s->range_table = &daqgert_ao_range;
         s->insn_write = daqgert_ao_winsn;
         s->insn_read = comedi_readback_insn_read;
+	comedi_alloc_subdev_readback(s);
     }
 
     dev_info(dev->class_dev, "%s attached: GPIO iobase 0x%lx, ioremap 0x%lx, GPIO wpi-pins 0x%x\n",
@@ -1098,13 +1102,13 @@ static void daqgert_detach(struct comedi_device *dev) {
 static const struct daqgert_board daqgert_boards[] = {
     {
         .name = "daq-gert",
-        .board_type = RPi,
+        .board_type = 0,
         .n_aochan = 2,
         .ai_ns_min = 150000,
     },
     {
         .name = "daq_gert",
-        .board_type = RPi,
+        .board_type = 0,
         .n_aochan = 2,
         .ai_ns_min = 150000,
     },
