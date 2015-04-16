@@ -261,6 +261,8 @@ static struct pic_platform_data pic_info_pic18 = {
 #define WPI_MODE_GPIO_SYS        2
 #define WPI_MODE_PIFACE          3
 
+#define PIN_SAFE_MASK   0b00000000000000000111111100000000
+
 #define INPUT            0
 #define OUTPUT           1
 #define PWM_OUTPUT       2
@@ -323,9 +325,10 @@ static const struct comedi_lrange daqgert_ao_range = {1,
 
 /* pin exclude list */
 static int wpi_pin_safe(int pin) {
+    unsigned int pin_bit = (0x01 << pin);
     if (!gpiosafe) return TRUE;
-    if ((pin < 8) || (pin > 14)) return TRUE;
-    return FALSE;
+    if (pin_bit & PIN_SAFE_MASK) return FALSE;
+    return TRUE;
 }
 
 /*
