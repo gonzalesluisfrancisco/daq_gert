@@ -39,8 +39,8 @@
  * nsaspook@sma2.rain..com    Mar 2015
  */
 
-#define P45K80
-//#define P25K22
+//#define P45K80
+#define P25K22
 //#define P8722
 //#define P8722_LCD
 
@@ -442,7 +442,7 @@ struct serial_bounce_buffer_type {
 volatile struct spi_link_type spi_comm = {FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE};
 volatile struct spi_stat_type spi_stat = {0}, report_stat = {0};
 
-const rom int8_t *build_date = __DATE__, *build_time = __TIME__;
+const rom int8_t *build_date = __DATE__, *build_time = __TIME__, Version = 9;
 volatile uint8_t data_in2, adc_buffer_ptr = 0,
 	adc_channel = 0;
 
