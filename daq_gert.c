@@ -224,6 +224,7 @@ struct spi_param_type {
     uint16_t pic18 : 2;
     uint16_t chan : 4;
     struct spi_device *spi;
+    struct comedi_device *dev;
     uint8_t device_type;
 };
 static struct spi_param_type spi_adc = {
@@ -318,7 +319,7 @@ static struct pic_platform_data pic_info_pic18 = {
 
 /* Locals to hold pointers to the hardware */
 
-static volatile uint32_t *gpio,*timer,*timerIrqRaw ;
+static volatile uint32_t *gpio ;
 static int num_ai_chan, num_ao_chan, num_dio_chan = NUM_DIO_CHAN;
 
 /* Global for the RPi board rev */
@@ -981,7 +982,7 @@ static int daqgert_ai_cmdtest(struct comedi_device *dev,
 
 void my_timer_callback( unsigned long data )
 {
-        struct comedi_device *dev = (void*) data;
+        struct comedi_device *dev = spi_adc.dev;
         struct comedi_subdevice *s = dev->read_subdev;
 
         if (!dev->attached) {
@@ -1137,14 +1138,6 @@ static int daqgert_attach(struct comedi_device *dev, struct comedi_devconfig *it
         return -EINVAL;
     }
     dev->iobase = GPIO_BASE; /* filler */
-    timer =  ioremap(GPIO_BASE+0x0000B000, SZ_16K); /* lets get access to the TIMER base */
-    if (!timer) {
-        dev_err(dev->class_dev, "Invalid timer io base address!\n");
-        return -EINVAL;
-    }
-    *(timer + TIMER_CONTROL) = 0x0000280 ;
-    *(timer + TIMER_PRE_DIV) = 0x00000F9 ;
-    timerIrqRaw = timer + TIMER_IRQ_RAW ;
 
     /* setup your timer to call my_timer_callback */
     setup_timer(&my_timer, my_timer_callback, 0);
@@ -1238,7 +1231,6 @@ static int daqgert_attach(struct comedi_device *dev, struct comedi_devconfig *it
 
 static void daqgert_detach(struct comedi_device *dev) {
     iounmap(gpio);
-    iounmap(timer);
   /* remove kernel timer when unloading module */
   del_timer(&my_timer);
     if (comedi_ctl.tx_buff)
@@ -1353,6 +1345,7 @@ int SPI_probe(struct comedi_device *dev) {
         spi_adc.chan = 0;
         return spi_adc.chan;
     }
+	spi_adc.dev=dev;
 
     switch (daqgert_conf) {
         case 1:
