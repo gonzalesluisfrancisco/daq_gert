@@ -235,12 +235,13 @@ static struct spi_param_type spi_adc = {
 
 struct pic_platform_data {
     uint16_t conv_delay_usecs, cmd_delay_usecs;
-    int chan;
+    int chan,timer;
     struct mutex drvdata_lock;
 };
 
 static struct pic_platform_data pic_info_pic18 = {
     .chan = 0,
+    .timer = 0,
     .cmd_delay_usecs = 10,
     .conv_delay_usecs = 30
 };
@@ -765,9 +766,11 @@ struct daqgert_board {
     unsigned int ai_ns_min;
 };
 
-static void daqgert_start_pacer(bool load_timers) {
-    /* setup timer interval to not fire */
-    mod_timer(&my_timer, jiffies - msecs_to_jiffies(2000));
+static void daqgert_start_pacer(struct comedi_device *dev, bool load_timers) {
+    struct comedi_subdevice *s = dev->read_subdev;
+    struct pic_platform_data *pic_data = s->private;
+
+    pic_data->timer=FALSE;
     udelay(1);
 
     if (load_timers) {
@@ -777,11 +780,15 @@ static void daqgert_start_pacer(bool load_timers) {
 }
 
 static void daqgert_ai_clear_eoc(struct comedi_device *dev) {
-    daqgert_start_pacer(FALSE);
+    daqgert_start_pacer(dev,FALSE);
 }
 
 static void daqgert_ai_soft_trig(struct comedi_device *dev) {
-    daqgert_start_pacer(TRUE);
+    struct comedi_subdevice *s = dev->read_subdev;
+    struct pic_platform_data *pic_data = s->private;
+
+    daqgert_start_pacer(dev,TRUE);
+    pic_data->timer=TRUE;
 }
 
 static int daqgert_ai_eoc(struct comedi_device *dev,
@@ -896,11 +903,13 @@ static void daqgert_handle_eoc(struct comedi_device *dev,
 
 static int daqgert_ai_cmd(struct comedi_device *dev, struct comedi_subdevice *s) {
     struct comedi_cmd *cmd = &s->async->cmd;
+    struct pic_platform_data *pic_data = s->private;
 
     daqgert_ai_set_chan_range(dev, cmd->chanlist[0], 1);
     s->async->cur_chan = 0;
 
-    daqgert_start_pacer(TRUE);
+    daqgert_start_pacer(dev,TRUE);
+    pic_data->timer=TRUE;
 
     dev_info(dev->class_dev, "ai_cmd\n");
     return 0;
@@ -981,10 +990,16 @@ static int daqgert_ai_cmdtest(struct comedi_device *dev,
 void my_timer_callback(unsigned long data) {
     struct comedi_device *dev = (void*)data;
     struct comedi_subdevice *s = dev->read_subdev;
+    struct pic_platform_data *pic_data = s->private;
 
     dev_info(dev->class_dev, "Timer called\n");
-    daqgert_start_pacer(TRUE);
+    if (pic_data->timer) {
+	dev_info(dev->class_dev, "Timer flag active\n");
+    	cfc_handle_events(dev, s);
+    }
+    daqgert_start_pacer(dev,TRUE);
     return;
+
     if (!dev->attached) {
         daqgert_ai_clear_eoc(dev);
         return;
@@ -995,7 +1010,7 @@ void my_timer_callback(unsigned long data) {
 
     cfc_handle_events(dev, s);
     /* do your timer stuff here */
-    daqgert_start_pacer(TRUE);
+    daqgert_start_pacer(dev,TRUE);
 
 }
 
@@ -1201,7 +1216,7 @@ static int daqgert_attach(struct comedi_device *dev, struct comedi_devconfig *it
         s->cancel = daqgert_ai_cancel;
         /* setup your timer to call my_timer_callback */
         setup_timer(&my_timer, my_timer_callback, (unsigned long)dev);
-        daqgert_start_pacer(FALSE);
+        daqgert_start_pacer(dev,FALSE);
 
         /* daq-gert ao */
         s = &dev->subdevices[2];
