@@ -1214,6 +1214,7 @@ static int daqgert_attach(struct comedi_device *dev, struct comedi_devconfig *it
         s->do_cmd = daqgert_ai_cmd;
         s->poll = daqgert_ai_poll;
         s->cancel = daqgert_ai_cancel;
+	dev->read_subdev = s;
         /* setup your timer to call my_timer_callback */
         setup_timer(&my_timer, my_timer_callback, (unsigned long)dev);
         daqgert_start_pacer(dev,FALSE);
