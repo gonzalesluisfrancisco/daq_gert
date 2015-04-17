@@ -180,6 +180,7 @@ The output range is 0 to 4095 for 0.0 to 2.048 onboard devices (output resolutio
 #include <linux/spi/spi.h>
 #include <linux/delay.h>
 #include <linux/device.h>
+#include <linux/timer.h>
 
 /* Function stubs */
 void (*pinMode) (int pin, int mode);
@@ -207,6 +208,7 @@ static int gpiosafe = 1;
 module_param(gpiosafe, int, S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);
 static int dio_conf = 0;
 module_param(dio_conf, int, S_IRUGO);
+static struct timer_list my_timer;
 
 struct comedi_control {
     u8 *tx_buff;
@@ -301,9 +303,22 @@ static struct pic_platform_data pic_info_pic18 = {
 #define NUM_DIO_OUTPUTS 8
 #define DIO_PINS_DEFAULT        0xff
 
+// Timer
+//      Word offsets
+ 
+#define TIMER_LOAD      (0x400 >> 2)
+#define TIMER_VALUE     (0x404 >> 2)
+#define TIMER_CONTROL   (0x408 >> 2)
+#define TIMER_IRQ_CLR   (0x40C >> 2)
+#define TIMER_IRQ_RAW   (0x410 >> 2)
+#define TIMER_IRQ_MASK  (0x414 >> 2)
+#define TIMER_RELOAD    (0x418 >> 2)
+#define TIMER_PRE_DIV   (0x41C >> 2)
+#define TIMER_COUNTER   (0x420 >> 2)
+
 /* Locals to hold pointers to the hardware */
 
-static volatile uint32_t *gpio;
+static volatile uint32_t *gpio,*timer,*timerIrqRaw ;
 static int num_ai_chan, num_ao_chan, num_dio_chan = NUM_DIO_CHAN;
 
 /* Global for the RPi board rev */
@@ -749,6 +764,36 @@ struct daqgert_board {
     unsigned int ai_ns_min;
 };
 
+static void daqgert_start_pacer( bool load_timers)
+{
+  /* setup timer interval to 0 msecs */
+  mod_timer(&my_timer, jiffies);
+	udelay(1);
+
+	if (load_timers) {
+  /* setup timer interval to 2000 msecs */
+  mod_timer(&my_timer, jiffies + msecs_to_jiffies(2000));
+	}
+}
+static void daqgert_ai_clear_eoc(struct comedi_device *dev)
+{
+	daqgert_start_pacer(FALSE);
+}
+
+static void daqgert_ai_soft_trig(struct comedi_device *dev)
+{
+        daqgert_start_pacer(TRUE);
+}
+
+static int daqgert_ai_eoc(struct comedi_device *dev,
+			 struct comedi_subdevice *s,
+			 struct comedi_insn *insn,
+			 unsigned long context)
+{
+	return 0;
+	return -EBUSY;
+}
+
 static void daqgert_ai_set_chan_range(struct comedi_device *dev,
         unsigned int chanspec, char wait) {
     pic_info_pic18.chan = CR_CHAN(chanspec);
@@ -855,7 +900,8 @@ static int daqgert_ai_cmd(struct comedi_device *dev, struct comedi_subdevice *s)
 
     daqgert_ai_set_chan_range(dev, cmd->chanlist[0], 1);
     s->async->cur_chan = 0;
-    daqgert_handle_eoc(dev, s);
+
+    daqgert_start_pacer(TRUE);
 
     dev_info(dev->class_dev, "ai_cmd\n");
     return 0;
@@ -863,11 +909,12 @@ static int daqgert_ai_cmd(struct comedi_device *dev, struct comedi_subdevice *s)
 
 static int daqgert_ai_poll(struct comedi_device *dev, struct comedi_subdevice *s) {
     dev_info(dev->class_dev, "ai_poll\n");
-    return 2;
+    return comedi_buf_n_bytes_ready(s);
 }
 
 static int daqgert_ai_cancel(struct comedi_device *dev,
         struct comedi_subdevice *s) {
+	daqgert_ai_clear_eoc(dev);
     return 0;
 }
 
@@ -930,6 +977,25 @@ static int daqgert_ai_cmdtest(struct comedi_device *dev,
 
     dev_info(dev->class_dev, "ai_cmdtest PASS\n");
     return 0;
+}
+
+void my_timer_callback( unsigned long data )
+{
+        struct comedi_device *dev = (void*) data;
+        struct comedi_subdevice *s = dev->read_subdev;
+
+        if (!dev->attached) {
+                daqgert_ai_clear_eoc(dev);
+                return;
+        }
+
+        daqgert_handle_eoc(dev, s);
+        daqgert_ai_clear_eoc(dev);
+
+        cfc_handle_events(dev, s);
+     /* do your timer stuff here */
+ daqgert_start_pacer(TRUE);
+
 }
 
 /* FIXME Slow brute forced IO bits, 5us reads from userland */
@@ -1067,10 +1133,22 @@ static int daqgert_attach(struct comedi_device *dev, struct comedi_devconfig *it
 
     gpio = ioremap(GPIO_BASE, SZ_16K); /* lets get access to the GPIO base */
     if (!gpio) {
-        dev_err(dev->class_dev, "Invalid io base address!\n");
+        dev_err(dev->class_dev, "Invalid gpio io base address!\n");
         return -EINVAL;
     }
     dev->iobase = GPIO_BASE; /* filler */
+    timer =  ioremap(GPIO_BASE+0x0000B000, SZ_16K); /* lets get access to the TIMER base */
+    if (!timer) {
+        dev_err(dev->class_dev, "Invalid timer io base address!\n");
+        return -EINVAL;
+    }
+    *(timer + TIMER_CONTROL) = 0x0000280 ;
+    *(timer + TIMER_PRE_DIV) = 0x00000F9 ;
+    timerIrqRaw = timer + TIMER_IRQ_RAW ;
+
+    /* setup your timer to call my_timer_callback */
+    setup_timer(&my_timer, my_timer_callback, 0);
+    daqgert_start_pacer(FALSE);
 
     /* setup the pins in a static matter for now */
     /* PIN mode for all */
@@ -1160,6 +1238,9 @@ static int daqgert_attach(struct comedi_device *dev, struct comedi_devconfig *it
 
 static void daqgert_detach(struct comedi_device *dev) {
     iounmap(gpio);
+    iounmap(timer);
+  /* remove kernel timer when unloading module */
+  del_timer(&my_timer);
     if (comedi_ctl.tx_buff)
         kfree(comedi_ctl.tx_buff);
     if (comedi_ctl.rx_buff)
