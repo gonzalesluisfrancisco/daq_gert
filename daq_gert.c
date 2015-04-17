@@ -995,7 +995,7 @@ void my_timer_callback(unsigned long data) {
         pic_data->timer = TRUE;
     }
     daqgert_start_pacer(dev, TRUE);
-    return;
+//    return;
 
     if (!dev->attached) {
         daqgert_ai_clear_eoc(dev);
