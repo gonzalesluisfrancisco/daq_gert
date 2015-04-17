@@ -188,6 +188,9 @@ void (*digitalWrite) (int pin, int value);
 void (*setPadDrive) (int group, int value);
 int (*digitalRead) (int pin);
 int SPI_probe(struct comedi_device *);
+static void daqgert_ai_clear_eoc(struct comedi_device *);
+static int daqgert_ai_cancel(struct comedi_device *,
+        struct comedi_subdevice *);
 
 /* analog chip types (type - 12 bits) */
 #define MCP3002 2 /* 10 bit ADC */
@@ -235,7 +238,7 @@ static struct spi_param_type spi_adc = {
 
 struct pic_platform_data {
     uint16_t conv_delay_usecs, cmd_delay_usecs;
-    int chan,timer;
+    int chan, timer;
     struct mutex drvdata_lock;
 };
 
@@ -770,7 +773,7 @@ static void daqgert_start_pacer(struct comedi_device *dev, bool load_timers) {
     struct comedi_subdevice *s = dev->read_subdev;
     struct pic_platform_data *pic_data = s->private;
 
-    pic_data->timer=FALSE;
+    pic_data->timer = FALSE;
     udelay(1);
 
     if (load_timers) {
@@ -779,16 +782,12 @@ static void daqgert_start_pacer(struct comedi_device *dev, bool load_timers) {
     }
 }
 
-static void daqgert_ai_clear_eoc(struct comedi_device *dev) {
-    daqgert_start_pacer(dev,FALSE);
-}
-
 static void daqgert_ai_soft_trig(struct comedi_device *dev) {
     struct comedi_subdevice *s = dev->read_subdev;
     struct pic_platform_data *pic_data = s->private;
 
-    daqgert_start_pacer(dev,TRUE);
-    pic_data->timer=TRUE;
+    pic_data->timer = TRUE;
+    daqgert_start_pacer(dev, TRUE);
 }
 
 static int daqgert_ai_eoc(struct comedi_device *dev,
@@ -890,7 +889,8 @@ static void daqgert_handle_eoc(struct comedi_device *dev,
     struct comedi_cmd *cmd = &s->async->cmd;
     unsigned int next_chan;
 
-    comedi_buf_put(s, daqgert_ai_get_sample(dev, s));
+//    comedi_buf_put(s, daqgert_ai_get_sample(dev, s));
+    comedi_buf_put(s, 512);
 
     next_chan = s->async->cur_chan + 1;
     if (next_chan >= cmd->chanlist_len)
@@ -908,8 +908,8 @@ static int daqgert_ai_cmd(struct comedi_device *dev, struct comedi_subdevice *s)
     daqgert_ai_set_chan_range(dev, cmd->chanlist[0], 1);
     s->async->cur_chan = 0;
 
-    daqgert_start_pacer(dev,TRUE);
-    pic_data->timer=TRUE;
+    pic_data->timer = TRUE;
+    daqgert_start_pacer(dev, TRUE);
 
     dev_info(dev->class_dev, "ai_cmd\n");
     return 0;
@@ -918,12 +918,6 @@ static int daqgert_ai_cmd(struct comedi_device *dev, struct comedi_subdevice *s)
 static int daqgert_ai_poll(struct comedi_device *dev, struct comedi_subdevice *s) {
     dev_info(dev->class_dev, "ai_poll\n");
     return comedi_buf_n_bytes_ready(s);
-}
-
-static int daqgert_ai_cancel(struct comedi_device *dev,
-        struct comedi_subdevice *s) {
-    daqgert_ai_clear_eoc(dev);
-    return 0;
 }
 
 static int daqgert_ai_cmdtest(struct comedi_device *dev,
@@ -988,17 +982,18 @@ static int daqgert_ai_cmdtest(struct comedi_device *dev,
 }
 
 void my_timer_callback(unsigned long data) {
-    struct comedi_device *dev = (void*)data;
+    struct comedi_device *dev = (void*) data;
     struct comedi_subdevice *s = dev->read_subdev;
     struct pic_platform_data *pic_data = s->private;
 
+        pic_data->timer = TRUE;
     dev_info(dev->class_dev, "Timer called\n");
-    daqgert_start_pacer(dev,TRUE);
     if (pic_data->timer) {
         dev_info(dev->class_dev, "Timer flag active\n");
         cfc_handle_events(dev, s);
-        pic_data->timer=TRUE;
+        pic_data->timer = TRUE;
     }
+    daqgert_start_pacer(dev, TRUE);
     return;
 
     if (!dev->attached) {
@@ -1011,8 +1006,19 @@ void my_timer_callback(unsigned long data) {
 
     cfc_handle_events(dev, s);
     /* do your timer stuff here */
-    daqgert_start_pacer(dev,TRUE);
+    daqgert_start_pacer(dev, TRUE);
 
+}
+
+static void daqgert_ai_clear_eoc(struct comedi_device *dev) {
+        del_timer_sync(&my_timer);
+        setup_timer(&my_timer, my_timer_callback, (unsigned long) dev);
+}
+
+static int daqgert_ai_cancel(struct comedi_device *dev,
+        struct comedi_subdevice *s) {
+    daqgert_ai_clear_eoc(dev);
+    return 0;
 }
 
 /* FIXME Slow brute forced IO bits, 5us reads from userland */
@@ -1215,10 +1221,10 @@ static int daqgert_attach(struct comedi_device *dev, struct comedi_devconfig *it
         s->do_cmd = daqgert_ai_cmd;
         s->poll = daqgert_ai_poll;
         s->cancel = daqgert_ai_cancel;
-	dev->read_subdev = s;
+        dev->read_subdev = s;
         /* setup your timer to call my_timer_callback */
-        setup_timer(&my_timer, my_timer_callback, (unsigned long)dev);
-        daqgert_start_pacer(dev,FALSE);
+        setup_timer(&my_timer, my_timer_callback, (unsigned long) dev);
+        daqgert_start_pacer(dev, FALSE);
 
         /* daq-gert ao */
         s = &dev->subdevices[2];
