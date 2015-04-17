@@ -1139,10 +1139,6 @@ static int daqgert_attach(struct comedi_device *dev, struct comedi_devconfig *it
     }
     dev->iobase = GPIO_BASE; /* filler */
 
-    /* setup your timer to call my_timer_callback */
-    setup_timer(&my_timer, my_timer_callback, 0);
-    daqgert_start_pacer(FALSE);
-
     /* setup the pins in a static matter for now */
     /* PIN mode for all */
     dev_info(dev->class_dev, "GertBoard WiringPiSetup\n");
@@ -1203,6 +1199,9 @@ static int daqgert_attach(struct comedi_device *dev, struct comedi_devconfig *it
         s->do_cmd = daqgert_ai_cmd;
         s->poll = daqgert_ai_poll;
         s->cancel = daqgert_ai_cancel;
+        /* setup your timer to call my_timer_callback */
+        setup_timer(&my_timer, my_timer_callback, 0);
+        daqgert_start_pacer(FALSE);
 
         /* daq-gert ao */
         s = &dev->subdevices[2];
@@ -1231,8 +1230,10 @@ static int daqgert_attach(struct comedi_device *dev, struct comedi_devconfig *it
 
 static void daqgert_detach(struct comedi_device *dev) {
     iounmap(gpio);
-  /* remove kernel timer when unloading module */
-  del_timer(&my_timer);
+    if (1) {
+  	/* remove kernel timer when unloading module */
+  	del_timer(&my_timer);
+    }
     if (comedi_ctl.tx_buff)
         kfree(comedi_ctl.tx_buff);
     if (comedi_ctl.rx_buff)
