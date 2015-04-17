@@ -306,7 +306,7 @@ static struct pic_platform_data pic_info_pic18 = {
 
 // Timer
 //      Word offsets
- 
+
 #define TIMER_LOAD      (0x400 >> 2)
 #define TIMER_VALUE     (0x404 >> 2)
 #define TIMER_CONTROL   (0x408 >> 2)
@@ -319,7 +319,7 @@ static struct pic_platform_data pic_info_pic18 = {
 
 /* Locals to hold pointers to the hardware */
 
-static volatile uint32_t *gpio ;
+static volatile uint32_t *gpio;
 static int num_ai_chan, num_ao_chan, num_dio_chan = NUM_DIO_CHAN;
 
 /* Global for the RPi board rev */
@@ -765,34 +765,32 @@ struct daqgert_board {
     unsigned int ai_ns_min;
 };
 
-static void daqgert_start_pacer( bool load_timers)
-{
-  /* setup timer interval to 0 msecs */
-  mod_timer(&my_timer, jiffies);
-	udelay(1);
+static void daqgert_start_pacer(bool load_timers) {
+    /* setup timer interval to not fire */
+    mod_timer(&my_timer, jiffies - msecs_to_jiffies(2000));
+    udelay(1);
 
-	if (load_timers) {
-  /* setup timer interval to 2000 msecs */
-  mod_timer(&my_timer, jiffies + msecs_to_jiffies(2000));
-	}
-}
-static void daqgert_ai_clear_eoc(struct comedi_device *dev)
-{
-	daqgert_start_pacer(FALSE);
+    if (load_timers) {
+        /* setup timer interval to 2000 msecs */
+        mod_timer(&my_timer, jiffies + msecs_to_jiffies(2000));
+    }
 }
 
-static void daqgert_ai_soft_trig(struct comedi_device *dev)
-{
-        daqgert_start_pacer(TRUE);
+static void daqgert_ai_clear_eoc(struct comedi_device *dev) {
+    daqgert_start_pacer(FALSE);
+}
+
+static void daqgert_ai_soft_trig(struct comedi_device *dev) {
+    daqgert_start_pacer(TRUE);
 }
 
 static int daqgert_ai_eoc(struct comedi_device *dev,
-			 struct comedi_subdevice *s,
-			 struct comedi_insn *insn,
-			 unsigned long context)
-{
-	return 0;
-	return -EBUSY;
+        struct comedi_subdevice *s,
+        struct comedi_insn *insn,
+        unsigned long context) {
+    if (timer_pending(&my_timer)) return -EBUSY;
+    return 0;
+
 }
 
 static void daqgert_ai_set_chan_range(struct comedi_device *dev,
@@ -915,7 +913,7 @@ static int daqgert_ai_poll(struct comedi_device *dev, struct comedi_subdevice *s
 
 static int daqgert_ai_cancel(struct comedi_device *dev,
         struct comedi_subdevice *s) {
-	daqgert_ai_clear_eoc(dev);
+    daqgert_ai_clear_eoc(dev);
     return 0;
 }
 
@@ -980,22 +978,21 @@ static int daqgert_ai_cmdtest(struct comedi_device *dev,
     return 0;
 }
 
-void my_timer_callback( unsigned long data )
-{
-        struct comedi_device *dev = spi_adc.dev;
-        struct comedi_subdevice *s = dev->read_subdev;
+void my_timer_callback(unsigned long data) {
+    struct comedi_device *dev = spi_adc.dev;
+    struct comedi_subdevice *s = dev->read_subdev;
 
-        if (!dev->attached) {
-                daqgert_ai_clear_eoc(dev);
-                return;
-        }
-
-        daqgert_handle_eoc(dev, s);
+    if (!dev->attached) {
         daqgert_ai_clear_eoc(dev);
+        return;
+    }
 
-        cfc_handle_events(dev, s);
-     /* do your timer stuff here */
- daqgert_start_pacer(TRUE);
+    daqgert_handle_eoc(dev, s);
+    daqgert_ai_clear_eoc(dev);
+
+    cfc_handle_events(dev, s);
+    /* do your timer stuff here */
+    //    daqgert_start_pacer(TRUE);
 
 }
 
@@ -1231,8 +1228,8 @@ static int daqgert_attach(struct comedi_device *dev, struct comedi_devconfig *it
 static void daqgert_detach(struct comedi_device *dev) {
     iounmap(gpio);
     if (1) {
-  	/* remove kernel timer when unloading module */
-  	del_timer(&my_timer);
+        /* remove kernel timer when unloading module */
+        del_timer_sync(&my_timer);
     }
     if (comedi_ctl.tx_buff)
         kfree(comedi_ctl.tx_buff);
@@ -1346,7 +1343,7 @@ int SPI_probe(struct comedi_device *dev) {
         spi_adc.chan = 0;
         return spi_adc.chan;
     }
-	spi_adc.dev=dev;
+    spi_adc.dev = dev;
 
     switch (daqgert_conf) {
         case 1:
