@@ -993,11 +993,12 @@ void my_timer_callback(unsigned long data) {
     struct pic_platform_data *pic_data = s->private;
 
     dev_info(dev->class_dev, "Timer called\n");
-    if (pic_data->timer) {
-	dev_info(dev->class_dev, "Timer flag active\n");
-    	cfc_handle_events(dev, s);
-    }
     daqgert_start_pacer(dev,TRUE);
+    if (pic_data->timer) {
+        dev_info(dev->class_dev, "Timer flag active\n");
+        cfc_handle_events(dev, s);
+        pic_data->timer=TRUE;
+    }
     return;
 
     if (!dev->attached) {
