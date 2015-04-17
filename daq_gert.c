@@ -979,9 +979,12 @@ static int daqgert_ai_cmdtest(struct comedi_device *dev,
 }
 
 void my_timer_callback(unsigned long data) {
-    struct comedi_device *dev = spi_adc.dev;
+    struct comedi_device *dev = (void*)data;
     struct comedi_subdevice *s = dev->read_subdev;
 
+    dev_info(dev->class_dev, "Timer called\n");
+    daqgert_start_pacer(TRUE);
+    return;
     if (!dev->attached) {
         daqgert_ai_clear_eoc(dev);
         return;
@@ -992,7 +995,7 @@ void my_timer_callback(unsigned long data) {
 
     cfc_handle_events(dev, s);
     /* do your timer stuff here */
-    //    daqgert_start_pacer(TRUE);
+    daqgert_start_pacer(TRUE);
 
 }
 
@@ -1197,7 +1200,7 @@ static int daqgert_attach(struct comedi_device *dev, struct comedi_devconfig *it
         s->poll = daqgert_ai_poll;
         s->cancel = daqgert_ai_cancel;
         /* setup your timer to call my_timer_callback */
-        setup_timer(&my_timer, my_timer_callback, 0);
+        setup_timer(&my_timer, my_timer_callback, (unsigned long)dev);
         daqgert_start_pacer(FALSE);
 
         /* daq-gert ao */
