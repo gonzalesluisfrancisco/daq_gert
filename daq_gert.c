@@ -1002,10 +1002,10 @@ void my_timer_callback(unsigned long data) {
         return;
     }
 
-//    daqgert_handle_eoc(dev, s);
+    daqgert_handle_eoc(dev, s);
     daqgert_ai_clear_eoc(dev);
 
-    cfc_handle_events(dev, s);
+//    cfc_handle_events(dev, s);
     /* do your timer stuff here */
     daqgert_start_pacer(dev, TRUE);
 
