@@ -773,16 +773,16 @@ struct daqgert_board {
     unsigned int ai_ns_min;
 };
 
-int daqgert_thread_function(void *data)
-{
-  int var;
- var = 10;
-     printk(KERN_INFO "IN THREAD FUNCTION");
-     while(!kthread_should_stop()){
-             schedule();
-             }
-     /*do_exit(1);*/
-  return var;
+int daqgert_thread_function(void *data) {
+    int var;
+    var = 10;
+    printk(KERN_INFO "Daq_gert Thread started\n");
+    while (!kthread_should_stop()) {
+        udelay(1000);
+        schedule();
+    }
+    /*do_exit(1);*/
+    return var;
 
 }
 
@@ -1238,7 +1238,7 @@ static int daqgert_attach(struct comedi_device *dev, struct comedi_devconfig *it
         s->cancel = daqgert_ai_cancel;
         dev->read_subdev = s;
         /* setup kthread */
-        daqgert_task = kthread_run(&daqgert_thread_function,(void *)dev,"daq_gert");
+        daqgert_task = kthread_run(&daqgert_thread_function, (void *) dev, "daq_gert");
         /* setup your timer to call my_timer_callback */
         setup_timer(&my_timer, my_timer_callback, (unsigned long) dev);
         daqgert_start_pacer(dev, FALSE);
@@ -1270,7 +1270,7 @@ static int daqgert_attach(struct comedi_device *dev, struct comedi_devconfig *it
 
 static void daqgert_detach(struct comedi_device *dev) {
     iounmap(gpio);
-       kthread_stop(daqgert_task);
+    kthread_stop(daqgert_task);
     if (1) {
         /* remove kernel timer when unloading module */
         del_timer_sync(&my_timer);
