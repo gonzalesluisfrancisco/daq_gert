@@ -781,12 +781,11 @@ int daqgert_thread_function(void *data) {
     struct pic_platform_data *pic_data = s->private;
     int var = 0, spi_run = false;
 
-    set_current_state(TASK_INTERRUPTIBLE);
+    set_current_state(TASK_UNINTERRUPTIBLE);
     dev_info(dev->class_dev, "Daq_gert Thread started\n");
     while (!kthread_should_stop()) {
         while (!spi_run) {
             schedule_timeout(msecs_to_jiffies(100));
-            schedule();
             mb();
             if (pic_data->timer) {
                 pic_data->timer = false;
@@ -1271,7 +1270,8 @@ static int daqgert_attach(struct comedi_device *dev, struct comedi_devconfig *it
 
 static void daqgert_detach(struct comedi_device *dev) {
     iounmap(gpio);
-    kthread_stop(daqgert_task);
+    if (daqgert_task) kthread_stop(daqgert_task);
+    daqgert_task = NULL;
     if (1) {
         /* remove kernel timer when unloading module */
         del_timer_sync(&my_timer);
