@@ -774,14 +774,25 @@ struct daqgert_board {
 };
 
 int daqgert_thread_function(void *data) {
-    int var;
-    var = 10;
+    struct comedi_device *dev = (void*) data;
+    struct comedi_subdevice *s = dev->read_subdev;
+    struct pic_platform_data *pic_data = s->private;
+    int var = 10, spi_run = 0;
 
     set_current_state(TASK_INTERRUPTIBLE);
-    printk(KERN_INFO "Daq_gert Thread started\n");
+    printk(KERN_INFO "comedi comedix: Daq_gert Thread started\n");
     while (!kthread_should_stop()) {
-        schedule_timeout(10000);
-        schedule();
+
+        while (!spi_run) {
+            schedule_timeout(msecs_to_jiffies(1));
+            schedule();
+            if (pic_data->timer) {
+                pic_data->timer = false;
+                spi_run = true;
+            }
+        }
+        printk(KERN_INFO "comedi comedix: Daq_gert Thread Running\n");
+        spi_run = false;
     }
     /*do_exit(1);*/
     return var;
@@ -792,7 +803,6 @@ static void daqgert_start_pacer(struct comedi_device *dev, bool load_timers) {
     struct comedi_subdevice *s = dev->read_subdev;
     struct pic_platform_data *pic_data = s->private;
 
-    pic_data->timer = FALSE;
     udelay(1);
 
     if (load_timers) {
@@ -1007,21 +1017,7 @@ void my_timer_callback(unsigned long data) {
 
     pic_data->timer = TRUE;
     dev_info(dev->class_dev, "Timer called\n");
-    if (pic_data->timer) {
-        dev_info(dev->class_dev, "Timer flag active\n");
-        cfc_handle_events(dev, s);
-        pic_data->timer = TRUE;
-    }
 
-    if (!dev->attached) {
-        //        daqgert_ai_clear_eoc(dev);
-        return;
-    }
-
-    //    daqgert_handle_eoc(dev, s);
-    //    daqgert_ai_clear_eoc(dev);
-
-    //    cfc_handle_events(dev, s);
     /* do your timer stuff here */
     daqgert_start_pacer(dev, TRUE);
 
