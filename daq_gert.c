@@ -776,9 +776,11 @@ struct daqgert_board {
 int daqgert_thread_function(void *data) {
     int var;
     var = 10;
+
+    set_current_state(TASK_INTERRUPTIBLE);
     printk(KERN_INFO "Daq_gert Thread started\n");
     while (!kthread_should_stop()) {
-        udelay(1000);
+        schedule_timeout(10000);
         schedule();
     }
     /*do_exit(1);*/
