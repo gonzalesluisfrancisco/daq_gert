@@ -177,6 +177,8 @@ The output range is 0 to 4095 for 0.0 to 2.048 onboard devices (output resolutio
 #include <linux/interrupt.h>
 #include <linux/kernel.h>
 #include <linux/module.h>
+#include <linux/kthread.h>
+#include <linux/sched.h>
 #include <linux/spi/spi.h>
 #include <linux/delay.h>
 #include <linux/device.h>
@@ -213,6 +215,7 @@ module_param(gpiosafe, int, S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);
 static int dio_conf = 0;
 module_param(dio_conf, int, S_IRUGO);
 static struct timer_list my_timer;
+struct task_struct *daqgert_task;
 
 struct comedi_control {
     u8 *tx_buff;
@@ -770,6 +773,19 @@ struct daqgert_board {
     unsigned int ai_ns_min;
 };
 
+int daqgert_thread_function(void *data)
+{
+  int var;
+ var = 10;
+     printk(KERN_INFO "IN THREAD FUNCTION");
+     while(!kthread_should_stop()){
+             schedule();
+             }
+     /*do_exit(1);*/
+  return var;
+
+}
+
 static void daqgert_start_pacer(struct comedi_device *dev, bool load_timers) {
     struct comedi_subdevice *s = dev->read_subdev;
     struct pic_platform_data *pic_data = s->private;
@@ -873,7 +889,7 @@ static void daqgert_handle_eoc(struct comedi_device *dev,
     struct comedi_cmd *cmd = &s->async->cmd;
     unsigned int next_chan;
 
-    //    comedi_buf_put(s, daqgert_ai_get_sample(dev, s));
+    comedi_buf_put(s, daqgert_ai_get_sample(dev, s));
     comedi_buf_put(s, 512);
 
     next_chan = s->async->cur_chan + 1;
@@ -994,18 +1010,16 @@ void my_timer_callback(unsigned long data) {
         cfc_handle_events(dev, s);
         pic_data->timer = TRUE;
     }
-    daqgert_start_pacer(dev, TRUE);
-//    return;
 
     if (!dev->attached) {
-        daqgert_ai_clear_eoc(dev);
+        //        daqgert_ai_clear_eoc(dev);
         return;
     }
 
-    daqgert_handle_eoc(dev, s);
-    daqgert_ai_clear_eoc(dev);
+    //    daqgert_handle_eoc(dev, s);
+    //    daqgert_ai_clear_eoc(dev);
 
-//    cfc_handle_events(dev, s);
+    //    cfc_handle_events(dev, s);
     /* do your timer stuff here */
     daqgert_start_pacer(dev, TRUE);
 
@@ -1223,6 +1237,8 @@ static int daqgert_attach(struct comedi_device *dev, struct comedi_devconfig *it
         s->poll = daqgert_ai_poll;
         s->cancel = daqgert_ai_cancel;
         dev->read_subdev = s;
+        /* setup kthread */
+        daqgert_task = kthread_run(&daqgert_thread_function,(void *)dev,"daq_gert");
         /* setup your timer to call my_timer_callback */
         setup_timer(&my_timer, my_timer_callback, (unsigned long) dev);
         daqgert_start_pacer(dev, FALSE);
@@ -1254,6 +1270,7 @@ static int daqgert_attach(struct comedi_device *dev, struct comedi_devconfig *it
 
 static void daqgert_detach(struct comedi_device *dev) {
     iounmap(gpio);
+       kthread_stop(daqgert_task);
     if (1) {
         /* remove kernel timer when unloading module */
         del_timer_sync(&my_timer);
