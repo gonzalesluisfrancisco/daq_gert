@@ -193,6 +193,8 @@ int SPI_probe(struct comedi_device *);
 static void daqgert_ai_clear_eoc(struct comedi_device *);
 static int daqgert_ai_cancel(struct comedi_device *,
         struct comedi_subdevice *);
+static void daqgert_handle_eoc(struct comedi_device *,
+        struct comedi_subdevice *);
 void my_timer_callback(unsigned long);
 
 /* analog chip types (type - 12 bits) */
