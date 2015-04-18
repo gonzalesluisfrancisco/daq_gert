@@ -781,17 +781,16 @@ int daqgert_thread_function(void *data) {
     struct pic_platform_data *pic_data = s->private;
     int var = 0, spi_run = false;
 
-    set_current_state(TASK_UNINTERRUPTIBLE);
+    set_current_state(TASK_INTERRUPTIBLE);
     dev_info(dev->class_dev, "Daq_gert Thread started\n");
     while (!kthread_should_stop()) {
         while (!spi_run) {
-            schedule_timeout(msecs_to_jiffies(100));
-            mb();
+            schedule_timeout(msecs_to_jiffies(1));
             if (pic_data->timer) {
                 pic_data->timer = false;
                 spi_run = true;
             }
-            mb();
+            if (kthread_should_stop()) return var;
         }
         dev_info(dev->class_dev, "Daq_gert Thread Running\n");
         spi_run = false;
@@ -810,7 +809,7 @@ static void daqgert_start_pacer(struct comedi_device *dev, bool load_timers) {
     udelay(1);
     if (load_timers) {
         /* setup timer interval to 1000 msecs */
-        mod_timer(&my_timer, jiffies + msecs_to_jiffies(100));
+        mod_timer(&my_timer, jiffies + msecs_to_jiffies(300));
     }
 }
 
@@ -957,7 +956,7 @@ static int daqgert_ai_cmdtest(struct comedi_device *dev,
     int err = 0;
     unsigned int flags;
 
-    dev_info(dev->class_dev, "ai_cmdtest\n");
+    //    dev_info(dev->class_dev, "ai_cmdtest\n");
     /* Step 1 : check if triggers are trivially valid */
 
     err |= cfc_check_trigger_src(&cmd->start_src, TRIG_NOW);
