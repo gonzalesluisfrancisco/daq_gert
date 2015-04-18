@@ -794,6 +794,10 @@ int daqgert_thread_function(void *data) {
         }
         dev_info(dev->class_dev, "Daq_gert Thread Running\n");
         spi_run = false;
+
+        daqgert_handle_eoc(dev, s);
+        daqgert_ai_clear_eoc(dev);
+        cfc_handle_events(dev, s);
     }
     /*do_exit(1);*/
     return var;
@@ -804,8 +808,8 @@ static void daqgert_start_pacer(struct comedi_device *dev, bool load_timers) {
 
     udelay(1);
     if (load_timers) {
-        /* setup timer interval to 2000 msecs */
-        mod_timer(&my_timer, jiffies + msecs_to_jiffies(2000));
+        /* setup timer interval to 1000 msecs */
+        mod_timer(&my_timer, jiffies + msecs_to_jiffies(100));
     }
 }
 
@@ -900,7 +904,6 @@ static void daqgert_handle_eoc(struct comedi_device *dev,
     unsigned int next_chan;
 
     comedi_buf_put(s, daqgert_ai_get_sample(dev, s));
-    comedi_buf_put(s, 512);
 
     next_chan = s->async->cur_chan + 1;
     if (next_chan >= cmd->chanlist_len)
