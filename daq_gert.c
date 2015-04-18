@@ -777,18 +777,20 @@ int daqgert_thread_function(void *data) {
     struct comedi_device *dev = (void*) data;
     struct comedi_subdevice *s = dev->read_subdev;
     struct pic_platform_data *pic_data = s->private;
-    int var = 10, spi_run = 0;
+    int var = 0, spi_run = false;
 
     set_current_state(TASK_INTERRUPTIBLE);
     dev_info(dev->class_dev, "Daq_gert Thread started\n");
     while (!kthread_should_stop()) {
         while (!spi_run) {
-            schedule_timeout(msecs_to_jiffies(1));
+            schedule_timeout(msecs_to_jiffies(100));
             schedule();
+            mb();
             if (pic_data->timer) {
                 pic_data->timer = false;
                 spi_run = true;
             }
+            mb();
         }
         dev_info(dev->class_dev, "Daq_gert Thread Running\n");
         spi_run = false;
@@ -799,11 +801,8 @@ int daqgert_thread_function(void *data) {
 }
 
 static void daqgert_start_pacer(struct comedi_device *dev, bool load_timers) {
-    struct comedi_subdevice *s = dev->read_subdev;
-    struct pic_platform_data *pic_data = s->private;
 
     udelay(1);
-
     if (load_timers) {
         /* setup timer interval to 2000 msecs */
         mod_timer(&my_timer, jiffies + msecs_to_jiffies(2000));
