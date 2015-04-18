@@ -780,9 +780,8 @@ int daqgert_thread_function(void *data) {
     int var = 10, spi_run = 0;
 
     set_current_state(TASK_INTERRUPTIBLE);
-    printk(KERN_INFO "comedi comedix: Daq_gert Thread started\n");
+    dev_info(dev->class_dev, "Daq_gert Thread started\n");
     while (!kthread_should_stop()) {
-
         while (!spi_run) {
             schedule_timeout(msecs_to_jiffies(1));
             schedule();
@@ -791,7 +790,7 @@ int daqgert_thread_function(void *data) {
                 spi_run = true;
             }
         }
-        printk(KERN_INFO "comedi comedix: Daq_gert Thread Running\n");
+        dev_info(dev->class_dev, "Daq_gert Thread Running\n");
         spi_run = false;
     }
     /*do_exit(1);*/
