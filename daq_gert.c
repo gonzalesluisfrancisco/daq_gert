@@ -792,12 +792,13 @@ int daqgert_thread_function(void *data) {
             }
             if (kthread_should_stop()) return var;
         }
-        dev_info(dev->class_dev, "Daq_gert Thread Running\n");
+        dev_info(dev->class_dev, "daq_gert Thread Running\n");
         spi_run = false;
 
         daqgert_handle_eoc(dev, s);
         daqgert_ai_clear_eoc(dev);
         cfc_handle_events(dev, s);
+        dev_info(dev->class_dev, "daq_gert Thread waiting\n");
     }
     /*do_exit(1);*/
     return var;
@@ -811,6 +812,7 @@ static void daqgert_start_pacer(struct comedi_device *dev, bool load_timers) {
         /* setup timer interval to 1000 msecs */
         mod_timer(&my_timer, jiffies + msecs_to_jiffies(300));
     }
+    dev_info(dev->class_dev, "pacer running\n");
 }
 
 static void daqgert_ai_set_chan_range(struct comedi_device *dev,
@@ -881,6 +883,7 @@ static bool daqgert_ai_next_chan(struct comedi_device *dev,
         struct comedi_subdevice *s) {
     struct comedi_cmd *cmd = &s->async->cmd;
 
+    dev_info(dev->class_dev, "ai_next_chan\n");
     s->async->events |= COMEDI_CB_BLOCK;
 
     s->async->cur_chan++;
@@ -903,6 +906,7 @@ static void daqgert_handle_eoc(struct comedi_device *dev,
     struct comedi_cmd *cmd = &s->async->cmd;
     unsigned int next_chan;
 
+    dev_info(dev->class_dev, "handle_eoc\n");
     comedi_buf_put(s, daqgert_ai_get_sample(dev, s));
 
     next_chan = s->async->cur_chan + 1;
@@ -935,13 +939,11 @@ static int daqgert_ai_cmd(struct comedi_device *dev, struct comedi_subdevice *s)
     struct comedi_cmd *cmd = &s->async->cmd;
     struct pic_platform_data *pic_data = s->private;
 
+    dev_info(dev->class_dev, "ai_cmd\n");
     daqgert_ai_set_chan_range(dev, cmd->chanlist[0], 1);
     s->async->cur_chan = 0;
 
-    pic_data->timer = TRUE;
     daqgert_start_pacer(dev, TRUE);
-
-    dev_info(dev->class_dev, "ai_cmd\n");
     return 0;
 }
 
@@ -1016,10 +1018,9 @@ void my_timer_callback(unsigned long data) {
     struct comedi_subdevice *s = dev->read_subdev;
     struct pic_platform_data *pic_data = s->private;
 
-    pic_data->timer = TRUE;
-    dev_info(dev->class_dev, "Timer called\n");
 
-    /* do your timer stuff here */
+    dev_info(dev->class_dev, "Timer called\n");
+    pic_data->timer = TRUE;
     daqgert_start_pacer(dev, TRUE);
 
 }
