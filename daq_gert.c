@@ -810,7 +810,7 @@ static void daqgert_start_pacer(struct comedi_device *dev, bool load_timers) {
     udelay(1);
     if (load_timers) {
         /* setup timer interval to 1000 msecs */
-        mod_timer(&my_timer, jiffies + msecs_to_jiffies(300));
+        mod_timer(&my_timer, jiffies + msecs_to_jiffies(1));
     }
     dev_info(dev->class_dev, "pacer running\n");
 }
