@@ -799,7 +799,6 @@ int daqgert_thread_function(void *data)
 	int var = 0, spi_run = false;
 
 	set_current_state(TASK_INTERRUPTIBLE);
-	//    dev_info(dev->class_dev, "Daq_gert Thread started\n");
 	while (!kthread_should_stop()) {
 		while (!spi_run) {
 			if (pic_data->timer) {
@@ -914,13 +913,13 @@ static bool daqgert_ai_next_chan(struct comedi_device *dev,
 	if (s->async->cur_chan >= cmd->chanlist_len) {
 		s->async->cur_chan = 0;
 		s->async->events |= COMEDI_CB_EOS;
-		dev_info(dev->class_dev, "CB_EOS\n");
+		//		dev_info(dev->class_dev, "CB_EOS\n");
 	}
 
 	if (cmd->stop_src == TRIG_COUNT) {
 		/* all data sampled */
 		s->async->events |= COMEDI_CB_EOA;
-		dev_info(dev->class_dev, "CB_EOA\n");
+		//		dev_info(dev->class_dev, "CB_EOA\n");
 		return false;
 	}
 
@@ -1048,7 +1047,7 @@ static int daqgert_ai_cmdtest(struct comedi_device *dev,
 	/* step 4: fix up any arguments */
 	if (cmd->convert_src == TRIG_TIMER) {
 		arg = cmd->convert_arg;
-		i8253_cascade_ns_to_timer(1000,
+		i8253_cascade_ns_to_timer(1000000,
 			&pic_data->divisor1,
 			&pic_data->divisor2,
 			&arg, cmd->flags);
@@ -1303,6 +1302,7 @@ static int daqgert_attach(struct comedi_device *dev, struct comedi_devconfig *it
 		dev->read_subdev = s;
 		/* setup kthread */
 		daqgert_task = kthread_run(&daqgert_thread_function, (void *) dev, "daq_gert");
+		dev_info(dev->class_dev, "Daq_gert SPI i/o thread started\n");
 		/* setup your timer to call my_timer_callback */
 		setup_timer(&my_timer, my_timer_callback, (unsigned long) dev);
 		daqgert_start_pacer(dev, FALSE);
