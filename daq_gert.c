@@ -799,7 +799,7 @@ int daqgert_thread_function(void *data) {
         spi_run = false;
 
         daqgert_handle_eoc(dev, s);
-        daqgert_ai_clear_eoc(dev);
+//        daqgert_ai_clear_eoc(dev);
         cfc_handle_events(dev, s);
         pic_data->run = false;
         dev_info(dev->class_dev, "daq_gert Thread waiting\n");
