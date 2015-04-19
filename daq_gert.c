@@ -974,13 +974,13 @@ static int daqgert_ai_cmdtest(struct comedi_device *dev,
     /* Step 1 : check if triggers are trivially valid */
 
     err |= cfc_check_trigger_src(&cmd->start_src, TRIG_NOW);
-    err |= cfc_check_trigger_src(&cmd->scan_begin_src, TRIG_FOLLOW);
+    err |= cfc_check_trigger_src(&cmd->scan_begin_src, TRIG_TIMER);
 
     flags = TRIG_TIMER;
     err |= cfc_check_trigger_src(&cmd->convert_src, flags);
 
     err |= cfc_check_trigger_src(&cmd->scan_end_src, TRIG_COUNT);
-    err |= cfc_check_trigger_src(&cmd->stop_src, TRIG_COUNT | TRIG_NONE);
+    err |= cfc_check_trigger_src(&cmd->stop_src, TRIG_NONE);
 
     dev_info(dev->class_dev, "ai_cmdtest 1\n");
     if (err)
