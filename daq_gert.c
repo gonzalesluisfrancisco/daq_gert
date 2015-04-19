@@ -1047,7 +1047,7 @@ static int daqgert_ai_cmdtest(struct comedi_device *dev,
 	/* step 4: fix up any arguments */
 	if (cmd->convert_src == TRIG_TIMER) {
 		arg = cmd->convert_arg;
-		i8253_cascade_ns_to_timer(1000000,
+		i8253_cascade_ns_to_timer(1000,
 			&pic_data->divisor1,
 			&pic_data->divisor2,
 			&arg, cmd->flags);
