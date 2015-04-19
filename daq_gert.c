@@ -937,7 +937,6 @@ static int daqgert_ai_eoc(struct comedi_device *dev,
 
 static int daqgert_ai_cmd(struct comedi_device *dev, struct comedi_subdevice *s) {
     struct comedi_cmd *cmd = &s->async->cmd;
-    struct pic_platform_data *pic_data = s->private;
 
     dev_info(dev->class_dev, "ai_cmd\n");
     daqgert_ai_set_chan_range(dev, cmd->chanlist[0], 1);
