@@ -77,8 +77,13 @@ ifneq ($(INFORMATION_MESSAGE), )
 endif
 	${MAKE}  -f nbproject/Makefile-default.mk dist/${CND_CONF}/${IMAGE_TYPE}/nslave.X.${IMAGE_TYPE}.${OUTPUT_SUFFIX}
 
+<<<<<<< HEAD
 MP_PROCESSOR_OPTION=18F45K80
 MP_PROCESSOR_OPTION_LD=18f45k80
+=======
+MP_PROCESSOR_OPTION=18F25K22
+MP_PROCESSOR_OPTION_LD=18f25k22
+>>>>>>> 748b11799981944c0114f10523f4e2ed8edc2f73
 MP_LINKER_DEBUG_OPTION=
 # ------------------------------------------------------------------------------------
 # Rules for buildStep: assemble
