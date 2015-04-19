@@ -957,8 +957,9 @@ static int daqgert_ai_eoc(struct comedi_device *dev,
 	struct comedi_subdevice *s,
 	struct comedi_insn *insn,
 	unsigned long context)
+struct pic_platform_data *pic_data = s->private;
 {
-	if (timer_pending(&my_timer)) return -EBUSY;
+	if (pic_data->run) return -EBUSY;
 	return 0;
 
 }
@@ -1051,6 +1052,7 @@ static int daqgert_ai_cmdtest(struct comedi_device *dev,
 			&pic_data->divisor1,
 			&pic_data->divisor2,
 			&arg, cmd->flags);
+		if (arg > 700) arg = 700;
 		err |= cfc_check_trigger_arg_is(&cmd->convert_arg, arg);
 	}
 

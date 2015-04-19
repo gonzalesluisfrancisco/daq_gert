@@ -539,7 +539,7 @@ void InterruptHandlerHigh(void)
 					TXREG2 = ((data_in2 & LO_NIBBLE) << 4) | char_txtmp; // send data to RS-232 #2 output
 					DLED6 = !DLED6; // tx data
 				} else {
-					DLED6 = LOW; // TX busy, overun
+					DLED6 = LOW; // TX busy, overrun
 				}
 				SSPBUF = cmd_dummy; // send rx status first, the next SPI transfer will contain it.
 				cmd_dummy = CMD_DUMMY; // clear rx bit
