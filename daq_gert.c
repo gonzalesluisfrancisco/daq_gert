@@ -244,13 +244,14 @@ static struct spi_param_type spi_adc = {
 
 struct pic_platform_data {
     uint16_t conv_delay_usecs, cmd_delay_usecs;
-    int chan, timer;
+    int chan, timer, run;
     struct mutex drvdata_lock;
 };
 
 static struct pic_platform_data pic_info_pic18 = {
     .chan = 0,
     .timer = 0,
+    .run = 0,
     .cmd_delay_usecs = 10,
     .conv_delay_usecs = 30
 };
@@ -786,8 +787,7 @@ int daqgert_thread_function(void *data) {
     while (!kthread_should_stop()) {
         while (!spi_run) {
             schedule_timeout(msecs_to_jiffies(1));
-            if (pic_data->timer) {
-                pic_data->timer = false;
+            if (pic_data->timer && pic_data->run) {
                 spi_run = true;
             }
             if (kthread_should_stop()) return var;
@@ -798,6 +798,7 @@ int daqgert_thread_function(void *data) {
         daqgert_handle_eoc(dev, s);
         daqgert_ai_clear_eoc(dev);
         cfc_handle_events(dev, s);
+        pic_data->run = false;
         dev_info(dev->class_dev, "daq_gert Thread waiting\n");
     }
     /*do_exit(1);*/
@@ -809,8 +810,8 @@ static void daqgert_start_pacer(struct comedi_device *dev, bool load_timers) {
 
     udelay(1);
     if (load_timers) {
-        /* setup timer interval to 1000 msecs */
-        mod_timer(&my_timer, jiffies + msecs_to_jiffies(1));
+        /* setup timer interval to msecs */
+        mod_timer(&my_timer, jiffies + msecs_to_jiffies(10));
     }
     dev_info(dev->class_dev, "pacer running\n");
 }
@@ -890,11 +891,13 @@ static bool daqgert_ai_next_chan(struct comedi_device *dev,
     if (s->async->cur_chan >= cmd->chanlist_len) {
         s->async->cur_chan = 0;
         s->async->events |= COMEDI_CB_EOS;
+        dev_info(dev->class_dev, "CB_EOS\n");
     }
 
     if (cmd->stop_src == TRIG_COUNT) {
         /* all data sampled */
         s->async->events |= COMEDI_CB_EOA;
+        dev_info(dev->class_dev, "CB_EOA\n");
         return false;
     }
 
@@ -937,11 +940,16 @@ static int daqgert_ai_eoc(struct comedi_device *dev,
 
 static int daqgert_ai_cmd(struct comedi_device *dev, struct comedi_subdevice *s) {
     struct comedi_cmd *cmd = &s->async->cmd;
+    struct pic_platform_data *pic_data = s->private;
 
     dev_info(dev->class_dev, "ai_cmd\n");
     daqgert_ai_set_chan_range(dev, cmd->chanlist[0], 1);
     s->async->cur_chan = 0;
 
+    /* don't we want wake up every scan? */
+    if (cmd->flags & CMDF_WAKE_EOS) {
+    }
+    pic_data->timer = TRUE;
     daqgert_start_pacer(dev, TRUE);
     return 0;
 }
@@ -1019,8 +1027,12 @@ void my_timer_callback(unsigned long data) {
 
 
     dev_info(dev->class_dev, "Timer called\n");
-    pic_data->timer = TRUE;
-    daqgert_start_pacer(dev, TRUE);
+    if (!pic_data->run) {
+       dev_info(dev->class_dev, "Timer called thread\n");
+       pic_data->run = true;
+       pic_data->timer = true;
+    }
+    daqgert_start_pacer(dev, true);
 
 }
 
