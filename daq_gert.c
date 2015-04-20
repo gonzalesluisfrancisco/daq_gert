@@ -1098,7 +1098,7 @@ static int daqgert_ai_cancel(struct comedi_device *dev,
         struct pic_platform_data *pic_data = s->private;
 	daqgert_ai_clear_eoc(dev);
         dev_info(dev->class_dev, "ai cancel\n");
-	count-pic_data->count;
+	count=pic_data->count;
 	return 0;
 }
 
