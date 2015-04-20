@@ -247,7 +247,7 @@ static struct spi_param_type spi_adc = {
 
 struct pic_platform_data {
 	uint16_t conv_delay_usecs, cmd_delay_usecs;
-	int chan, timer, run,count;
+	int chan, timer, run, count;
 	struct mutex drvdata_lock;
 	unsigned int divisor1;
 	unsigned int divisor2;
@@ -820,7 +820,7 @@ int daqgert_thread_function(void *data)
 		daqgert_handle_eoc(dev, s);
 		cfc_handle_events(dev, s);
 		pic_data->run = false;
-                pic_data->count++;
+		pic_data->count++;
 		//        dev_info(dev->class_dev, "daq_gert Thread waiting\n");
 	}
 	/*do_exit(1);*/
@@ -982,7 +982,7 @@ static int daqgert_ai_cmd(struct comedi_device *dev, struct comedi_subdevice *s)
 	}
 	pic_data->timer = TRUE;
 	daqgert_start_pacer(dev, TRUE);
-	return 0;
+	return 1;
 }
 
 static int daqgert_ai_poll(struct comedi_device *dev, struct comedi_subdevice *s)
@@ -1055,9 +1055,9 @@ static int daqgert_ai_cmdtest(struct comedi_device *dev,
 	if (cmd->convert_src == TRIG_TIMER) {
 		arg = cmd->convert_arg;
 		i8253_cascade_ns_to_timer(1000,
-		&pic_data->divisor1,
-		&pic_data->divisor2,
-		&arg, cmd->flags);
+			&pic_data->divisor1,
+			&pic_data->divisor2,
+			&arg, cmd->flags);
 		err |= cfc_check_trigger_arg_is(&cmd->convert_arg, arg);
 	}
 
@@ -1095,10 +1095,10 @@ static void daqgert_ai_clear_eoc(struct comedi_device *dev)
 static int daqgert_ai_cancel(struct comedi_device *dev,
 	struct comedi_subdevice *s)
 {
-        struct pic_platform_data *pic_data = s->private;
+	struct pic_platform_data *pic_data = s->private;
 	daqgert_ai_clear_eoc(dev);
-        dev_info(dev->class_dev, "ai cancel\n");
-	count=pic_data->count;
+	dev_info(dev->class_dev, "ai cancel\n");
+	count = pic_data->count;
 	return 0;
 }
 
@@ -1295,7 +1295,7 @@ static int daqgert_attach(struct comedi_device *dev, struct comedi_devconfig *it
 		num_ai_chan = daqgert_ai_config(dev, s); /* config SPI ports for ai use */
 		s->type = COMEDI_SUBD_AI;
 		/* we support single-ended (ground)  */
-		s->subdev_flags = SDF_READABLE | SDF_GROUND | SDF_CMD_READ;
+		s->subdev_flags = SDF_READABLE | SDF_GROUND | SDF_CMD_READ | SDF_COMMON;
 		s->n_chan = num_ai_chan;
 		s->len_chanlist = num_ai_chan;
 		s->maxdata = (1 << (12 - spi_adc.device_type)) - 1;
