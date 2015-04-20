@@ -804,7 +804,7 @@ int daqgert_thread_function(void *data)
 			if (pic_data->timer) {
 				schedule();
 			} else {
-				schedule_timeout(msecs_to_jiffies(100));
+				schedule_timeout(msecs_to_jiffies(1000));
 			}
 			if (pic_data->timer && pic_data->run) {
 				spi_run = true;
@@ -1000,7 +1000,9 @@ static int daqgert_ai_cmdtest(struct comedi_device *dev,
 	/* Step 1 : check if triggers are trivially valid */
 
 	err |= cfc_check_trigger_src(&cmd->start_src, TRIG_NOW);
-	err |= cfc_check_trigger_src(&cmd->scan_begin_src, TRIG_FOLLOW);
+	flags = TRIG_FOLLOW;
+	flags |= TRIG_TIMER;
+	err |= cfc_check_trigger_src(&cmd->scan_begin_src, flags);
 
 	flags = TRIG_TIMER;
 	err |= cfc_check_trigger_src(&cmd->convert_src, flags);
@@ -1049,10 +1051,9 @@ static int daqgert_ai_cmdtest(struct comedi_device *dev,
 	if (cmd->convert_src == TRIG_TIMER) {
 		arg = cmd->convert_arg;
 		i8253_cascade_ns_to_timer(1000,
-			&pic_data->divisor1,
-			&pic_data->divisor2,
-			&arg, cmd->flags);
-		if (arg > 700) arg = 700;
+		&pic_data->divisor1,
+		&pic_data->divisor2,
+		&arg, cmd->flags);
 		err |= cfc_check_trigger_arg_is(&cmd->convert_arg, arg);
 	}
 
