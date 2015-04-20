@@ -247,7 +247,7 @@ static struct spi_param_type spi_adc = {
 
 struct pic_platform_data {
 	uint16_t conv_delay_usecs, cmd_delay_usecs;
-	int chan, timer, run, count;
+	int chan, timer, run, count, cmd_running, cmd_canceled;
 	struct mutex drvdata_lock;
 	unsigned int divisor1;
 	unsigned int divisor2;
@@ -258,6 +258,8 @@ static struct pic_platform_data pic_info_pic18 = {
 	.timer = 0,
 	.run = 0,
 	.count = 0,
+	.cmd_running = 0,
+	.cmd_canceled = 0,
 	.cmd_delay_usecs = 10,
 	.conv_delay_usecs = 30
 };
@@ -807,7 +809,7 @@ int daqgert_thread_function(void *data)
 			if (pic_data->timer) {
 				schedule();
 			} else {
-				schedule_timeout(msecs_to_jiffies(1000));
+				msleep_interruptible(100);
 			}
 			if (pic_data->timer && pic_data->run) {
 				spi_run = true;
@@ -974,6 +976,8 @@ static int daqgert_ai_cmd(struct comedi_device *dev, struct comedi_subdevice *s)
 	struct pic_platform_data *pic_data = s->private;
 
 	dev_info(dev->class_dev, "ai_cmd\n");
+	if (pic_data->cmd_running) return -EBUSY;
+
 	daqgert_ai_set_chan_range(dev, cmd->chanlist[0], 1);
 	s->async->cur_chan = 0;
 
@@ -982,7 +986,9 @@ static int daqgert_ai_cmd(struct comedi_device *dev, struct comedi_subdevice *s)
 	}
 	pic_data->timer = TRUE;
 	daqgert_start_pacer(dev, TRUE);
-	return 1;
+	pic_data->cmd_running = true;
+	pic_data->cmd_canceled = false;
+	return 0;
 }
 
 static int daqgert_ai_poll(struct comedi_device *dev, struct comedi_subdevice *s)
@@ -1096,9 +1102,13 @@ static int daqgert_ai_cancel(struct comedi_device *dev,
 	struct comedi_subdevice *s)
 {
 	struct pic_platform_data *pic_data = s->private;
+
+	if (!pic_data->cmd_running) return 0;
 	daqgert_ai_clear_eoc(dev);
 	dev_info(dev->class_dev, "ai cancel\n");
 	count = pic_data->count;
+	pic_data->cmd_canceled = false;
+	pic_data->cmd_running = false;
 	return 0;
 }
 
