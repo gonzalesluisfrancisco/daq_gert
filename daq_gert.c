@@ -217,6 +217,8 @@ static int gpiosafe = 1;
 module_param(gpiosafe, int, S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);
 static int dio_conf = 0;
 module_param(dio_conf, int, S_IRUGO);
+static int count = 0;
+module_param(count, int, S_IRUGO);
 static struct timer_list my_timer;
 struct task_struct *daqgert_task;
 
@@ -245,7 +247,7 @@ static struct spi_param_type spi_adc = {
 
 struct pic_platform_data {
 	uint16_t conv_delay_usecs, cmd_delay_usecs;
-	int chan, timer, run;
+	int chan, timer, run,count;
 	struct mutex drvdata_lock;
 	unsigned int divisor1;
 	unsigned int divisor2;
@@ -255,6 +257,7 @@ static struct pic_platform_data pic_info_pic18 = {
 	.chan = 0,
 	.timer = 0,
 	.run = 0,
+	.count = 0,
 	.cmd_delay_usecs = 10,
 	.conv_delay_usecs = 30
 };
@@ -817,6 +820,7 @@ int daqgert_thread_function(void *data)
 		daqgert_handle_eoc(dev, s);
 		cfc_handle_events(dev, s);
 		pic_data->run = false;
+                pic_data->count++;
 		//        dev_info(dev->class_dev, "daq_gert Thread waiting\n");
 	}
 	/*do_exit(1);*/
@@ -1091,7 +1095,10 @@ static void daqgert_ai_clear_eoc(struct comedi_device *dev)
 static int daqgert_ai_cancel(struct comedi_device *dev,
 	struct comedi_subdevice *s)
 {
+        struct pic_platform_data *pic_data = s->private;
 	daqgert_ai_clear_eoc(dev);
+        dev_info(dev->class_dev, "ai cancel\n");
+	count-pic_data->count;
 	return 0;
 }
 
@@ -1305,7 +1312,7 @@ static int daqgert_attach(struct comedi_device *dev, struct comedi_devconfig *it
 		dev->read_subdev = s;
 		/* setup kthread */
 		daqgert_task = kthread_run(&daqgert_thread_function, (void *) dev, "daq_gert");
-		dev_info(dev->class_dev, "Daq_gert SPI i/o thread started\n");
+		dev_info(dev->class_dev, "daq_gert SPI i/o thread started\n");
 		/* setup your timer to call my_timer_callback */
 		setup_timer(&my_timer, my_timer_callback, (unsigned long) dev);
 		daqgert_start_pacer(dev, FALSE);
