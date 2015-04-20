@@ -957,8 +957,8 @@ static int daqgert_ai_eoc(struct comedi_device *dev,
 	struct comedi_subdevice *s,
 	struct comedi_insn *insn,
 	unsigned long context)
-struct pic_platform_data *pic_data = s->private;
 {
+	struct pic_platform_data *pic_data = s->private;
 	if (pic_data->run) return -EBUSY;
 	return 0;
 
