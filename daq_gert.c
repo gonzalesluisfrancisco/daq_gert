@@ -797,7 +797,7 @@ struct daqgert_board {
 	unsigned int ai_ns_min;
 };
 
-int daqgert_thread_function(void *data)
+static int daqgert_thread_function(void *data)
 {
 	struct comedi_device *dev = (void*) data;
 	struct comedi_subdevice *s = dev->read_subdev;
@@ -806,7 +806,7 @@ int daqgert_thread_function(void *data)
 
 	//	set_current_state(TASK_UNINTERRUPTIBLE);
 	while (!kthread_should_stop()) {
-		while (!spi_run) {
+		while (!spi_run && false) {
 			if (pic_data->timer) {
 				//				msleep(1);
 				//				set_current_state(TASK_UNINTERRUPTIBLE);
@@ -821,14 +821,15 @@ int daqgert_thread_function(void *data)
 			if (kthread_should_stop()) return var;
 		}
 		//        dev_info(dev->class_dev, "daq_gert Thread Running\n");
-		schedule();
+//		schedule();
 		spi_run = false;
 		mutex_lock(&spidata_lock);
-		daqgert_handle_eoc(dev, s);
-		cfc_handle_events(dev, s);
+//		daqgert_handle_eoc(dev, s);
+//		cfc_handle_events(dev, s);
 		pic_data->run = false;
 		pic_data->count++;
 		mutex_unlock(&spidata_lock);
+		msleep(1);
 		//        dev_info(dev->class_dev, "daq_gert Thread waiting\n");
 	}
 	/*do_exit(1);*/
@@ -988,9 +989,6 @@ static int daqgert_ai_cmd(struct comedi_device *dev, struct comedi_subdevice *s)
 	daqgert_ai_set_chan_range(dev, cmd->chanlist[0], 1);
 	s->async->cur_chan = 0;
 
-	/* don't we want wake up every scan? */
-	if (cmd->flags & CMDF_WAKE_EOS) {
-	}
 	pic_data->timer = TRUE;
 	mutex_lock(&spidata_lock);
 	daqgert_start_pacer(dev, TRUE);
@@ -1025,7 +1023,7 @@ static int daqgert_ai_cmdtest(struct comedi_device *dev,
 
 	err |= cfc_check_trigger_src(&cmd->start_src, TRIG_NOW);
 	flags = TRIG_TIMER;
-	flags |= TRIG_FOLLOW;
+//	flags |= TRIG_FOLLOW;
 	err |= cfc_check_trigger_src(&cmd->scan_begin_src, flags);
 
 	flags = TRIG_TIMER;
