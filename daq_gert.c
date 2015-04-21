@@ -802,14 +802,17 @@ int daqgert_thread_function(void *data)
 	struct comedi_subdevice *s = dev->read_subdev;
 	struct pic_platform_data *pic_data = s->private;
 	int var = 0, spi_run = false;
+	struct mutex drvdata_lock;
 
-	set_current_state(TASK_INTERRUPTIBLE);
+	mutex_init(&drvdata_lock);
+	set_current_state(TASK_UNINTERRUPTIBLE);
 	while (!kthread_should_stop()) {
 		while (!spi_run) {
 			if (pic_data->timer) {
-				msleep_interruptible(1);
+				msleep(1);
+				set_current_state(TASK_UNINTERRUPTIBLE);
 			} else {
-				msleep_interruptible(100);
+				msleep(100);
 			}
 			if (pic_data->timer && pic_data->run) {
 				spi_run = true;
@@ -818,11 +821,12 @@ int daqgert_thread_function(void *data)
 		}
 		//        dev_info(dev->class_dev, "daq_gert Thread Running\n");
 		spi_run = false;
-
+		mutex_lock(&drvdata_lock);
 		daqgert_handle_eoc(dev, s);
 		cfc_handle_events(dev, s);
 		pic_data->run = false;
 		pic_data->count++;
+		mutex_unlock(&drvdata_lock);
 		//        dev_info(dev->class_dev, "daq_gert Thread waiting\n");
 	}
 	/*do_exit(1);*/
@@ -940,7 +944,7 @@ static void daqgert_handle_eoc(struct comedi_device *dev,
 
 	//    dev_info(dev->class_dev, "handle_eoc\n");
 	val = daqgert_ai_get_sample(dev, s);
-	comedi_buf_put(s, val);
+	//	comedi_buf_put(s, val);
 
 	next_chan = s->async->cur_chan + 1;
 	if (next_chan >= cmd->chanlist_len)
@@ -1011,8 +1015,8 @@ static int daqgert_ai_cmdtest(struct comedi_device *dev,
 	/* Step 1 : check if triggers are trivially valid */
 
 	err |= cfc_check_trigger_src(&cmd->start_src, TRIG_NOW);
-	flags = TRIG_FOLLOW;
-	flags |= TRIG_TIMER;
+	flags = TRIG_TIMER;
+	//	flags |= TRIG_FOLLOW;
 	err |= cfc_check_trigger_src(&cmd->scan_begin_src, flags);
 
 	flags = TRIG_TIMER;
