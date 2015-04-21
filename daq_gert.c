@@ -805,14 +805,16 @@ int daqgert_thread_function(void *data)
 	struct mutex drvdata_lock;
 
 	mutex_init(&drvdata_lock);
-	set_current_state(TASK_UNINTERRUPTIBLE);
+//	set_current_state(TASK_UNINTERRUPTIBLE);
 	while (!kthread_should_stop()) {
 		while (!spi_run) {
 			if (pic_data->timer) {
-				msleep(1);
-				set_current_state(TASK_UNINTERRUPTIBLE);
+//				msleep(1);
+//				set_current_state(TASK_UNINTERRUPTIBLE);
+				schedule();
 			} else {
-				msleep(100);
+//				msleep(100);
+				schedule();
 			}
 			if (pic_data->timer && pic_data->run) {
 				spi_run = true;
@@ -820,10 +822,11 @@ int daqgert_thread_function(void *data)
 			if (kthread_should_stop()) return var;
 		}
 		//        dev_info(dev->class_dev, "daq_gert Thread Running\n");
+		schedule();
 		spi_run = false;
 		mutex_lock(&drvdata_lock);
-		daqgert_handle_eoc(dev, s);
-		cfc_handle_events(dev, s);
+		//		daqgert_handle_eoc(dev, s);
+		//		cfc_handle_events(dev, s);
 		pic_data->run = false;
 		pic_data->count++;
 		mutex_unlock(&drvdata_lock);
@@ -1016,7 +1019,7 @@ static int daqgert_ai_cmdtest(struct comedi_device *dev,
 
 	err |= cfc_check_trigger_src(&cmd->start_src, TRIG_NOW);
 	flags = TRIG_TIMER;
-	//	flags |= TRIG_FOLLOW;
+	flags |= TRIG_FOLLOW;
 	err |= cfc_check_trigger_src(&cmd->scan_begin_src, flags);
 
 	flags = TRIG_TIMER;
