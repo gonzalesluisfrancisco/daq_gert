@@ -807,7 +807,7 @@ int daqgert_thread_function(void *data)
 	while (!kthread_should_stop()) {
 		while (!spi_run) {
 			if (pic_data->timer) {
-				schedule();
+				msleep_interruptible(1);
 			} else {
 				msleep_interruptible(100);
 			}
@@ -936,10 +936,11 @@ static void daqgert_handle_eoc(struct comedi_device *dev,
 	struct comedi_subdevice *s)
 {
 	struct comedi_cmd *cmd = &s->async->cmd;
-	unsigned int next_chan;
+	unsigned int next_chan, val;
 
 	//    dev_info(dev->class_dev, "handle_eoc\n");
-	comedi_buf_put(s, daqgert_ai_get_sample(dev, s));
+	val = daqgert_ai_get_sample(dev, s);
+	comedi_buf_put(s, val);
 
 	next_chan = s->async->cur_chan + 1;
 	if (next_chan >= cmd->chanlist_len)
@@ -988,7 +989,7 @@ static int daqgert_ai_cmd(struct comedi_device *dev, struct comedi_subdevice *s)
 	daqgert_start_pacer(dev, TRUE);
 	pic_data->cmd_running = true;
 	pic_data->cmd_canceled = false;
-	return 0;
+	return 1;
 }
 
 static int daqgert_ai_poll(struct comedi_device *dev, struct comedi_subdevice *s)
