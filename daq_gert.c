@@ -824,8 +824,8 @@ int daqgert_thread_function(void *data)
 		schedule();
 		spi_run = false;
 		mutex_lock(&spidata_lock);
-		//		daqgert_handle_eoc(dev, s);
-		//		cfc_handle_events(dev, s);
+		daqgert_handle_eoc(dev, s);
+		cfc_handle_events(dev, s);
 		pic_data->run = false;
 		pic_data->count++;
 		mutex_unlock(&spidata_lock);
@@ -842,7 +842,7 @@ static void daqgert_start_pacer(struct comedi_device *dev, bool load_timers)
 	udelay(1);
 	if (load_timers) {
 		/* setup timer interval to msecs */
-		mod_timer(&my_timer, jiffies + msecs_to_jiffies(1));
+		mod_timer(&my_timer, jiffies + msecs_to_jiffies(10));
 	}
 	//    dev_info(dev->class_dev, "pacer running\n");
 }
@@ -946,7 +946,7 @@ static void daqgert_handle_eoc(struct comedi_device *dev,
 
 	//    dev_info(dev->class_dev, "handle_eoc\n");
 	val = daqgert_ai_get_sample(dev, s);
-	//	comedi_buf_put(s, val);
+	comedi_buf_put(s, val);
 
 	next_chan = s->async->cur_chan + 1;
 	if (next_chan >= cmd->chanlist_len)
@@ -992,7 +992,9 @@ static int daqgert_ai_cmd(struct comedi_device *dev, struct comedi_subdevice *s)
 	if (cmd->flags & CMDF_WAKE_EOS) {
 	}
 	pic_data->timer = TRUE;
+	mutex_lock(&spidata_lock);
 	daqgert_start_pacer(dev, TRUE);
+	mutex_unlock(&spidata_lock);
 	pic_data->cmd_running = true;
 	pic_data->cmd_canceled = false;
 	return 1;
@@ -1000,8 +1002,13 @@ static int daqgert_ai_cmd(struct comedi_device *dev, struct comedi_subdevice *s)
 
 static int daqgert_ai_poll(struct comedi_device *dev, struct comedi_subdevice *s)
 {
+	int num_bytes;
+	
 	dev_info(dev->class_dev, "ai_poll\n");
-	return comedi_buf_n_bytes_ready(s);
+	mutex_lock(&spidata_lock);
+	num_bytes = comedi_buf_n_bytes_ready(s);
+	mutex_unlock(&spidata_lock);
+	return num_bytes;
 }
 
 static int daqgert_ai_cmdtest(struct comedi_device *dev,
