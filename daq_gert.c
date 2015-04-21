@@ -228,6 +228,7 @@ struct comedi_control {
 	struct mutex drvdata_lock;
 };
 static struct comedi_control comedi_ctl;
+static struct mutex spidata_lock;
 
 struct spi_param_type {
 	uint16_t range : 1;
@@ -802,19 +803,17 @@ int daqgert_thread_function(void *data)
 	struct comedi_subdevice *s = dev->read_subdev;
 	struct pic_platform_data *pic_data = s->private;
 	int var = 0, spi_run = false;
-	struct mutex drvdata_lock;
 
-	mutex_init(&drvdata_lock);
-//	set_current_state(TASK_UNINTERRUPTIBLE);
+	//	set_current_state(TASK_UNINTERRUPTIBLE);
 	while (!kthread_should_stop()) {
 		while (!spi_run) {
 			if (pic_data->timer) {
-//				msleep(1);
-//				set_current_state(TASK_UNINTERRUPTIBLE);
+				//				msleep(1);
+				//				set_current_state(TASK_UNINTERRUPTIBLE);
 				schedule();
 			} else {
-//				msleep(100);
-				schedule();
+				msleep(1);
+				//schedule();
 			}
 			if (pic_data->timer && pic_data->run) {
 				spi_run = true;
@@ -824,12 +823,12 @@ int daqgert_thread_function(void *data)
 		//        dev_info(dev->class_dev, "daq_gert Thread Running\n");
 		schedule();
 		spi_run = false;
-		mutex_lock(&drvdata_lock);
+		mutex_lock(&spidata_lock);
 		//		daqgert_handle_eoc(dev, s);
 		//		cfc_handle_events(dev, s);
 		pic_data->run = false;
 		pic_data->count++;
-		mutex_unlock(&drvdata_lock);
+		mutex_unlock(&spidata_lock);
 		//        dev_info(dev->class_dev, "daq_gert Thread waiting\n");
 	}
 	/*do_exit(1);*/
@@ -984,7 +983,7 @@ static int daqgert_ai_cmd(struct comedi_device *dev, struct comedi_subdevice *s)
 	struct pic_platform_data *pic_data = s->private;
 
 	dev_info(dev->class_dev, "ai_cmd\n");
-	if (pic_data->cmd_running) return -EBUSY;
+	//	if (pic_data->cmd_running) return -EBUSY;
 
 	daqgert_ai_set_chan_range(dev, cmd->chanlist[0], 1);
 	s->async->cur_chan = 0;
@@ -1329,6 +1328,7 @@ static int daqgert_attach(struct comedi_device *dev, struct comedi_devconfig *it
 		s->cancel = daqgert_ai_cancel;
 		dev->read_subdev = s;
 		/* setup kthread */
+		mutex_init(&spidata_lock);
 		daqgert_task = kthread_run(&daqgert_thread_function, (void *) dev, "daq_gert");
 		dev_info(dev->class_dev, "daq_gert SPI i/o thread started\n");
 		/* setup your timer to call my_timer_callback */
