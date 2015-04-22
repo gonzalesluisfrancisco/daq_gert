@@ -806,33 +806,29 @@ static int daqgert_thread_function(void *data)
 	struct pic_platform_data *pic_data = s->private;
 
 	while (!kthread_should_stop()) {
-		//		set_current_state(TASK_UNINTERRUPTIBLE);
+		set_current_state(TASK_UNINTERRUPTIBLE);
 		while (!pic_data->run) {
 			if (pic_data->timer) {
-				//				msleep(1);
-				//				set_current_state(TASK_UNINTERRUPTIBLE);
 				schedule();
 			} else {
 				msleep(1);
-				//schedule();
 			}
 			if (pic_data->timer && pic_data->run) {
 				pic_data->spi_run = true;
 			}
 			if (kthread_should_stop()) return 0;
 		}
-		//		dev_info(dev->class_dev, "daq_gert Thread Running\n");
-		//		schedule();
 		mutex_lock(&spidata_lock);
 		if (pic_data->cmd_running) {
 			daqgert_handle_eoc(dev, s);
 			cfc_handle_events(dev, s);
-			//			pic_data->cmd_running = false; // run once
+		} else {
+			msleep(1);
 		}
 		pic_data->spi_run = false;
 		pic_data->count++;
 		mutex_unlock(&spidata_lock);
-		//		dev_info(dev->class_dev, "daq_gert Thread waiting\n");
+		schedule();
 	}
 	/*do_exit(1);*/
 	return 0;
@@ -847,7 +843,6 @@ static void daqgert_start_pacer(struct comedi_device *dev, bool load_timers)
 		/* setup timer interval to msecs */
 		mod_timer(&my_timer, jiffies + msecs_to_jiffies(10));
 	}
-	//    dev_info(dev->class_dev, "pacer running\n");
 }
 
 static void daqgert_ai_set_chan_range(struct comedi_device *dev,
@@ -947,7 +942,6 @@ static void daqgert_handle_eoc(struct comedi_device *dev,
 	struct comedi_cmd *cmd = &s->async->cmd;
 	unsigned int next_chan, val;
 
-	//    dev_info(dev->class_dev, "handle_eoc\n");
 	val = daqgert_ai_get_sample(dev, s);
 	comedi_buf_put(s, val);
 
@@ -1019,12 +1013,12 @@ static int daqgert_ai_cmdtest(struct comedi_device *dev,
 	struct comedi_subdevice *s, struct comedi_cmd *cmd)
 {
 	const struct daqgert_board *board = dev->board_ptr;
-	//	struct pic_platform_data *pic_data = s->private;
+
 	int err = 0;
 	unsigned int flags, divisor1 = 0, divisor2 = 0;
 	unsigned int arg;
 
-	dev_info(dev->class_dev, "ai_cmdtest\n");
+	//	dev_info(dev->class_dev, "ai_cmdtest\n");
 	/* Step 1 : check if triggers are trivially valid */
 
 	err |= cfc_check_trigger_src(&cmd->start_src, TRIG_NOW);
@@ -1037,7 +1031,7 @@ static int daqgert_ai_cmdtest(struct comedi_device *dev,
 	err |= cfc_check_trigger_src(&cmd->scan_end_src, TRIG_COUNT);
 	err |= cfc_check_trigger_src(&cmd->stop_src, TRIG_NONE);
 
-	dev_info(dev->class_dev, "ai_cmdtest 1\n");
+	//	dev_info(dev->class_dev, "ai_cmdtest 1\n");
 	if (err)
 		return 1;
 
@@ -1047,7 +1041,7 @@ static int daqgert_ai_cmdtest(struct comedi_device *dev,
 
 	/* Step 2b : and mutually compatible */
 
-	dev_info(dev->class_dev, "ai_cmdtest 2\n");
+	//	dev_info(dev->class_dev, "ai_cmdtest 2\n");
 	if (err)
 		return 2;
 
@@ -1070,25 +1064,25 @@ static int daqgert_ai_cmdtest(struct comedi_device *dev,
 	else /* TRIG_NONE */
 		err |= cfc_check_trigger_arg_is(&cmd->stop_arg, 0);
 
-	dev_info(dev->class_dev, "ai_cmdtest 3\n");
+	//	dev_info(dev->class_dev, "ai_cmdtest 3\n");
 	if (err)
 		return 3;
 
 	/* step 4: fix up any arguments */
 	if (cmd->convert_src == TRIG_TIMER) {
 		arg = cmd->convert_arg;
-		i8253_cascade_ns_to_timer(4000000,
-			&divisor1,
-			&divisor2,
-			&arg, cmd->flags);
+		//		i8253_cascade_ns_to_timer(4000000,
+		//			&divisor1,
+		//			&divisor2,
+		//			&arg, cmd->flags);
 		err |= cfc_check_trigger_arg_is(&cmd->convert_arg, arg);
 	}
 
-	dev_info(dev->class_dev, "ai_cmdtest 4\n");
+	//	dev_info(dev->class_dev, "ai_cmdtest 4\n");
 	if (err)
 		return 4;
 
-	dev_info(dev->class_dev, "ai_cmdtest PASS\n");
+	//	dev_info(dev->class_dev, "ai_cmdtest PASS\n");
 	return 0;
 }
 
@@ -1098,9 +1092,7 @@ void my_timer_callback(unsigned long data)
 	struct comedi_subdevice *s = dev->read_subdev;
 	struct pic_platform_data *pic_data = s->private;
 
-	//    dev_info(dev->class_dev, "Timer called\n");
 	if (!pic_data->run) {
-		//        dev_info(dev->class_dev, "Timer called thread\n");
 		pic_data->run = true;
 		pic_data->timer = true;
 	}
@@ -1405,13 +1397,13 @@ static const struct daqgert_board daqgert_boards[] = {
 		.name = "daq-gert",
 		.board_type = 0,
 		.n_aochan = 2,
-		.ai_ns_min = 1000,
+		.ai_ns_min = 100000,
 	},
 	{
 		.name = "daq_gert",
 		.board_type = 0,
 		.n_aochan = 2,
-		.ai_ns_min = 1000,
+		.ai_ns_min = 100000,
 	},
 };
 
