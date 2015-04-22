@@ -806,33 +806,33 @@ static int daqgert_thread_function(void *data)
 	struct comedi_subdevice *s = dev->read_subdev;
 	struct pic_platform_data *pic_data = s->private;
 
-	//	set_current_state(TASK_UNINTERRUPTIBLE);
 	while (!kthread_should_stop()) {
-		while (!pic_data->spi_run && false) {
+		//		set_current_state(TASK_UNINTERRUPTIBLE);
+		while (!pic_data->run) {
 			if (pic_data->timer) {
 				//				msleep(1);
 				//				set_current_state(TASK_UNINTERRUPTIBLE);
 				schedule();
 			} else {
-				msleep(1);
-				//schedule();
+				//				msleep(1);
+				schedule();
 			}
 			if (pic_data->timer && pic_data->run) {
 				pic_data->spi_run = true;
 			}
 			if (kthread_should_stop()) return 0;
 		}
-		//        dev_info(dev->class_dev, "daq_gert Thread Running\n");
+		dev_info(dev->class_dev, "daq_gert Thread Running\n");
 		//		schedule();
-		pic_data->spi_run = false;
 		mutex_lock(&spidata_lock);
 		daqgert_handle_eoc(dev, s);
 		cfc_handle_events(dev, s);
-		pic_data->run = false;
+		//		pic_data->run = false;
+		pic_data->spi_run = false;
 		pic_data->count++;
 		mutex_unlock(&spidata_lock);
-		msleep(1);
-		//        dev_info(dev->class_dev, "daq_gert Thread waiting\n");
+		msleep(500);
+		dev_info(dev->class_dev, "daq_gert Thread waiting\n");
 	}
 	/*do_exit(1);*/
 	return 0;
@@ -975,7 +975,7 @@ static int daqgert_ai_eoc(struct comedi_device *dev,
 	unsigned long context)
 {
 	struct pic_platform_data *pic_data = s->private;
-	if (pic_data->run) return -EBUSY;
+	if (pic_data->spi_run) return -EBUSY;
 	return 0;
 
 }
@@ -991,7 +991,8 @@ static int daqgert_ai_cmd(struct comedi_device *dev, struct comedi_subdevice *s)
 	daqgert_ai_set_chan_range(dev, cmd->chanlist[0], 1);
 	s->async->cur_chan = 0;
 
-	pic_data->timer = TRUE;
+	pic_data->run = false;
+	pic_data->timer = true;
 	mutex_lock(&spidata_lock);
 	daqgert_start_pacer(dev, TRUE);
 	mutex_unlock(&spidata_lock);
@@ -1095,7 +1096,6 @@ void my_timer_callback(unsigned long data)
 	struct comedi_subdevice *s = dev->read_subdev;
 	struct pic_platform_data *pic_data = s->private;
 
-
 	//    dev_info(dev->class_dev, "Timer called\n");
 	if (!pic_data->run) {
 		//        dev_info(dev->class_dev, "Timer called thread\n");
@@ -1108,8 +1108,13 @@ void my_timer_callback(unsigned long data)
 
 static void daqgert_ai_clear_eoc(struct comedi_device *dev)
 {
+        struct comedi_subdevice *s = dev->read_subdev;
+        struct pic_platform_data *pic_data = s->private;
+
 	del_timer_sync(&my_timer);
 	setup_timer(&my_timer, my_timer_callback, (unsigned long) dev);
+	pic_data->run = false;
+	pic_data->timer = false;
 }
 
 static int daqgert_ai_cancel(struct comedi_device *dev,
