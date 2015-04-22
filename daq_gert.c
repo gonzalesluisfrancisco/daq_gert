@@ -1025,8 +1025,8 @@ static int daqgert_ai_cmdtest(struct comedi_device *dev,
 	/* Step 1 : check if triggers are trivially valid */
 
 	err |= cfc_check_trigger_src(&cmd->start_src, TRIG_NOW);
-	flags = TRIG_TIMER;
-	//	flags |= TRIG_FOLLOW;
+	flags = TRIG_FOLLOW;
+	flags |= TRIG_FOLLOW;
 	err |= cfc_check_trigger_src(&cmd->scan_begin_src, flags);
 
 	flags = TRIG_TIMER;
@@ -1075,7 +1075,7 @@ static int daqgert_ai_cmdtest(struct comedi_device *dev,
 	/* step 4: fix up any arguments */
 	if (cmd->convert_src == TRIG_TIMER) {
 		arg = cmd->convert_arg;
-		i8253_cascade_ns_to_timer(1000,
+		i8253_cascade_ns_to_timer(4000000,
 			&pic_data->divisor1,
 			&pic_data->divisor2,
 			&arg, cmd->flags);
