@@ -250,8 +250,6 @@ struct pic_platform_data {
 	uint16_t conv_delay_usecs, cmd_delay_usecs;
 	int chan, timer, run, spi_run, count, cmd_running, cmd_canceled;
 	struct mutex drvdata_lock;
-	unsigned int divisor1;
-	unsigned int divisor2;
 	unsigned int val;
 };
 
@@ -987,7 +985,7 @@ static int daqgert_ai_cmd(struct comedi_device *dev, struct comedi_subdevice *s)
 	struct pic_platform_data *pic_data = s->private;
 
 	dev_info(dev->class_dev, "ai_cmd\n");
-	if (pic_data->cmd_running) return -EBUSY;
+	if (pic_data->cmd_running) return 0;
 
 	daqgert_ai_set_chan_range(dev, cmd->chanlist[0], 1);
 	s->async->cur_chan = 0;
@@ -1017,9 +1015,9 @@ static int daqgert_ai_cmdtest(struct comedi_device *dev,
 	struct comedi_subdevice *s, struct comedi_cmd *cmd)
 {
 	const struct daqgert_board *board = dev->board_ptr;
-	struct pic_platform_data *pic_data = s->private;
+	//	struct pic_platform_data *pic_data = s->private;
 	int err = 0;
-	unsigned int flags;
+	unsigned int flags, divisor1 = 0, divisor2 = 0;
 	unsigned int arg;
 
 	dev_info(dev->class_dev, "ai_cmdtest\n");
@@ -1076,8 +1074,8 @@ static int daqgert_ai_cmdtest(struct comedi_device *dev,
 	if (cmd->convert_src == TRIG_TIMER) {
 		arg = cmd->convert_arg;
 		i8253_cascade_ns_to_timer(4000000,
-			&pic_data->divisor1,
-			&pic_data->divisor2,
+			divisor1,
+			divisor2,
 			&arg, cmd->flags);
 		err |= cfc_check_trigger_arg_is(&cmd->convert_arg, arg);
 	}
@@ -1110,10 +1108,17 @@ static void daqgert_ai_clear_eoc(struct comedi_device *dev)
 {
 	struct comedi_subdevice *s = dev->read_subdev;
 	struct pic_platform_data *pic_data = s->private;
+	int count = 0;
 
 	del_timer_sync(&my_timer);
 	setup_timer(&my_timer, my_timer_callback, (unsigned long) dev);
 	pic_data->run = false;
+	pic_data->timer = false;
+	do { // wait if needed to SPI to clear or timeout
+		msleep(1);
+	} while (pic_data->spi_run || (count++ < 100));
+
+	pic_data->run = false; // just to be sure
 	pic_data->timer = false;
 }
 
@@ -1122,10 +1127,7 @@ static int daqgert_ai_cancel(struct comedi_device *dev,
 {
 	struct pic_platform_data *pic_data = s->private;
 
-	do { // wait if needed to SPI to clear
-		daqgert_ai_clear_eoc(dev);
-	} while (pic_data->spi_run);
-
+	daqgert_ai_clear_eoc(dev);
 	dev_info(dev->class_dev, "ai cancel\n");
 	count = pic_data->count;
 	pic_data->cmd_canceled = false;
@@ -1397,13 +1399,13 @@ static const struct daqgert_board daqgert_boards[] = {
 		.name = "daq-gert",
 		.board_type = 0,
 		.n_aochan = 2,
-		.ai_ns_min = 100000,
+		.ai_ns_min = 1000,
 	},
 	{
 		.name = "daq_gert",
 		.board_type = 0,
 		.n_aochan = 2,
-		.ai_ns_min = 100000,
+		.ai_ns_min = 1000,
 	},
 };
 
