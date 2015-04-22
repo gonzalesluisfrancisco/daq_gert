@@ -820,11 +820,11 @@ static int daqgert_thread_function(void *data)
 			if (pic_data->timer && pic_data->run) {
 				pic_data->spi_run = true;
 			}
-			if (kthread_should_stop()) return pic_data->var;
+			if (kthread_should_stop()) return 0;
 		}
 		//        dev_info(dev->class_dev, "daq_gert Thread Running\n");
 		//		schedule();
-		spi_run = false;
+		pic_data->spi_run = false;
 		mutex_lock(&spidata_lock);
 		daqgert_handle_eoc(dev, s);
 		cfc_handle_events(dev, s);
@@ -835,7 +835,7 @@ static int daqgert_thread_function(void *data)
 		//        dev_info(dev->class_dev, "daq_gert Thread waiting\n");
 	}
 	/*do_exit(1);*/
-	return pic_data->var;
+	return 0;
 
 }
 
