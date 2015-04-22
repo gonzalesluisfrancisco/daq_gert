@@ -248,21 +248,24 @@ static struct spi_param_type spi_adc = {
 
 struct pic_platform_data {
 	uint16_t conv_delay_usecs, cmd_delay_usecs;
-	int chan, timer, run, count, cmd_running, cmd_canceled;
+	int chan, timer, run, spi_run, count, cmd_running, cmd_canceled;
 	struct mutex drvdata_lock;
 	unsigned int divisor1;
 	unsigned int divisor2;
+	unsigned int val;
 };
 
 static struct pic_platform_data pic_info_pic18 = {
 	.chan = 0,
 	.timer = 0,
 	.run = 0,
+	.spi_run = 0,
 	.count = 0,
 	.cmd_running = 0,
 	.cmd_canceled = 0,
 	.cmd_delay_usecs = 10,
-	.conv_delay_usecs = 30
+	.conv_delay_usecs = 30,
+	.val = 0
 };
 
 #define CSnA    0       /* GPIO 8  Gertboard ADC */
@@ -802,11 +805,10 @@ static int daqgert_thread_function(void *data)
 	struct comedi_device *dev = (void*) data;
 	struct comedi_subdevice *s = dev->read_subdev;
 	struct pic_platform_data *pic_data = s->private;
-	int var = 0, spi_run = false;
 
 	//	set_current_state(TASK_UNINTERRUPTIBLE);
 	while (!kthread_should_stop()) {
-		while (!spi_run && false) {
+		while (!pic_data->spi_run && false) {
 			if (pic_data->timer) {
 				//				msleep(1);
 				//				set_current_state(TASK_UNINTERRUPTIBLE);
@@ -816,16 +818,16 @@ static int daqgert_thread_function(void *data)
 				//schedule();
 			}
 			if (pic_data->timer && pic_data->run) {
-				spi_run = true;
+				pic_data->spi_run = true;
 			}
-			if (kthread_should_stop()) return var;
+			if (kthread_should_stop()) return pic_data->var;
 		}
 		//        dev_info(dev->class_dev, "daq_gert Thread Running\n");
-//		schedule();
+		//		schedule();
 		spi_run = false;
 		mutex_lock(&spidata_lock);
-//		daqgert_handle_eoc(dev, s);
-//		cfc_handle_events(dev, s);
+		daqgert_handle_eoc(dev, s);
+		cfc_handle_events(dev, s);
 		pic_data->run = false;
 		pic_data->count++;
 		mutex_unlock(&spidata_lock);
@@ -833,7 +835,7 @@ static int daqgert_thread_function(void *data)
 		//        dev_info(dev->class_dev, "daq_gert Thread waiting\n");
 	}
 	/*do_exit(1);*/
-	return var;
+	return pic_data->var;
 
 }
 
@@ -1001,7 +1003,7 @@ static int daqgert_ai_cmd(struct comedi_device *dev, struct comedi_subdevice *s)
 static int daqgert_ai_poll(struct comedi_device *dev, struct comedi_subdevice *s)
 {
 	int num_bytes;
-	
+
 	dev_info(dev->class_dev, "ai_poll\n");
 	mutex_lock(&spidata_lock);
 	num_bytes = comedi_buf_n_bytes_ready(s);
@@ -1023,7 +1025,7 @@ static int daqgert_ai_cmdtest(struct comedi_device *dev,
 
 	err |= cfc_check_trigger_src(&cmd->start_src, TRIG_NOW);
 	flags = TRIG_TIMER;
-//	flags |= TRIG_FOLLOW;
+	//	flags |= TRIG_FOLLOW;
 	err |= cfc_check_trigger_src(&cmd->scan_begin_src, flags);
 
 	flags = TRIG_TIMER;
@@ -1332,10 +1334,9 @@ static int daqgert_attach(struct comedi_device *dev, struct comedi_devconfig *it
 		s->poll = daqgert_ai_poll;
 		s->cancel = daqgert_ai_cancel;
 		dev->read_subdev = s;
-		/* setup kthread */
+
 		mutex_init(&spidata_lock);
-		daqgert_task = kthread_run(&daqgert_thread_function, (void *) dev, "daq_gert");
-		dev_info(dev->class_dev, "daq_gert SPI i/o thread started\n");
+
 		/* setup your timer to call my_timer_callback */
 		setup_timer(&my_timer, my_timer_callback, (unsigned long) dev);
 		daqgert_start_pacer(dev, FALSE);
@@ -1355,6 +1356,9 @@ static int daqgert_attach(struct comedi_device *dev, struct comedi_devconfig *it
 		s->insn_read = comedi_readback_insn_read;
 		comedi_alloc_subdev_readback(s);
 	}
+	/* setup kthread */
+	daqgert_task = kthread_run(&daqgert_thread_function, (void *) dev, "daq_gert");
+	dev_info(dev->class_dev, "daq_gert SPI i/o thread started\n");
 
 	dev_info(dev->class_dev, "%s attached: GPIO iobase 0x%lx, ioremap 0x%lx, GPIO wpi-pins 0x%x\n",
 		dev->driver->driver_name,
@@ -1386,13 +1390,13 @@ static const struct daqgert_board daqgert_boards[] = {
 		.name = "daq-gert",
 		.board_type = 0,
 		.n_aochan = 2,
-		.ai_ns_min = 150000,
+		.ai_ns_min = 1000000,
 	},
 	{
 		.name = "daq_gert",
 		.board_type = 0,
 		.n_aochan = 2,
-		.ai_ns_min = 150000,
+		.ai_ns_min = 1000000,
 	},
 };
 
