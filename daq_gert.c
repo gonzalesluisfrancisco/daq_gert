@@ -827,6 +827,7 @@ static int daqgert_thread_function(void *data)
 		if (pic_data->cmd_running) {
 			daqgert_handle_eoc(dev, s);
 			cfc_handle_events(dev, s);
+			pic_data->cmd_running = false;
 		}
 		pic_data->spi_run = false;
 		pic_data->count++;
@@ -985,7 +986,7 @@ static int daqgert_ai_cmd(struct comedi_device *dev, struct comedi_subdevice *s)
 	struct pic_platform_data *pic_data = s->private;
 
 	dev_info(dev->class_dev, "ai_cmd\n");
-	if (pic_data->cmd_running) return 0;
+	if (pic_data->cmd_running) return -EBUSY;
 
 	daqgert_ai_set_chan_range(dev, cmd->chanlist[0], 1);
 	s->async->cur_chan = 0;
@@ -1074,8 +1075,8 @@ static int daqgert_ai_cmdtest(struct comedi_device *dev,
 	if (cmd->convert_src == TRIG_TIMER) {
 		arg = cmd->convert_arg;
 		i8253_cascade_ns_to_timer(4000000,
-			divisor1,
-			divisor2,
+			&divisor1,
+			&divisor2,
 			&arg, cmd->flags);
 		err |= cfc_check_trigger_arg_is(&cmd->convert_arg, arg);
 	}
@@ -1130,6 +1131,8 @@ static int daqgert_ai_cancel(struct comedi_device *dev,
 	daqgert_ai_clear_eoc(dev);
 	dev_info(dev->class_dev, "ai cancel\n");
 	count = pic_data->count;
+	s->async->cur_chan = 0;
+	s->async->inttrig = NULL;
 	pic_data->cmd_canceled = false;
 	pic_data->cmd_running = false;
 	return 0;
