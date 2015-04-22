@@ -800,6 +800,7 @@ struct daqgert_board {
 	unsigned int ai_ns_min;
 };
 
+/* A client must be connected with a valid comedi cmd for this not to segfault */
 static int daqgert_thread_function(void *data)
 {
 	struct comedi_device *dev = (void*) data;
@@ -825,9 +826,10 @@ static int daqgert_thread_function(void *data)
 		//		dev_info(dev->class_dev, "daq_gert Thread Running\n");
 		//		schedule();
 		mutex_lock(&spidata_lock);
-		daqgert_handle_eoc(dev, s);
-		cfc_handle_events(dev, s);
-		//		pic_data->run = false;
+		if (pic_data->cmd_running) {
+			daqgert_handle_eoc(dev, s);
+			cfc_handle_events(dev, s);
+		}
 		pic_data->spi_run = false;
 		pic_data->count++;
 		mutex_unlock(&spidata_lock);
@@ -1025,7 +1027,6 @@ static int daqgert_ai_cmdtest(struct comedi_device *dev,
 
 	err |= cfc_check_trigger_src(&cmd->start_src, TRIG_NOW);
 	flags = TRIG_FOLLOW;
-	flags |= TRIG_FOLLOW;
 	err |= cfc_check_trigger_src(&cmd->scan_begin_src, flags);
 
 	flags = TRIG_TIMER;
@@ -1121,8 +1122,10 @@ static int daqgert_ai_cancel(struct comedi_device *dev,
 {
 	struct pic_platform_data *pic_data = s->private;
 
-	if (!pic_data->cmd_running) return 0;
-	daqgert_ai_clear_eoc(dev);
+	do { // wait if needed to SPI to clear
+		daqgert_ai_clear_eoc(dev);
+	} while (pic_data->spi_run);
+
 	dev_info(dev->class_dev, "ai cancel\n");
 	count = pic_data->count;
 	pic_data->cmd_canceled = false;
