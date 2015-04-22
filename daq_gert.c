@@ -998,7 +998,7 @@ static int daqgert_ai_cmd(struct comedi_device *dev, struct comedi_subdevice *s)
 	mutex_unlock(&spidata_lock);
 	pic_data->cmd_running = true;
 	pic_data->cmd_canceled = false;
-	return 1;
+	return 0;
 }
 
 static int daqgert_ai_poll(struct comedi_device *dev, struct comedi_subdevice *s)
@@ -1108,8 +1108,8 @@ void my_timer_callback(unsigned long data)
 
 static void daqgert_ai_clear_eoc(struct comedi_device *dev)
 {
-        struct comedi_subdevice *s = dev->read_subdev;
-        struct pic_platform_data *pic_data = s->private;
+	struct comedi_subdevice *s = dev->read_subdev;
+	struct pic_platform_data *pic_data = s->private;
 
 	del_timer_sync(&my_timer);
 	setup_timer(&my_timer, my_timer_callback, (unsigned long) dev);
@@ -1395,13 +1395,13 @@ static const struct daqgert_board daqgert_boards[] = {
 		.name = "daq-gert",
 		.board_type = 0,
 		.n_aochan = 2,
-		.ai_ns_min = 1000000,
+		.ai_ns_min = 100,
 	},
 	{
 		.name = "daq_gert",
 		.board_type = 0,
 		.n_aochan = 2,
-		.ai_ns_min = 1000000,
+		.ai_ns_min = 100,
 	},
 };
 
