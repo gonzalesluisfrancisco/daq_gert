@@ -827,7 +827,7 @@ static int daqgert_thread_function(void *data)
 		if (pic_data->cmd_running) {
 			daqgert_handle_eoc(dev, s);
 			cfc_handle_events(dev, s);
-			pic_data->cmd_running = false;
+			//			pic_data->cmd_running = false; // run once
 		}
 		pic_data->spi_run = false;
 		pic_data->count++;
@@ -986,7 +986,10 @@ static int daqgert_ai_cmd(struct comedi_device *dev, struct comedi_subdevice *s)
 	struct pic_platform_data *pic_data = s->private;
 
 	dev_info(dev->class_dev, "ai_cmd\n");
-	if (pic_data->cmd_running) return -EBUSY;
+	if (pic_data->cmd_running) {
+		dev_info(dev->class_dev, "ai_cmd busy\n");
+		return -EBUSY;
+	}
 
 	daqgert_ai_set_chan_range(dev, cmd->chanlist[0], 1);
 	s->async->cur_chan = 0;
