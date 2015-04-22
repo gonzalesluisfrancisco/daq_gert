@@ -822,7 +822,7 @@ static int daqgert_thread_function(void *data)
 			}
 			if (kthread_should_stop()) return 0;
 		}
-		dev_info(dev->class_dev, "daq_gert Thread Running\n");
+		//		dev_info(dev->class_dev, "daq_gert Thread Running\n");
 		//		schedule();
 		mutex_lock(&spidata_lock);
 		daqgert_handle_eoc(dev, s);
@@ -831,8 +831,8 @@ static int daqgert_thread_function(void *data)
 		pic_data->spi_run = false;
 		pic_data->count++;
 		mutex_unlock(&spidata_lock);
-		msleep(500);
-		dev_info(dev->class_dev, "daq_gert Thread waiting\n");
+		//		msleep(500);
+		//		dev_info(dev->class_dev, "daq_gert Thread waiting\n");
 	}
 	/*do_exit(1);*/
 	return 0;
@@ -1395,13 +1395,13 @@ static const struct daqgert_board daqgert_boards[] = {
 		.name = "daq-gert",
 		.board_type = 0,
 		.n_aochan = 2,
-		.ai_ns_min = 100,
+		.ai_ns_min = 100000,
 	},
 	{
 		.name = "daq_gert",
 		.board_type = 0,
 		.n_aochan = 2,
-		.ai_ns_min = 100,
+		.ai_ns_min = 100000,
 	},
 };
 
