@@ -247,10 +247,12 @@ static struct spi_param_type spi_adc = {
 };
 
 struct pic_platform_data {
-	uint16_t conv_delay_usecs, cmd_delay_usecs;
+	uint16_t conv_delay_usecs, cmd_delay_usecs, ai_neverending;
 	int chan, timer, run, spi_run, count, cmd_running, cmd_canceled;
 	struct mutex drvdata_lock;
 	unsigned int val;
+	unsigned int ai_scans; /*  len of scanlist */
+	unsigned int ai_act_scan; /*  how many scans we finished */
 };
 
 static struct pic_platform_data pic_info_pic18 = {
@@ -263,6 +265,7 @@ static struct pic_platform_data pic_info_pic18 = {
 	.cmd_canceled = 0,
 	.cmd_delay_usecs = 10,
 	.conv_delay_usecs = 30,
+	.ai_neverending = 1,
 	.val = 0
 };
 
@@ -270,6 +273,7 @@ static struct pic_platform_data pic_info_pic18 = {
 #define CSnB    1       /* GPIO 7  Gertboard DAC */
 
 #define SPI_BUFF_SIZE 16
+#define MAX_CHANLIST_LEN	256
 
 /* PIC Slave commands */
 #define CMD_ZERO        0b00000000
@@ -820,7 +824,7 @@ static int daqgert_thread_function(void *data)
 		mutex_lock(&spidata_lock);
 		if (pic_data->cmd_running) {
 			daqgert_handle_eoc(dev, s);
-			cfc_handle_events(dev, s);
+			usleep_range(50, 250);
 		} else {
 			msleep(1);
 		}
@@ -836,7 +840,6 @@ static int daqgert_thread_function(void *data)
 static void daqgert_start_pacer(struct comedi_device *dev, bool load_timers)
 {
 
-	udelay(1);
 	if (load_timers) {
 		/* setup timer interval to msecs */
 		mod_timer(&my_timer, jiffies + msecs_to_jiffies(10));
@@ -912,6 +915,7 @@ static unsigned int daqgert_ai_get_sample(struct comedi_device *dev,
 static bool daqgert_ai_next_chan(struct comedi_device *dev,
 	struct comedi_subdevice *s)
 {
+	struct pic_platform_data *pic_data = s->private;
 	struct comedi_cmd *cmd = &s->async->cmd;
 
 	//    dev_info(dev->class_dev, "ai_next_chan\n");
@@ -925,12 +929,19 @@ static bool daqgert_ai_next_chan(struct comedi_device *dev,
 	}
 
 	if (cmd->stop_src == TRIG_COUNT) {
-		/* all data sampled */
-		s->async->events |= COMEDI_CB_EOA;
-		//		dev_info(dev->class_dev, "CB_EOA\n");
-		return false;
+		if (s->async->cur_chan == 0) {
+			pic_data->ai_act_scan++;
+			if (!pic_data->ai_neverending) {
+				/* all data sampled */
+				if (pic_data->ai_act_scan >= pic_data->ai_scans) {
+					daqgert_ai_cancel(dev, s);
+					s->async->events |= COMEDI_CB_EOA;
+					//		dev_info(dev->class_dev, "CB_EOA\n");
+				}
+			}
+		}
 	}
-
+	cfc_handle_events(dev, s);
 	return true;
 }
 
@@ -983,7 +994,29 @@ static int daqgert_ai_cmd(struct comedi_device *dev, struct comedi_subdevice *s)
 		return -EBUSY;
 	}
 
+	if (cmd->start_src != TRIG_NOW)
+		return -EINVAL;
+	if (cmd->scan_begin_src != TRIG_FOLLOW)
+		return -EINVAL;
+	if (cmd->convert_src != TRIG_TIMER)
+		return -EINVAL;
+	if (cmd->scan_end_src != TRIG_COUNT)
+		return -EINVAL;
+	if (cmd->scan_end_arg != cmd->chanlist_len)
+		return -EINVAL;
+	if (cmd->chanlist_len > MAX_CHANLIST_LEN)
+		return -EINVAL;
+
 	daqgert_ai_set_chan_range(dev, cmd->chanlist[0], 1);
+	if (cmd->stop_src == TRIG_COUNT) {
+		pic_data->ai_scans = cmd->stop_arg;
+		pic_data->ai_neverending = 0;
+	} else {
+		pic_data->ai_scans = 0;
+		pic_data->ai_neverending = 1;
+	}
+
+	pic_data->ai_act_scan = 0;
 	s->async->cur_chan = 0;
 
 	pic_data->run = false;
@@ -1070,9 +1103,9 @@ static int daqgert_ai_cmdtest(struct comedi_device *dev,
 	if (cmd->convert_src == TRIG_TIMER) {
 		arg = cmd->convert_arg;
 		i8253_cascade_ns_to_timer(4000000,
-		&divisor1,
-		&divisor2,
-		&arg, cmd->flags);
+			&divisor1,
+			&divisor2,
+			&arg, cmd->flags);
 		err |= cfc_check_trigger_arg_is(&cmd->convert_arg, arg);
 	}
 
