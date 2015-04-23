@@ -1007,7 +1007,6 @@ static int daqgert_ai_cmd(struct comedi_device *dev, struct comedi_subdevice *s)
 	if (cmd->chanlist_len > MAX_CHANLIST_LEN)
 		return -EINVAL;
 
-	daqgert_ai_set_chan_range(dev, cmd->chanlist[0], 1);
 	if (cmd->stop_src == TRIG_COUNT) {
 		pic_data->ai_scans = cmd->stop_arg;
 		pic_data->ai_neverending = 0;
@@ -1018,6 +1017,7 @@ static int daqgert_ai_cmd(struct comedi_device *dev, struct comedi_subdevice *s)
 
 	pic_data->ai_act_scan = 0;
 	s->async->cur_chan = 0;
+	daqgert_ai_set_chan_range(dev, cmd->chanlist[s->async->cur_chan], 0);
 
 	pic_data->run = false;
 	pic_data->timer = true;
