@@ -806,7 +806,6 @@ static int daqgert_thread_function(void *data)
 	struct pic_platform_data *pic_data = s->private;
 
 	while (!kthread_should_stop()) {
-		set_current_state(TASK_UNINTERRUPTIBLE);
 		while (!pic_data->run) {
 			if (pic_data->timer) {
 				schedule();
@@ -828,7 +827,6 @@ static int daqgert_thread_function(void *data)
 		pic_data->spi_run = false;
 		pic_data->count++;
 		mutex_unlock(&spidata_lock);
-		schedule();
 	}
 	/*do_exit(1);*/
 	return 0;
@@ -1071,10 +1069,10 @@ static int daqgert_ai_cmdtest(struct comedi_device *dev,
 	/* step 4: fix up any arguments */
 	if (cmd->convert_src == TRIG_TIMER) {
 		arg = cmd->convert_arg;
-		//		i8253_cascade_ns_to_timer(4000000,
-		//			&divisor1,
-		//			&divisor2,
-		//			&arg, cmd->flags);
+		i8253_cascade_ns_to_timer(4000000,
+		&divisor1,
+		&divisor2,
+		&arg, cmd->flags);
 		err |= cfc_check_trigger_arg_is(&cmd->convert_arg, arg);
 	}
 
@@ -1397,13 +1395,13 @@ static const struct daqgert_board daqgert_boards[] = {
 		.name = "daq-gert",
 		.board_type = 0,
 		.n_aochan = 2,
-		.ai_ns_min = 100000,
+		.ai_ns_min = 1000,
 	},
 	{
 		.name = "daq_gert",
 		.board_type = 0,
 		.n_aochan = 2,
-		.ai_ns_min = 100000,
+		.ai_ns_min = 1000,
 	},
 };
 
