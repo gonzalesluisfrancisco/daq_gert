@@ -1102,7 +1102,7 @@ static int daqgert_ai_cmdtest(struct comedi_device *dev,
 	/* step 4: fix up any arguments */
 	if (cmd->convert_src == TRIG_TIMER) {
 		arg = cmd->convert_arg;
-		i8253_cascade_ns_to_timer(4000000,
+		i8253_cascade_ns_to_timer(500000,
 			&divisor1,
 			&divisor2,
 			&arg, cmd->flags);
@@ -1428,13 +1428,13 @@ static const struct daqgert_board daqgert_boards[] = {
 		.name = "daq-gert",
 		.board_type = 0,
 		.n_aochan = 2,
-		.ai_ns_min = 1000,
+		.ai_ns_min = 10000,
 	},
 	{
 		.name = "daq_gert",
 		.board_type = 0,
 		.n_aochan = 2,
-		.ai_ns_min = 1000,
+		.ai_ns_min = 10000,
 	},
 };
 

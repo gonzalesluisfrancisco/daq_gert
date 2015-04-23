@@ -52,7 +52,7 @@ char *comedi_devname = "/dev/comedi0";
 
 int comedi_subdevice = 1;
 
-int comedi_rate = 50;        /* XXX set this to max valid upon open */
+int comedi_rate = 250;        /* XXX set this to max valid upon open */
 
 /* Size of COMEDI's kernel buffer.  -1 means leave it at the default.  Slight bug - if you change
  * it, then change it back to -1, the default setting won't return until you close and re-open the
