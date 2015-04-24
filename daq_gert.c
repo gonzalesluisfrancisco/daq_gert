@@ -97,7 +97,7 @@ WiringPI
  * spi-atmel.c, Copyright (C) 2006 Atmel Corporation
 
 Devices: [] GERTBOARD (daq_gert)
-Status: inprogress (DIO 95%) (AI 90%) AO (90%) (My code cleanup 65%)
+Status: inprogress (DIO 95%) (AI 90%) AO (90%) (My code cleanup 75%)
 Updated: Apr 2015 12:07:20 +0000
 
 The DAQ-GERT appears in Comedi as a  digital I/O subdevice (0) with
@@ -241,12 +241,16 @@ struct spi_param_type {
 	uint16_t chan : 4;
 	struct spi_device *spi;
 	struct comedi_device *dev;
-	uint8_t device_type;
+	int device_type;
+	int multi_mode; /* combine transfers into one message */
+	int multi_size; /* the number of needed values returned as data */
 };
 static struct spi_param_type spi_adc = {
-	.device_type = MCP3002
+	.device_type = MCP3002,
+	.multi_mode = false
 }, spi_dac = {
-	.device_type = MCP4802
+	.device_type = MCP4802,
+	.multi_mode = false
 };
 
 struct pic_platform_data {
@@ -275,7 +279,7 @@ static struct pic_platform_data pic_info_pic18 = {
 #define CSnA    0       /* GPIO 8  Gertboard ADC */
 #define CSnB    1       /* GPIO 7  Gertboard DAC */
 
-#define SPI_BUFF_SIZE 16
+#define SPI_BUFF_SIZE 8192
 #define MAX_CHANLIST_LEN	256
 
 /* PIC Slave commands */
@@ -871,7 +875,7 @@ static unsigned int daqgert_ai_get_sample(struct comedi_device *dev,
 	chan = CR_CHAN(pic_data->chan);
 	/* Make SPI messages for the type of ADC are we talking to */
 	/* The PIC Slave needs 8 bit transfers only */
-	if (spi_data->pic18) { /*  PIC18 SPI slave device */
+	if (spi_data->pic18) { /*  PIC18 SPI slave device. NO MULTI_MODE ever */
 		udelay(pic_data->cmd_delay_usecs); /* ADC conversion delay */
 		comedi_ctl.tx_buff[0] = CMD_ADC_GO + chan;
 		spi_write_then_read(spi_data->spi, comedi_ctl.tx_buff, 1, comedi_ctl.rx_buff, 1); /* rx buffer has old data */
@@ -887,26 +891,31 @@ static unsigned int daqgert_ai_get_sample(struct comedi_device *dev,
 		spi_write_then_read(spi_data->spi, comedi_ctl.tx_buff, 1, comedi_ctl.rx_buff, 1);
 		val += comedi_ctl.rx_buff[0] << 8;
 	} else { /* Gertboard onboard ADC device */
-		comedi_ctl.tx_buff[2] = 0; // format the ADC data as a single transmission
-		comedi_ctl.tx_buff[1] = 0;
-		comedi_ctl.tx_buff[0] = 0b11010000 | ((chan & 0x01) << 5);
-		memset(&t, 0, sizeof(t)); // clear the tranfer array
-		t[0].tx_buf = comedi_ctl.tx_buff;
-		if (spi_data->device_type == MCP3002) { // 10 bit adc data
-			t[0].len = 2;
+		if (!spi_data->multi_mode) { /* for single channel command scans */
+			comedi_ctl.tx_buff[2] = 0; // format the ADC data as a single transmission
+			comedi_ctl.tx_buff[1] = 0;
+			comedi_ctl.tx_buff[0] = 0b11010000 | ((chan & 0x01) << 5);
+			memset(&t, 0, sizeof(t)); // clear the transfer array
+			t[0].tx_buf = comedi_ctl.tx_buff;
+			if (spi_data->device_type == MCP3002) { // 10 bit adc data
+				t[0].len = 2;
+			} else {
+				t[0].len = 3;
+			}
+			t[0].rx_buf = comedi_ctl.rx_buff;
+			spi_message_init_with_transfers(&m, &t[0], 1); // make the proper message with the transfer
+			spi_sync(spi_data->spi, &m); // exchange SPI data
+			/* ADC type code result munging */
+			if (spi_data->device_type == MCP3002) { // 10 bit adc data
+				val = ((comedi_ctl.rx_buff[0] << 7) | (comedi_ctl.rx_buff[1] >> 1)) & 0x3FF;
+			} else { // 12 bit adc data
+				val = (comedi_ctl.rx_buff[2]&0x80) >> 7;
+				val += comedi_ctl.rx_buff[1] << 1;
+				val += (comedi_ctl.rx_buff[0]&0x0f) << 9;
+			}
 		} else {
-			t[0].len = 3;
-		}
-		t[0].rx_buf = comedi_ctl.rx_buff;
-		spi_message_init_with_transfers(&m, &t[0], 1); // make the proper message with the transfer
-		spi_sync(spi_data->spi, &m); // exchange SPI data
-		/* ADC type code result munging */
-		if (spi_data->device_type == MCP3002) { // 10 bit adc data
-			val = ((comedi_ctl.rx_buff[0] << 7) | (comedi_ctl.rx_buff[1] >> 1)) & 0x3FF;
-		} else { // 12 bit adc data
-			val = (comedi_ctl.rx_buff[2]&0x80) >> 7;
-			val += comedi_ctl.rx_buff[1] << 1;
-			val += (comedi_ctl.rx_buff[0]&0x0f) << 9;
+			val = 0;
+			/* todo */
 		}
 	}
 	mutex_unlock(&pic_data->drvdata_lock);
@@ -1315,11 +1324,11 @@ static int daqgert_attach(struct comedi_device *dev, struct comedi_devconfig *it
 	dev->private = &pic_info_pic18; /* Board  operation data */
 
 	/* these buffers are large to handle async SPI transfer scans in a hunk*/
-	comedi_ctl.tx_buff = kzalloc(SPI_BUFF_SIZE, GFP_KERNEL | GFP_DMA);
+	comedi_ctl.tx_buff = kmalloc(SPI_BUFF_SIZE, GFP_KERNEL | GFP_DMA);
 	if (!comedi_ctl.tx_buff) {
 		return -ENOMEM;
 	}
-	comedi_ctl.rx_buff = kzalloc(SPI_BUFF_SIZE, GFP_KERNEL | GFP_DMA);
+	comedi_ctl.rx_buff = kmalloc(SPI_BUFF_SIZE, GFP_KERNEL | GFP_DMA);
 	if (!comedi_ctl.rx_buff) {
 
 		return -ENOMEM;
@@ -1424,31 +1433,34 @@ static int daqgert_attach(struct comedi_device *dev, struct comedi_devconfig *it
 	}
 	/* setup kthread */
 	daqgert_task = kthread_run(&daqgert_thread_function, (void *) dev, "daq_gert");
-	dev_info(dev->class_dev, "daq_gert SPI i/o thread started\n");
+	dev_info(dev->class_dev, "Daq_gert SPI i/o thread started\n");
 
 	dev_info(dev->class_dev, "%s attached: GPIO iobase 0x%lx, ioremap 0x%lx, GPIO wpi-pins 0x%x\n",
 		dev->driver->driver_name,
 		dev->iobase,
 		(long unsigned int) gpio,
 		(unsigned int) d);
-
 	return 0;
 }
 
 static void daqgert_detach(struct comedi_device *dev)
 {
 	iounmap(gpio);
-	if (daqgert_task) kthread_stop(daqgert_task);
-	daqgert_task = NULL;
 	if (1) {
 		/* remove kernel timer when unloading module */
 		del_timer_sync(&my_timer);
 	}
+	udelay(1000);
+	if (daqgert_task) kthread_stop(daqgert_task);
+	daqgert_task = NULL;
+	udelay(1000);
+
 	if (comedi_ctl.tx_buff)
 		kfree(comedi_ctl.tx_buff);
 	if (comedi_ctl.rx_buff)
 		kfree(comedi_ctl.rx_buff);
-	dev_info(dev->class_dev, "daq_gert detached\n");
+	udelay(1000);
+	dev_info(dev->class_dev, "Daq_gert detached\n");
 }
 
 static const struct daqgert_board daqgert_boards[] = {
@@ -1484,10 +1496,10 @@ static int spidev_spi_probe(struct spi_device *spi)
 	struct comedi_control *pdata;
 	int ret;
 
-	pdata = kzalloc(sizeof(struct comedi_control), GFP_KERNEL);
-	if (!pdata)
-		return -ENOMEM;
-	spi->dev.platform_data = pdata;
+	//	pdata = kzalloc(sizeof(struct comedi_control), GFP_KERNEL);
+	//	if (!pdata)
+	//		return -ENOMEM;
+	//	spi->dev.platform_data = pdata;
 	mutex_init(&pic_info_pic18.drvdata_lock);
 	if (spi->chip_select == CSnA) {
 		/* get a copy of the slave device 0 */ /* we need a device to talk to the ADC */
@@ -1524,15 +1536,15 @@ static int spidev_spi_probe(struct spi_device *spi)
 
 	return 0;
 kfree_exit:
-	kfree(pdata);
+	//	kfree(pdata);
 	return ret;
 }
 
 static int spidev_spi_remove(struct spi_device *spi)
 {
-	struct comedi_control *pdata = spi->dev.platform_data;
+	//	struct comedi_control *pdata = spi->dev.platform_data;
 
-	kfree(pdata);
+	//	kfree(pdata);
 	return 0;
 }
 
