@@ -190,13 +190,13 @@ void (*pinMode) (int pin, int mode);
 void (*digitalWrite) (int pin, int value);
 void (*setPadDrive) (int group, int value);
 int (*digitalRead) (int pin);
-int SPI_probe(struct comedi_device *);
+static int SPI_probe(struct comedi_device *);
 static void daqgert_ai_clear_eoc(struct comedi_device *);
 static int daqgert_ai_cancel(struct comedi_device *,
 	struct comedi_subdevice *);
 static void daqgert_handle_eoc(struct comedi_device *,
 	struct comedi_subdevice *);
-void my_timer_callback(unsigned long);
+static void my_timer_callback(unsigned long);
 static void daqgert_ai_set_chan_range(struct comedi_device *,
 	struct comedi_subdevice *, unsigned int, char);
 static unsigned int daqgert_ai_get_sample(struct comedi_device *,
@@ -224,7 +224,7 @@ module_param(dio_conf, int, S_IRUGO);
 static int count = 0;
 module_param(count, int, S_IRUGO);
 static struct timer_list my_timer;
-struct task_struct *daqgert_task;
+static struct task_struct *daqgert_task;
 
 struct comedi_control {
 	u8 *tx_buff;
@@ -568,7 +568,7 @@ static uint8_t gpioToPUDCLK [] = {
  *********************************************************************************
  */
 
-void pullUpDnControl(int pin, int pud)
+static void pullUpDnControl(int pin, int pud)
 {
 	pin = pinToGpio [pin];
 
@@ -589,7 +589,7 @@ void pullUpDnControl(int pin, int pud)
  ************************************************************
  */
 
-void pinModeGpio(int pin, int mode)
+static void pinModeGpio(int pin, int mode)
 {
 	int fSel, shift;
 
@@ -604,7 +604,7 @@ void pinModeGpio(int pin, int mode)
 		*(gpio + fSel) = (*(gpio + fSel) & ~(7 << shift)) | (1 << shift);
 }
 
-void pinModeWPi(int pin, int mode)
+static void pinModeWPi(int pin, int mode)
 {
 	pinModeGpio(pinToGpio [pin & 63], mode);
 }
@@ -615,7 +615,7 @@ void pinModeWPi(int pin, int mode)
  *********************************************************************************
  */
 
-int physPinToGpio(int physPin)
+static int physPinToGpio(int physPin)
 {
 	return physToGpio [physPin & 63];
 }
@@ -626,7 +626,7 @@ int physPinToGpio(int physPin)
  *****************************************************************
  */
 
-void digitalWriteWPi(int pin, int value)
+static void digitalWriteWPi(int pin, int value)
 {
 	pin = pinToGpio [pin & 63];
 
@@ -636,7 +636,7 @@ void digitalWriteWPi(int pin, int value)
 		*(gpio + gpioToGPSET [pin]) = 1 << (pin & 31);
 }
 
-void digitalWriteGpio(int pin, int value)
+static void digitalWriteGpio(int pin, int value)
 {
 	pin &= 63;
 
@@ -652,7 +652,7 @@ void digitalWriteGpio(int pin, int value)
  *******************************************************************
  */
 
-int digitalReadWPi(int pin)
+static int digitalReadWPi(int pin)
 {
 	pin = pinToGpio [pin & 63];
 
@@ -662,7 +662,7 @@ int digitalReadWPi(int pin)
 		return LOW;
 }
 
-int digitalReadGpio(int pin)
+static int digitalReadGpio(int pin)
 {
 	pin &= 63;
 
@@ -697,7 +697,7 @@ V=1 1
  *********************************************************************
  */
 
-int piBoardRev(struct comedi_device *dev)
+static int piBoardRev(struct comedi_device *dev)
 {
 	int r = -1, nscheme = 0;
 	static int boardRev = -1;
@@ -754,7 +754,7 @@ int piBoardRev(struct comedi_device *dev)
  ************************************************************************
  */
 
-int wiringPiSetup(struct comedi_device *dev)
+static int wiringPiSetup(struct comedi_device *dev)
 {
 	int boardRev;
 
@@ -784,7 +784,7 @@ int wiringPiSetup(struct comedi_device *dev)
  *************************************************************************
  */
 
-int wiringPiSetupGpio(struct comedi_device *dev)
+static int wiringPiSetupGpio(struct comedi_device *dev)
 {
 	int x;
 
@@ -1126,7 +1126,7 @@ static int daqgert_ai_cmdtest(struct comedi_device *dev,
 	return 0;
 }
 
-void my_timer_callback(unsigned long data)
+static void my_timer_callback(unsigned long data)
 {
 	struct comedi_device *dev = (void*) data;
 	struct comedi_subdevice *s = dev->read_subdev;
@@ -1542,9 +1542,9 @@ static struct spi_driver spidev_spi_driver = {
 };
 
 /*
- * setup and probe the spi buss for devices
+ * setup and probe the spi bus for devices
  */
-int SPI_probe(struct comedi_device *dev)
+static int SPI_probe(struct comedi_device *dev)
 {
 	int ret;
 
