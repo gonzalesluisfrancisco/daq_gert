@@ -1321,14 +1321,16 @@ static int daqgert_attach(struct comedi_device *dev, struct comedi_devconfig *it
 	struct comedi_subdevice *s;
 	int ret, num_subdev = 1, i, d;
 
+	mutex_init(&pic_info_pic18.cmd_lock);
+	mutex_init(&pic_info_pic18.drvdata_lock);
 	dev->private = &pic_info_pic18; /* Board  operation data */
 
 	/* these buffers are large to handle async SPI transfer scans in a hunk*/
-	comedi_ctl.tx_buff = kmalloc(SPI_BUFF_SIZE, GFP_KERNEL | GFP_DMA);
+	comedi_ctl.tx_buff = kzalloc(SPI_BUFF_SIZE, GFP_KERNEL | GFP_DMA);
 	if (!comedi_ctl.tx_buff) {
 		return -ENOMEM;
 	}
-	comedi_ctl.rx_buff = kmalloc(SPI_BUFF_SIZE, GFP_KERNEL | GFP_DMA);
+	comedi_ctl.rx_buff = kzalloc(SPI_BUFF_SIZE, GFP_KERNEL | GFP_DMA);
 	if (!comedi_ctl.rx_buff) {
 
 		return -ENOMEM;
@@ -1390,7 +1392,7 @@ static int daqgert_attach(struct comedi_device *dev, struct comedi_devconfig *it
 	if (num_subdev > 1) { /* we have the SPI ADC DAC on board */
 		/* daq_gert ai */
 		s = &dev->subdevices[1];
-		s->private = &spi_adc; /* SPI adc state */
+		s->private = &spi_adc; /* SPI adc comedi state */
 		num_ai_chan = daqgert_ai_config(dev, s); /* config SPI ports for ai use */
 		s->type = COMEDI_SUBD_AI;
 		/* we support single-ended (ground)  */
@@ -1410,15 +1412,13 @@ static int daqgert_attach(struct comedi_device *dev, struct comedi_devconfig *it
 		s->cancel = daqgert_ai_cancel;
 		dev->read_subdev = s;
 
-		mutex_init(&pic_info_pic18.cmd_lock);
-
 		/* setup your timer to call my_timer_callback */
 		setup_timer(&my_timer, my_timer_callback, (unsigned long) dev);
 		daqgert_start_pacer(dev, FALSE);
 
 		/* daq-gert ao */
 		s = &dev->subdevices[2];
-		s->private = &spi_dac; /* SPI dac state */
+		s->private = &spi_dac; /* SPI dac comedi state */
 		num_ao_chan = daqgert_ao_config(dev, s); /* config SPI ports for ao use */
 		s->type = COMEDI_SUBD_AO;
 		/* we support single-ended (ground)  */
@@ -1496,11 +1496,11 @@ static int spidev_spi_probe(struct spi_device *spi)
 	struct comedi_control *pdata;
 	int ret;
 
-	//	pdata = kzalloc(sizeof(struct comedi_control), GFP_KERNEL);
-	//	if (!pdata)
-	//		return -ENOMEM;
-	//	spi->dev.platform_data = pdata;
-	mutex_init(&pic_info_pic18.drvdata_lock);
+	pdata = kzalloc(sizeof(struct comedi_control), GFP_KERNEL);
+	if (!pdata) return -ENOMEM;
+
+	spi->dev.platform_data = pdata;
+
 	if (spi->chip_select == CSnA) {
 		/* get a copy of the slave device 0 */ /* we need a device to talk to the ADC */
 		spi_adc.spi = spi;
@@ -1519,10 +1519,11 @@ static int spidev_spi_probe(struct spi_device *spi)
 		spi->chip_select, spi->max_speed_hz, spi->bits_per_word,
 		spi->mode);
 
-	/* Check */
-	ret = spi_w8r8(spi, CMD_DUMMY_CFG);
+	/* Check for basic errors */
+	ret = spi_w8r8(spi, 0); /* check for spi comm error */
 	if (ret < 0) {
-		dev_err(&spi->dev, "not found.\n");
+		dev_err(&spi->dev, "SPI not working\n");
+		ret = -EIO;
 		goto kfree_exit;
 	}
 	if (!(spi->mode & SPI_NO_CS) &&
@@ -1536,15 +1537,16 @@ static int spidev_spi_probe(struct spi_device *spi)
 
 	return 0;
 kfree_exit:
-	//	kfree(pdata);
+	kfree(pdata);
 	return ret;
 }
 
 static int spidev_spi_remove(struct spi_device *spi)
 {
-	//	struct comedi_control *pdata = spi->dev.platform_data;
+	struct comedi_control *pdata = spi->dev.platform_data;
 
-	//	kfree(pdata);
+	if (pdata) kfree(pdata);
+	dev_info(&spi->dev, "released\n");
 	return 0;
 }
 
