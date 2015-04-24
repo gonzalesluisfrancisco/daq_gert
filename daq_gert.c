@@ -253,16 +253,16 @@ static struct spi_param_type spi_adc = {
 	.multi_mode = false
 };
 
-struct pic_platform_data {
+struct daqgert_private {
 	uint16_t conv_delay_usecs, cmd_delay_usecs, ai_neverending;
 	int chan, timer, run, spi_run, count, cmd_running, cmd_canceled;
 	struct mutex drvdata_lock, cmd_lock;
 	unsigned int val;
-	unsigned int ai_scans; /*  len of scanlist */
+	unsigned int ai_scans; /*  length of scanlist */
 	unsigned int ai_act_scan; /*  how many scans we finished */
 };
 
-static struct pic_platform_data pic_info_pic18 = {
+static struct daqgert_private daqgert_info = {
 	.chan = 0,
 	.timer = 0,
 	.run = 0,
@@ -814,28 +814,28 @@ static int daqgert_thread_function(void *data)
 {
 	struct comedi_device *dev = (void*) data;
 	struct comedi_subdevice *s = dev->read_subdev;
-	struct pic_platform_data *pic_data = dev->private;
+	struct daqgert_private *devpriv = dev->private;
 
 	while (!kthread_should_stop()) {
-		while (!pic_data->run) {
-			if (pic_data->timer) {
+		while (!devpriv->run) {
+			if (devpriv->timer) {
 				schedule();
 			} else {
 				msleep(1);
 			}
-			if (pic_data->timer && pic_data->run) {
-				pic_data->spi_run = true;
+			if (devpriv->timer && devpriv->run) {
+				devpriv->spi_run = true;
 			}
 			if (kthread_should_stop()) return 0;
 		}
-		if (pic_data->cmd_running) {
+		if (devpriv->cmd_running) {
 			daqgert_handle_eoc(dev, s);
 			usleep_range(50, 250);
 		} else {
 			msleep(1);
 		}
-		pic_data->spi_run = false;
-		pic_data->count++;
+		devpriv->spi_run = false;
+		devpriv->count++;
 	}
 	/*do_exit(1);*/
 	return 0;
@@ -853,12 +853,12 @@ static void daqgert_start_pacer(struct comedi_device *dev, bool load_timers)
 static void daqgert_ai_set_chan_range(struct comedi_device *dev,
 	unsigned int chanspec, char wait)
 {
-	struct pic_platform_data *pic_data = dev->private;
-	mutex_lock(&pic_data->drvdata_lock);
-	pic_data->chan = CR_CHAN(chanspec);
+	struct daqgert_private *devpriv = dev->private;
+	mutex_lock(&devpriv->drvdata_lock);
+	devpriv->chan = CR_CHAN(chanspec);
 	if (wait)
 		udelay(5);
-	mutex_unlock(&pic_data->drvdata_lock);
+	mutex_unlock(&devpriv->drvdata_lock);
 }
 
 static unsigned int daqgert_ai_get_sample(struct comedi_device *dev,
@@ -866,27 +866,27 @@ static unsigned int daqgert_ai_get_sample(struct comedi_device *dev,
 {
 	int chan;
 	unsigned int val;
-	struct pic_platform_data *pic_data = dev->private;
+	struct daqgert_private *devpriv = dev->private;
 	struct spi_param_type *spi_data = s->private;
 	struct spi_transfer t[1];
 	struct spi_message m;
 
-	mutex_lock(&pic_data->drvdata_lock);
-	chan = CR_CHAN(pic_data->chan);
+	mutex_lock(&devpriv->drvdata_lock);
+	chan = CR_CHAN(devpriv->chan);
 	/* Make SPI messages for the type of ADC are we talking to */
 	/* The PIC Slave needs 8 bit transfers only */
 	if (spi_data->pic18) { /*  PIC18 SPI slave device. NO MULTI_MODE ever */
-		udelay(pic_data->cmd_delay_usecs); /* ADC conversion delay */
+		udelay(devpriv->cmd_delay_usecs); /* ADC conversion delay */
 		comedi_ctl.tx_buff[0] = CMD_ADC_GO + chan;
 		spi_write_then_read(spi_data->spi, comedi_ctl.tx_buff, 1, comedi_ctl.rx_buff, 1); /* rx buffer has old data */
-		udelay(pic_data->conv_delay_usecs); /* ADC conversion delay */
+		udelay(devpriv->conv_delay_usecs); /* ADC conversion delay */
 		comedi_ctl.tx_buff[0] = CMD_ZERO;
 		spi_write_then_read(spi_data->spi, comedi_ctl.tx_buff, 1, comedi_ctl.rx_buff, 1); /* rx buffer has old data */
-		udelay(pic_data->cmd_delay_usecs); /* ADC conversion delay */
+		udelay(devpriv->cmd_delay_usecs); /* ADC conversion delay */
 		comedi_ctl.tx_buff[0] = CMD_ADC_DATA;
 		spi_write_then_read(spi_data->spi, comedi_ctl.tx_buff, 1, comedi_ctl.rx_buff, 1);
 		val = comedi_ctl.rx_buff[0];
-		udelay(pic_data->cmd_delay_usecs); /* ADC conversion delay */
+		udelay(devpriv->cmd_delay_usecs); /* ADC conversion delay */
 		comedi_ctl.tx_buff[0] = CMD_ZERO;
 		spi_write_then_read(spi_data->spi, comedi_ctl.tx_buff, 1, comedi_ctl.rx_buff, 1);
 		val += comedi_ctl.rx_buff[0] << 8;
@@ -918,14 +918,14 @@ static unsigned int daqgert_ai_get_sample(struct comedi_device *dev,
 			/* todo */
 		}
 	}
-	mutex_unlock(&pic_data->drvdata_lock);
+	mutex_unlock(&devpriv->drvdata_lock);
 	return val & s->maxdata;
 }
 
 static bool daqgert_ai_next_chan(struct comedi_device *dev,
 	struct comedi_subdevice *s)
 {
-	struct pic_platform_data *pic_data = dev->private;
+	struct daqgert_private *devpriv = dev->private;
 	struct comedi_cmd *cmd = &s->async->cmd;
 
 	//    dev_info(dev->class_dev, "ai_next_chan\n");
@@ -940,10 +940,10 @@ static bool daqgert_ai_next_chan(struct comedi_device *dev,
 
 	if (cmd->stop_src == TRIG_COUNT) {
 		if (s->async->cur_chan == 0) {
-			pic_data->ai_act_scan++;
-			if (!pic_data->ai_neverending) {
+			devpriv->ai_act_scan++;
+			if (!devpriv->ai_neverending) {
 				/* all data sampled */
-				if (pic_data->ai_act_scan >= pic_data->ai_scans) {
+				if (devpriv->ai_act_scan >= devpriv->ai_scans) {
 					daqgert_ai_cancel(dev, s);
 					s->async->events |= COMEDI_CB_EOA;
 					//		dev_info(dev->class_dev, "CB_EOA\n");
@@ -977,9 +977,9 @@ static void daqgert_handle_eoc(struct comedi_device *dev,
 
 static void daqgert_ai_soft_trig(struct comedi_device *dev)
 {
-	struct pic_platform_data *pic_data = dev->private;
+	struct daqgert_private *devpriv = dev->private;
 
-	pic_data->timer = TRUE;
+	devpriv->timer = TRUE;
 	daqgert_start_pacer(dev, TRUE);
 }
 
@@ -988,8 +988,8 @@ static int daqgert_ai_eoc(struct comedi_device *dev,
 	struct comedi_insn *insn,
 	unsigned long context)
 {
-	struct pic_platform_data *pic_data = dev->private;
-	if (pic_data->spi_run) return -EBUSY;
+	struct daqgert_private *devpriv = dev->private;
+	if (devpriv->spi_run) return -EBUSY;
 	return 0;
 
 }
@@ -998,12 +998,12 @@ static int daqgert_ai_eoc(struct comedi_device *dev,
 static int daqgert_ai_cmd(struct comedi_device *dev, struct comedi_subdevice *s)
 {
 	struct comedi_cmd *cmd = &s->async->cmd;
-	struct pic_platform_data *pic_data = dev->private;
+	struct daqgert_private *devpriv = dev->private;
 	int ret = -EBUSY;
 
-	mutex_lock(&pic_data->cmd_lock);
+	mutex_lock(&devpriv->cmd_lock);
 	dev_info(dev->class_dev, "ai_cmd\n");
-	if (pic_data->cmd_running) {
+	if (devpriv->cmd_running) {
 		dev_info(dev->class_dev, "ai_cmd busy\n");
 		goto ai_cmd_exit;
 	}
@@ -1023,38 +1023,38 @@ static int daqgert_ai_cmd(struct comedi_device *dev, struct comedi_subdevice *s)
 	if (ret == -EINVAL) goto ai_cmd_exit;
 
 	if (cmd->stop_src == TRIG_COUNT) {
-		pic_data->ai_scans = cmd->stop_arg;
-		pic_data->ai_neverending = 0;
+		devpriv->ai_scans = cmd->stop_arg;
+		devpriv->ai_neverending = 0;
 	} else {
-		pic_data->ai_scans = 0;
-		pic_data->ai_neverending = 1;
+		devpriv->ai_scans = 0;
+		devpriv->ai_neverending = 1;
 	}
 
-	pic_data->ai_act_scan = 0;
+	devpriv->ai_act_scan = 0;
 	s->async->cur_chan = 0;
 	daqgert_ai_set_chan_range(dev, cmd->chanlist[s->async->cur_chan], 1);
 
-	pic_data->run = false;
-	pic_data->timer = true;
+	devpriv->run = false;
+	devpriv->timer = true;
 	daqgert_start_pacer(dev, TRUE);
-	pic_data->cmd_running = true;
-	pic_data->cmd_canceled = false;
+	devpriv->cmd_running = true;
+	devpriv->cmd_canceled = false;
 	ret = 0;
 ai_cmd_exit:
-	mutex_unlock(&pic_data->cmd_lock);
+	mutex_unlock(&devpriv->cmd_lock);
 	return ret;
 }
 
 static int daqgert_ai_poll(struct comedi_device *dev, struct comedi_subdevice *s)
 {
-	struct pic_platform_data *pic_data = dev->private;
+	struct daqgert_private *devpriv = dev->private;
 	int num_bytes;
 
-	mutex_lock(&pic_data->cmd_lock);
+	mutex_lock(&devpriv->cmd_lock);
 	dev_info(dev->class_dev, "ai_poll\n");
 
 	num_bytes = comedi_buf_n_bytes_ready(s);
-	mutex_unlock(&pic_data->cmd_lock);
+	mutex_unlock(&devpriv->cmd_lock);
 	return num_bytes;
 }
 
@@ -1139,11 +1139,11 @@ static int daqgert_ai_cmdtest(struct comedi_device *dev,
 static void my_timer_callback(unsigned long data)
 {
 	struct comedi_device *dev = (void*) data;
-	struct pic_platform_data *pic_data = dev->private;
+	struct daqgert_private *devpriv = dev->private;
 
-	if (!pic_data->run) {
-		pic_data->run = true;
-		pic_data->timer = true;
+	if (!devpriv->run) {
+		devpriv->run = true;
+		devpriv->timer = true;
 	}
 	daqgert_start_pacer(dev, true);
 
@@ -1151,35 +1151,35 @@ static void my_timer_callback(unsigned long data)
 
 static void daqgert_ai_clear_eoc(struct comedi_device *dev)
 {
-	struct pic_platform_data *pic_data = dev->private;
+	struct daqgert_private *devpriv = dev->private;
 	int count = 0;
 
 	del_timer_sync(&my_timer);
 	setup_timer(&my_timer, my_timer_callback, (unsigned long) dev);
-	pic_data->run = false;
-	pic_data->timer = false;
+	devpriv->run = false;
+	devpriv->timer = false;
 	do { // wait if needed to SPI to clear or timeout
 		msleep(1);
-	} while (pic_data->spi_run || (count++ < 100));
+	} while (devpriv->spi_run || (count++ < 100));
 
-	pic_data->run = false; // just to be sure
-	pic_data->timer = false;
+	devpriv->run = false; // just to be sure
+	devpriv->timer = false;
 }
 
 static int daqgert_ai_cancel(struct comedi_device *dev,
 	struct comedi_subdevice *s)
 {
-	struct pic_platform_data *pic_data = dev->private;
+	struct daqgert_private *devpriv = dev->private;
 
-	mutex_lock(&pic_data->cmd_lock);
+	mutex_lock(&devpriv->cmd_lock);
 	daqgert_ai_clear_eoc(dev);
 	dev_info(dev->class_dev, "ai cancel\n");
-	count = pic_data->count;
+	count = devpriv->count;
 	s->async->cur_chan = 0;
 	s->async->inttrig = NULL;
-	pic_data->cmd_canceled = false;
-	pic_data->cmd_running = false;
-	mutex_unlock(&pic_data->cmd_lock);
+	devpriv->cmd_canceled = false;
+	devpriv->cmd_running = false;
+	mutex_unlock(&devpriv->cmd_lock);
 	return 0;
 }
 
@@ -1257,22 +1257,22 @@ static int daqgert_ai_rinsn(struct comedi_device *dev,
 {
 	int ret = -EBUSY;
 	int n;
-	struct pic_platform_data *pic_data = dev->private;
+	struct daqgert_private *devpriv = dev->private;
 
-	mutex_lock(&pic_data->cmd_lock);
-	if (pic_data->cmd_running)
+	mutex_lock(&devpriv->cmd_lock);
+	if (devpriv->cmd_running)
 		goto ai_read_exit;
 
-	mutex_lock(&pic_data->drvdata_lock);
-	pic_data->chan = CR_CHAN(insn->chanspec);
-	mutex_unlock(&pic_data->drvdata_lock);
+	mutex_lock(&devpriv->drvdata_lock);
+	devpriv->chan = CR_CHAN(insn->chanspec);
+	mutex_unlock(&devpriv->drvdata_lock);
 	/* convert n samples */
 	for (n = 0; n < insn->n; n++) {
 		data[n] = daqgert_ai_get_sample(dev, s);
 	}
 	ret = 0;
 ai_read_exit:
-	mutex_unlock(&pic_data->cmd_lock);
+	mutex_unlock(&devpriv->cmd_lock);
 	return ret ? ret : insn->n;
 }
 
@@ -1281,12 +1281,12 @@ static int daqgert_ao_winsn(struct comedi_device *dev,
 	struct comedi_subdevice *s,
 	struct comedi_insn *insn, unsigned int *data)
 {
-	struct pic_platform_data *pic_data = dev->private;
+	struct daqgert_private *devpriv = dev->private;
 	struct spi_param_type *spi_data = s->private;
 	unsigned int chan = CR_CHAN(insn->chanspec);
 	unsigned int n, junk, val = s->readback[chan];
 
-	mutex_lock(&pic_data->cmd_lock);
+	mutex_lock(&devpriv->cmd_lock);
 	for (n = 0; n < insn->n; n++) {
 		val = data[n];
 		junk = val & 0xfff; /* strip to 12 bits */
@@ -1295,7 +1295,7 @@ static int daqgert_ao_winsn(struct comedi_device *dev,
 		spi_write_then_read(spi_data->spi, comedi_ctl.tx_buff, 2, comedi_ctl.rx_buff, 2); /* Load DAC channel, send two bytes */
 	}
 	s->readback[chan] = val;
-	mutex_unlock(&pic_data->cmd_lock);
+	mutex_unlock(&devpriv->cmd_lock);
 	return insn->n;
 }
 
@@ -1321,9 +1321,9 @@ static int daqgert_attach(struct comedi_device *dev, struct comedi_devconfig *it
 	struct comedi_subdevice *s;
 	int ret, num_subdev = 1, i, d;
 
-	mutex_init(&pic_info_pic18.cmd_lock);
-	mutex_init(&pic_info_pic18.drvdata_lock);
-	dev->private = &pic_info_pic18; /* Board  operation data */
+	mutex_init(&daqgert_info.cmd_lock);
+	mutex_init(&daqgert_info.drvdata_lock);
+	dev->private = &daqgert_info; /* Board  operation data */
 
 	/* these buffers are large to handle async SPI transfer scans in a hunk*/
 	comedi_ctl.tx_buff = kzalloc(SPI_BUFF_SIZE, GFP_KERNEL | GFP_DMA);
@@ -1412,9 +1412,8 @@ static int daqgert_attach(struct comedi_device *dev, struct comedi_devconfig *it
 		s->cancel = daqgert_ai_cancel;
 		dev->read_subdev = s;
 
-		/* setup your timer to call my_timer_callback */
+		/* setup the timer to call my_timer_callback */
 		setup_timer(&my_timer, my_timer_callback, (unsigned long) dev);
-		daqgert_start_pacer(dev, FALSE);
 
 		/* daq-gert ao */
 		s = &dev->subdevices[2];
