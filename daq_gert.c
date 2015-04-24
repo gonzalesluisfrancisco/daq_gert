@@ -197,6 +197,10 @@ static int daqgert_ai_cancel(struct comedi_device *,
 static void daqgert_handle_eoc(struct comedi_device *,
 	struct comedi_subdevice *);
 void my_timer_callback(unsigned long);
+static void daqgert_ai_set_chan_range(struct comedi_device *,
+	struct comedi_subdevice *, unsigned int, char);
+static unsigned int daqgert_ai_get_sample(struct comedi_device *,
+	struct comedi_subdevice *);
 
 /* analog chip types (type - 12 bits) */
 #define MCP3002 2 /* 10 bit ADC */
@@ -836,7 +840,6 @@ static int daqgert_thread_function(void *data)
 
 static void daqgert_start_pacer(struct comedi_device *dev, bool load_timers)
 {
-
 	if (load_timers) {
 		/* setup timer interval to msecs */
 		mod_timer(&my_timer, jiffies + msecs_to_jiffies(10));
@@ -844,11 +847,14 @@ static void daqgert_start_pacer(struct comedi_device *dev, bool load_timers)
 }
 
 static void daqgert_ai_set_chan_range(struct comedi_device *dev,
-	unsigned int chanspec, char wait)
+	struct comedi_subdevice *s, unsigned int chanspec, char wait)
 {
-	pic_info_pic18.chan = CR_CHAN(chanspec);
+	struct pic_platform_data *pic_data = s->private;
+	mutex_lock(&pic_data->drvdata_lock);
+	pic_data->chan = CR_CHAN(chanspec);
 	if (wait)
 		udelay(5);
+	mutex_unlock(&pic_data->drvdata_lock);
 }
 
 static unsigned int daqgert_ai_get_sample(struct comedi_device *dev,
@@ -860,11 +866,11 @@ static unsigned int daqgert_ai_get_sample(struct comedi_device *dev,
 	struct spi_transfer t[1];
 	struct spi_message m;
 
+	mutex_lock(&pic_data->drvdata_lock);
 	chan = CR_CHAN(pic_data->chan);
 	/* Make SPI messages for the type of ADC are we talking to */
 	/* The PIC Slave needs 8 bit transfers only */
 	if (spi_adc.pic18) { /*  PIC18 SPI slave device */
-		mutex_lock(&pic_data->drvdata_lock);
 		udelay(pic_data->cmd_delay_usecs); /* ADC conversion delay */
 		comedi_ctl.tx_buff[0] = CMD_ADC_GO + chan;
 		spi_write_then_read(spi_adc.spi, comedi_ctl.tx_buff, 1, comedi_ctl.rx_buff, 1); /* rx buffer has old data */
@@ -879,9 +885,7 @@ static unsigned int daqgert_ai_get_sample(struct comedi_device *dev,
 		comedi_ctl.tx_buff[0] = CMD_ZERO;
 		spi_write_then_read(spi_adc.spi, comedi_ctl.tx_buff, 1, comedi_ctl.rx_buff, 1);
 		val += comedi_ctl.rx_buff[0] << 8;
-		mutex_unlock(&pic_data->drvdata_lock);
 	} else { /* Gertboard onboard ADC device */
-		mutex_lock(&pic_data->drvdata_lock);
 		comedi_ctl.tx_buff[2] = 0; // format the ADC data as a single transmission
 		comedi_ctl.tx_buff[1] = 0;
 		comedi_ctl.tx_buff[0] = 0b11010000 | ((chan & 0x01) << 5);
@@ -903,9 +907,8 @@ static unsigned int daqgert_ai_get_sample(struct comedi_device *dev,
 			val += comedi_ctl.rx_buff[1] << 1;
 			val += (comedi_ctl.rx_buff[0]&0x0f) << 9;
 		}
-		mutex_unlock(&pic_data->drvdata_lock);
 	}
-
+	mutex_unlock(&pic_data->drvdata_lock);
 	return val & s->maxdata;
 }
 
@@ -955,7 +958,7 @@ static void daqgert_handle_eoc(struct comedi_device *dev,
 	if (next_chan >= cmd->chanlist_len)
 		next_chan = 0;
 	if (cmd->chanlist[s->async->cur_chan] != cmd->chanlist[next_chan])
-		daqgert_ai_set_chan_range(dev, cmd->chanlist[next_chan], 0);
+		daqgert_ai_set_chan_range(dev, s, cmd->chanlist[next_chan], 1);
 
 	daqgert_ai_next_chan(dev, s);
 }
@@ -1020,7 +1023,7 @@ static int daqgert_ai_cmd(struct comedi_device *dev, struct comedi_subdevice *s)
 
 	pic_data->ai_act_scan = 0;
 	s->async->cur_chan = 0;
-	daqgert_ai_set_chan_range(dev, cmd->chanlist[s->async->cur_chan], 0);
+	daqgert_ai_set_chan_range(dev, s, cmd->chanlist[s->async->cur_chan], 1);
 
 	pic_data->run = false;
 	pic_data->timer = true;
@@ -1252,7 +1255,9 @@ static int daqgert_ai_rinsn(struct comedi_device *dev,
 	if (pic_data->cmd_running)
 		goto ai_read_exit;
 
+	mutex_lock(&pic_data->drvdata_lock);
 	pic_data->chan = CR_CHAN(insn->chanspec);
+	mutex_unlock(&pic_data->drvdata_lock);
 	/* convert n samples */
 	for (n = 0; n < insn->n; n++) {
 		data[n] = daqgert_ai_get_sample(dev, s);

@@ -350,7 +350,7 @@ static int start_comedi_running(void)
 
             capture->signal->bits = 0;
 
-#if 1
+#if 0
             printf(" [%g,%g] %s\n",comedi_rng->min,comedi_rng->max,
                    comedi_rng->unit == UNIT_volt ? "V" : "");
 #endif
@@ -366,7 +366,7 @@ static int start_comedi_running(void)
         capture->signal->rate = comedi_rate;
     }
 
-#if 1
+#if 0
     fprintf(stderr, "Sampling every %d(%d) ns(Hz)\n",
             cmd.convert_arg, comedi_rate);
 #endif
@@ -376,13 +376,13 @@ static int start_comedi_running(void)
     if (ret >= 0) {
         fcntl(comedi_fileno(comedi_dev), F_SETFL, O_NONBLOCK);
         comedi_running = 1;
-   fprintf(stderr,"cmd passed %i    \n",ret);
+//   fprintf(stderr,"cmd passed %i    \n",ret);
 
     } else {
    fprintf(stderr,"cmd failed %i    \n",ret);
         comedi_error = comedi_errno();
     }
-   fprintf(stderr,"Returned %i    \n",ret);
+//   fprintf(stderr,"Returned %i    \n",ret);
     return ret;
 }
 
@@ -392,7 +392,7 @@ static void close_comedi()
     struct capture *capture;
 #endif
 
-   fprintf(stderr,"close_comedi \n");
+//    fprintf(stderr,"close_comedi \n");
     if (comedi_dev) comedi_close(comedi_dev);
     comedi_dev = NULL;
     if (comedi_board_name) g_free(comedi_board_name);
@@ -426,7 +426,7 @@ static int open_comedi(void)
     subdevice_flags = 0;
     subdevice_type = COMEDI_SUBD_UNUSED;
 
-   fprintf(stderr,"open comedi  \n");
+//    fprintf(stderr,"open comedi  \n");
     if (!once) {
 
         /* XXX once is a kludge */
@@ -455,7 +455,7 @@ static int open_comedi(void)
         comedi_error = comedi_errno();
         return 0;
     }
-   fprintf(stderr,"open comedi devname \n");
+//    fprintf(stderr,"open comedi devname \n");
 
     /* All the GTK stuff uses UTF8, and complains to stderr if it
      * doesn't get it.
@@ -633,7 +633,7 @@ static void reset(void)
         }
     }
 
-   printf("reset \n");
+//    printf("reset \n");
     start_comedi_running();
 }
 
