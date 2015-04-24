@@ -1645,6 +1645,6 @@ module_exit(daqgert_exit);
 MODULE_AUTHOR("Fred Brooks <spam@sma2.rain.com>");
 MODULE_DESCRIPTION(
 	"Comedi driver for RASPI GERTBOARD DIO/AI/AO");
-MODULE_VERSION("0.0.15");
+MODULE_VERSION("0.0.16");
 MODULE_LICENSE("GPL");
 MODULE_ALIAS("spi:spigert");
