@@ -1320,11 +1320,12 @@ static int daqgert_attach(struct comedi_device *dev, struct comedi_devconfig *it
 	struct comedi_subdevice *s;
 	int ret, num_subdev = 1, i, d;
 	int num_ai_chan, num_ao_chan, num_dio_chan = NUM_DIO_CHAN;
-        struct daqgert_private *devpriv = dev->private;
+        struct daqgert_private *devpriv;
 
 	mutex_init(&daqgert_info.cmd_lock);
 	mutex_init(&daqgert_info.drvdata_lock);
 	dev->private = &daqgert_info; /* Board  operation data */
+	devpriv = &daqgert_info;
 
 	/* these buffers are large to handle async SPI transfer scans in a hunk*/
 	comedi_ctl.tx_buff = kzalloc(SPI_BUFF_SIZE, GFP_KERNEL | GFP_DMA);
