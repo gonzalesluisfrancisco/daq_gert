@@ -1657,10 +1657,10 @@ static int __init daqgert_init(void)
 {
 	int ret;
 
-	ret = comedi_driver_register(&daqgert_driver);
+	ret = spi_register_driver(&spidev_spi_driver);
 	if (ret < 0)
 		return ret;
-	ret = spi_register_driver(&spidev_spi_driver);
+	ret = comedi_driver_register(&daqgert_driver);
 	if (ret < 0)
 		return ret;
 	return 0;
@@ -1669,14 +1669,14 @@ module_init(daqgert_init);
 
 static void __exit daqgert_exit(void)
 {
-	spi_unregister_driver(&spidev_spi_driver);
 	comedi_driver_unregister(&daqgert_driver);
+	spi_unregister_driver(&spidev_spi_driver);
 }
 module_exit(daqgert_exit);
 
 MODULE_AUTHOR("Fred Brooks <spam@sma2.rain.com>");
 MODULE_DESCRIPTION(
 	"Comedi driver for RASPI GERTBOARD DIO/AI/AO");
-MODULE_VERSION("0.0.17");
+MODULE_VERSION("0.0.18");
 MODULE_LICENSE("GPL");
 MODULE_ALIAS("spi:spigert");
