@@ -254,6 +254,7 @@ static struct spi_param_type spi_adc = {
 };
 
 struct daqgert_private {
+	unsigned int RPisys_rev;
 	uint16_t conv_delay_usecs, cmd_delay_usecs, ai_neverending;
 	int chan, timer, run, spi_run, count, cmd_running, cmd_canceled;
 	struct mutex drvdata_lock, cmd_lock;
@@ -352,14 +353,11 @@ static struct daqgert_private daqgert_info = {
 /* Locals to hold pointers to the hardware */
 
 static volatile uint32_t *gpio;
-static int num_ai_chan, num_ao_chan, num_dio_chan = NUM_DIO_CHAN;
 
 /* Global for the RPi board rev */
 extern unsigned int system_rev; // from the kernel symbol table exports */
 extern unsigned int system_serial_low;
 extern unsigned int system_serial_high;
-
-static unsigned int RPisys_rev;
 
 static const struct comedi_lrange daqgert_ai_range3_300 = {1,
 	{
@@ -703,21 +701,22 @@ V=1 1
 
 static int piBoardRev(struct comedi_device *dev)
 {
+	struct daqgert_private *devpriv = dev->private;
 	int r = -1, nscheme = 0;
 	static int boardRev = -1;
 
 	if (boardRev != -1)
 		return boardRev;
 
-	if (RPisys_rev & 0x800000) {
+	if (devpriv->RPisys_rev & 0x800000) {
 		nscheme = 1;
-		r = RPisys_rev & 0xf;
+		r = devpriv->RPisys_rev & 0xf;
 		dev_info(dev->class_dev, "RPi Board new scheme Rev %x, Serial %08x%08x, New Rev %x\n",
-			RPisys_rev, system_serial_high, system_serial_low, r);
+			devpriv->RPisys_rev, system_serial_high, system_serial_low, r);
 	} else {
-		r = RPisys_rev & 0xff;
+		r = devpriv->RPisys_rev & 0xff;
 		dev_info(dev->class_dev, "RPi Board old scheme Rev %x, Serial %08x%08x\n",
-			RPisys_rev, system_serial_high, system_serial_low);
+			devpriv->RPisys_rev, system_serial_high, system_serial_low);
 	}
 
 	if (nscheme) {
@@ -1198,7 +1197,7 @@ static int daqgert_dio_insn_bits(struct comedi_device *dev,
 
 	/* i/o testing with gpio pins  */
 	/* We need to shift a single bit from state to set or clear the GPIO */
-	for (pinWPi = 0; pinWPi < num_dio_chan; pinWPi++) {
+	for (pinWPi = 0; pinWPi < s->n_chan; pinWPi++) {
 		mask = comedi_dio_update_state(s, data);
 		if (wpi_pin_safe(pinWPi)) {
 			/* Do nothing on SPI AUX pins */
@@ -1320,6 +1319,8 @@ static int daqgert_attach(struct comedi_device *dev, struct comedi_devconfig *it
 	const struct daqgert_board *thisboard = dev->board_ptr;
 	struct comedi_subdevice *s;
 	int ret, num_subdev = 1, i, d;
+	int num_ai_chan, num_ao_chan, num_dio_chan = NUM_DIO_CHAN;
+        struct daqgert_private *devpriv = dev->private;
 
 	mutex_init(&daqgert_info.cmd_lock);
 	mutex_init(&daqgert_info.drvdata_lock);
@@ -1337,9 +1338,9 @@ static int daqgert_attach(struct comedi_device *dev, struct comedi_devconfig *it
 	}
 
 	/* Use the kernel system_rev EXPORT_SYMBOL */
-	RPisys_rev = system_rev; /* what board are we running on? */
-	if (RPisys_rev < 2) {
-		dev_err(dev->class_dev, "Invalid RPi board revision! %u\n", RPisys_rev);
+	devpriv->RPisys_rev = system_rev; /* what board are we running on? */
+	if (devpriv->RPisys_rev < 2) {
+		dev_err(dev->class_dev, "Invalid RPi board revision! %u\n", devpriv->RPisys_rev);
 		return -EINVAL;
 	}
 
