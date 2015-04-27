@@ -224,14 +224,14 @@ module_param(dio_conf, int, S_IRUGO);
 static int count = 0;
 module_param(count, int, S_IRUGO);
 
-/* kthread */
+/* kthread stuff */
 static struct timer_list my_timer;
 static struct task_struct *daqgert_task;
-static struct mutex daqgert_platform_lock;
 
 struct comedi_control {
 	u8 *tx_buff;
 	u8 *rx_buff;
+	struct mutex daqgert_platform_lock;
 };
 
 struct spi_param_type {
@@ -262,20 +262,6 @@ struct daqgert_private {
 	unsigned int val;
 	unsigned int ai_scans; /*  length of scanlist */
 	unsigned int ai_act_scan; /*  how many scans we finished */
-};
-
-static struct daqgert_private daqgert_info = {
-	.chan = 0,
-	.timer = 0,
-	.run = 0,
-	.spi_run = 0,
-	.count = 0,
-	.cmd_running = 0,
-	.cmd_canceled = 0,
-	.cmd_delay_usecs = 10,
-	.conv_delay_usecs = 30,
-	.ai_neverending = 1,
-	.val = 0
 };
 
 #define CSnA    0       /* GPIO 8  Gertboard ADC */
@@ -1333,7 +1319,7 @@ static int daqgert_attach(struct comedi_device *dev, struct comedi_devconfig *it
 
 	mutex_init(&devpriv->cmd_lock);
 	mutex_init(&devpriv->drvdata_lock);
-	
+
 	/* Board  operation data */
 	devpriv->cmd_delay_usecs = 10;
 	devpriv->conv_delay_usecs = 30;
@@ -1448,7 +1434,6 @@ static int daqgert_attach(struct comedi_device *dev, struct comedi_devconfig *it
 
 static void daqgert_detach(struct comedi_device *dev)
 {
-	mutex_lock(&daqgert_platform_lock);
 	if (daqgert_task) kthread_stop(daqgert_task);
 	daqgert_task = NULL;
 
@@ -1460,7 +1445,6 @@ static void daqgert_detach(struct comedi_device *dev)
 
 	iounmap(gpio);
 	dev_info(dev->class_dev, "Daq_gert detached\n");
-	mutex_unlock(&daqgert_platform_lock);
 }
 
 static const struct daqgert_board daqgert_boards[] = {
@@ -1562,19 +1546,13 @@ static int spidev_spi_remove(struct spi_device *spi)
 {
 	struct comedi_control *pdata = spi->dev.platform_data;
 
-	mutex_lock(&daqgert_platform_lock);
-	dev_info(&spi->dev, "releasing memory\n");
 	if (pdata->rx_buff)
 		kfree(pdata->rx_buff);
-	dev_info(&spi->dev, "released rx\n");
 	if (pdata->tx_buff)
 		kfree(pdata->tx_buff);
-	dev_info(&spi->dev, "released tx\n");
 	if (pdata)
 		kfree(pdata);
-	dev_info(&spi->dev, "released pdata\n");
-	mutex_unlock(&daqgert_platform_lock);
-
+	dev_info(&spi->dev, "released\n");
 	return 0;
 }
 
@@ -1676,7 +1654,6 @@ static int __init daqgert_init(void)
 {
 	int ret;
 
-	mutex_init(&daqgert_platform_lock);
 	ret = spi_register_driver(&spidev_spi_driver);
 	if (ret < 0)
 		return ret;
@@ -1698,6 +1675,6 @@ module_exit(daqgert_exit);
 MODULE_AUTHOR("Fred Brooks <spam@sma2.rain.com>");
 MODULE_DESCRIPTION(
 	"Comedi driver for RASPI GERTBOARD DIO/AI/AO");
-MODULE_VERSION("0.0.18");
+MODULE_VERSION("0.0.19");
 MODULE_LICENSE("GPL");
 MODULE_ALIAS("spi:spigert");
