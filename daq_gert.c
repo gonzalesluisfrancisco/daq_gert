@@ -190,7 +190,7 @@ void (*pinMode) (int pin, int mode);
 void (*digitalWrite) (int pin, int value);
 void (*setPadDrive) (int group, int value);
 int (*digitalRead) (int pin);
-static int SPI_probe(struct comedi_device *);
+static int daqgert_spi_probe(struct comedi_device *);
 static void daqgert_ai_clear_eoc(struct comedi_device *);
 static int daqgert_ai_cancel(struct comedi_device *,
 	struct comedi_subdevice *);
@@ -227,11 +227,11 @@ module_param(count, int, S_IRUGO);
 /* kthread */
 static struct timer_list my_timer;
 static struct task_struct *daqgert_task;
+static struct mutex daqgert_platform_lock;
 
 struct comedi_control {
 	u8 *tx_buff;
 	u8 *rx_buff;
-	struct mutex drvdata_lock;
 };
 
 struct spi_param_type {
@@ -281,7 +281,7 @@ static struct daqgert_private daqgert_info = {
 #define CSnA    0       /* GPIO 8  Gertboard ADC */
 #define CSnB    1       /* GPIO 7  Gertboard DAC */
 
-#define SPI_BUFF_SIZE 16
+#define SPI_BUFF_SIZE 8192
 #define MAX_CHANLIST_LEN	256
 
 /* PIC Slave commands */
@@ -1327,10 +1327,17 @@ static int daqgert_attach(struct comedi_device *dev, struct comedi_devconfig *it
 	int num_ai_chan, num_ao_chan, num_dio_chan = NUM_DIO_CHAN;
 	struct daqgert_private *devpriv;
 
-	mutex_init(&daqgert_info.cmd_lock);
-	mutex_init(&daqgert_info.drvdata_lock);
-	dev->private = &daqgert_info; /* Board  operation data */
-	devpriv = &daqgert_info;
+	devpriv = comedi_alloc_devpriv(dev, sizeof(*devpriv)); /* auto free on exit */
+	if (!devpriv)
+		return -ENOMEM;
+
+	mutex_init(&devpriv->cmd_lock);
+	mutex_init(&devpriv->drvdata_lock);
+	
+	/* Board  operation data */
+	devpriv->cmd_delay_usecs = 10;
+	devpriv->conv_delay_usecs = 30;
+	devpriv->ai_neverending = 1;
 
 	/* Use the kernel system_rev EXPORT_SYMBOL */
 	devpriv->RPisys_rev = system_rev; /* what board are we running on? */
@@ -1363,7 +1370,7 @@ static int daqgert_attach(struct comedi_device *dev, struct comedi_devconfig *it
 	/* assume we have DON"T a gertboard */
 	dev_info(dev->class_dev, "GertBoard Detection Started\n");
 	num_subdev = 1;
-	if (SPI_probe(dev)) num_subdev += 2;
+	if (daqgert_spi_probe(dev)) num_subdev += 2;
 	// add AI and AO channels */
 	dev_info(dev->class_dev, "GertBoard Detection Completed\n");
 	dev->board_name = thisboard->name;
@@ -1435,21 +1442,25 @@ static int daqgert_attach(struct comedi_device *dev, struct comedi_devconfig *it
 		dev->iobase,
 		(long unsigned int) gpio,
 		(unsigned int) d);
+
 	return 0;
 }
 
 static void daqgert_detach(struct comedi_device *dev)
 {
+	mutex_lock(&daqgert_platform_lock);
 	if (daqgert_task) kthread_stop(daqgert_task);
 	daqgert_task = NULL;
 
 	if (1) {
+
 		/* remove kernel timer when unloading module */
 		del_timer_sync(&my_timer);
 	}
 
 	iounmap(gpio);
 	dev_info(dev->class_dev, "Daq_gert detached\n");
+	mutex_unlock(&daqgert_platform_lock);
 }
 
 static const struct daqgert_board daqgert_boards[] = {
@@ -1490,7 +1501,7 @@ static int spidev_spi_probe(struct spi_device *spi)
 
 	/* alloc the spi transfer buffer structures */
 	spi->dev.platform_data = pdata;
-	/* these buffers are large to handle async SPI transfer scans in a hunk*/
+	/* these buffers are large to handle async SPI transfer scans in a hunk */
 	pdata->tx_buff = kzalloc(SPI_BUFF_SIZE, GFP_KERNEL | GFP_DMA);
 	if (!pdata->tx_buff) {
 		ret = -ENOMEM;
@@ -1543,6 +1554,7 @@ kfree_tx_exit:
 	kfree(pdata->tx_buff);
 kfree_exit:
 	kfree(pdata);
+
 	return ret;
 }
 
@@ -1550,13 +1562,19 @@ static int spidev_spi_remove(struct spi_device *spi)
 {
 	struct comedi_control *pdata = spi->dev.platform_data;
 
-	if (pdata->tx_buff)
-		kfree(pdata->tx_buff);
+	mutex_lock(&daqgert_platform_lock);
+	dev_info(&spi->dev, "releasing memory\n");
 	if (pdata->rx_buff)
 		kfree(pdata->rx_buff);
+	dev_info(&spi->dev, "released rx\n");
+	if (pdata->tx_buff)
+		kfree(pdata->tx_buff);
+	dev_info(&spi->dev, "released tx\n");
 	if (pdata)
 		kfree(pdata);
-	dev_info(&spi->dev, "released\n");
+	dev_info(&spi->dev, "released pdata\n");
+	mutex_unlock(&daqgert_platform_lock);
+
 	return 0;
 }
 
@@ -1573,7 +1591,7 @@ static struct spi_driver spidev_spi_driver = {
 /*
  * setup and probe the spi bus for devices
  */
-static int SPI_probe(struct comedi_device *dev)
+static int daqgert_spi_probe(struct comedi_device *dev)
 {
 	int ret;
 
@@ -1648,6 +1666,7 @@ static int SPI_probe(struct comedi_device *dev)
 		dev_info(dev->class_dev, "No GERT Board PIC Found, GPIO pins only. Detect Code %i\n",
 			ret);
 		spi_adc.chan = 0;
+
 		return spi_adc.chan;
 	}
 	return spi_adc.chan;
@@ -1657,12 +1676,14 @@ static int __init daqgert_init(void)
 {
 	int ret;
 
+	mutex_init(&daqgert_platform_lock);
 	ret = spi_register_driver(&spidev_spi_driver);
 	if (ret < 0)
 		return ret;
 	ret = comedi_driver_register(&daqgert_driver);
 	if (ret < 0)
 		return ret;
+
 	return 0;
 }
 module_init(daqgert_init);
