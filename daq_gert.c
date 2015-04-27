@@ -194,9 +194,10 @@ static int daqgert_spi_probe(struct comedi_device *);
 static void daqgert_ai_clear_eoc(struct comedi_device *);
 static int daqgert_ai_cancel(struct comedi_device *,
 	struct comedi_subdevice *);
-static void daqgert_handle_eoc(struct comedi_device *,
+static void daqgert_handle_ai_eoc(struct comedi_device *,
 	struct comedi_subdevice *);
-static void my_timer_callback(unsigned long);
+static void my_timer_ai_callback(unsigned long);
+static void my_timer_ao_callback(unsigned long);
 static void daqgert_ai_set_chan_range(struct comedi_device *,
 	unsigned int, char);
 static unsigned int daqgert_ai_get_sample(struct comedi_device *,
@@ -224,10 +225,6 @@ module_param(dio_conf, int, S_IRUGO);
 static int count = 0;
 module_param(count, int, S_IRUGO);
 
-/* kthread stuff */
-static struct timer_list my_timer;
-static struct task_struct *daqgert_task;
-
 struct comedi_control {
 	u8 *tx_buff;
 	u8 *rx_buff;
@@ -245,7 +242,11 @@ struct spi_param_type {
 	int device_type;
 	int multi_mode; /* combine transfers into one message */
 	int multi_size; /* the number of needed values returned as data */
+	struct timer_list my_timer;
+	struct task_struct *daqgert_task;
 };
+
+/* SPI devices for COMEDI to use */
 static struct spi_param_type spi_adc = {
 	.device_type = MCP3002,
 	.multi_mode = false
@@ -796,7 +797,7 @@ struct daqgert_board {
 };
 
 /* A client must be connected with a valid comedi cmd for this not to segfault */
-static int daqgert_thread_function(void *data)
+static int daqgert_ai_thread_function(void *data)
 {
 	struct comedi_device *dev = (void*) data;
 	struct comedi_subdevice *s = dev->read_subdev;
@@ -815,7 +816,7 @@ static int daqgert_thread_function(void *data)
 			if (kthread_should_stop()) return 0;
 		}
 		if (devpriv->cmd_running) {
-			daqgert_handle_eoc(dev, s);
+			daqgert_handle_ai_eoc(dev, s);
 			usleep_range(50, 250);
 		} else {
 			msleep(1);
@@ -828,11 +829,11 @@ static int daqgert_thread_function(void *data)
 
 }
 
-static void daqgert_start_pacer(struct comedi_device *dev, bool load_timers)
+static void daqgert_ai_start_pacer(struct comedi_device *dev, bool load_timers)
 {
 	if (load_timers) {
 		/* setup timer interval to msecs */
-		mod_timer(&my_timer, jiffies + msecs_to_jiffies(10));
+		mod_timer(&spi_adc.my_timer, jiffies + msecs_to_jiffies(10));
 	}
 }
 
@@ -943,7 +944,7 @@ static bool daqgert_ai_next_chan(struct comedi_device *dev,
 	return true;
 }
 
-static void daqgert_handle_eoc(struct comedi_device *dev,
+static void daqgert_handle_ai_eoc(struct comedi_device *dev,
 	struct comedi_subdevice *s)
 {
 	struct comedi_cmd *cmd = &s->async->cmd;
@@ -968,7 +969,7 @@ static void daqgert_ai_soft_trig(struct comedi_device *dev)
 	struct daqgert_private *devpriv = dev->private;
 
 	devpriv->timer = TRUE;
-	daqgert_start_pacer(dev, TRUE);
+	daqgert_ai_start_pacer(dev, TRUE);
 }
 
 static int daqgert_ai_eoc(struct comedi_device *dev,
@@ -1024,7 +1025,7 @@ static int daqgert_ai_cmd(struct comedi_device *dev, struct comedi_subdevice *s)
 
 	devpriv->run = false;
 	devpriv->timer = true;
-	daqgert_start_pacer(dev, TRUE);
+	daqgert_ai_start_pacer(dev, TRUE);
 	devpriv->cmd_running = true;
 	devpriv->cmd_canceled = false;
 	ret = 0;
@@ -1124,7 +1125,7 @@ static int daqgert_ai_cmdtest(struct comedi_device *dev,
 	return 0;
 }
 
-static void my_timer_callback(unsigned long data)
+static void my_timer_ai_callback(unsigned long data)
 {
 	struct comedi_device *dev = (void*) data;
 	struct daqgert_private *devpriv = dev->private;
@@ -1133,7 +1134,7 @@ static void my_timer_callback(unsigned long data)
 		devpriv->run = true;
 		devpriv->timer = true;
 	}
-	daqgert_start_pacer(dev, true);
+	daqgert_ai_start_pacer(dev, true);
 
 }
 
@@ -1142,8 +1143,8 @@ static void daqgert_ai_clear_eoc(struct comedi_device *dev)
 	struct daqgert_private *devpriv = dev->private;
 	int count = 0;
 
-	del_timer_sync(&my_timer);
-	setup_timer(&my_timer, my_timer_callback, (unsigned long) dev);
+	del_timer_sync(&spi_adc.my_timer);
+	setup_timer(&spi_adc.my_timer, my_timer_ai_callback, (unsigned long) dev);
 	devpriv->run = false;
 	devpriv->timer = false;
 	do { // wait if needed to SPI to clear or timeout
@@ -1401,8 +1402,8 @@ static int daqgert_attach(struct comedi_device *dev, struct comedi_devconfig *it
 		s->cancel = daqgert_ai_cancel;
 		dev->read_subdev = s;
 
-		/* setup the timer to call my_timer_callback */
-		setup_timer(&my_timer, my_timer_callback, (unsigned long) dev);
+		/* setup the timer to call my_timer_ai_callback */
+		setup_timer(&spi_adc.my_timer, my_timer_ai_callback, (unsigned long) dev);
 
 		/* daq-gert ao */
 		s = &dev->subdevices[2];
@@ -1420,8 +1421,8 @@ static int daqgert_attach(struct comedi_device *dev, struct comedi_devconfig *it
 		comedi_alloc_subdev_readback(s);
 	}
 	/* setup kthread */
-	daqgert_task = kthread_run(&daqgert_thread_function, (void *) dev, "daq_gert");
-	dev_info(dev->class_dev, "Daq_gert SPI i/o thread started\n");
+	daqgert_task = kthread_run(&daqgert_ai_thread_function, (void *) dev, "daq_gert_ai");
+	dev_info(dev->class_dev, "Daq_gert SPI ADC i/o thread started\n");
 
 	dev_info(dev->class_dev, "%s attached: GPIO iobase 0x%lx, ioremap 0x%lx, GPIO wpi-pins 0x%x\n",
 		dev->driver->driver_name,
@@ -1434,13 +1435,13 @@ static int daqgert_attach(struct comedi_device *dev, struct comedi_devconfig *it
 
 static void daqgert_detach(struct comedi_device *dev)
 {
-	if (daqgert_task) kthread_stop(daqgert_task);
-	daqgert_task = NULL;
+	if (spi_adc.daqgert_task) kthread_stop(spi_adc.daqgert_task);
+	spi_adc.daqgert_task = NULL;
 
 	if (1) {
 
 		/* remove kernel timer when unloading module */
-		del_timer_sync(&my_timer);
+		del_timer_sync(&spi_adc.my_timer);
 	}
 
 	iounmap(gpio);
@@ -1482,8 +1483,9 @@ static int spidev_spi_probe(struct spi_device *spi)
 
 	pdata = kzalloc(sizeof(struct comedi_control), GFP_KERNEL);
 	if (!pdata) return -ENOMEM;
+	mutex_init(&pdata->daqgert_platform_lock);
 
-	/* alloc the spi transfer buffer structures */
+	/* allocate the SPI transfer buffer structures */
 	spi->dev.platform_data = pdata;
 	/* these buffers are large to handle async SPI transfer scans in a hunk */
 	pdata->tx_buff = kzalloc(SPI_BUFF_SIZE, GFP_KERNEL | GFP_DMA);
