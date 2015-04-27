@@ -197,7 +197,7 @@ static int daqgert_ai_cancel(struct comedi_device *,
 static void daqgert_handle_ai_eoc(struct comedi_device *,
 	struct comedi_subdevice *);
 static void my_timer_ai_callback(unsigned long);
-static void my_timer_ao_callback(unsigned long);
+//static void my_timer_ao_callback(unsigned long);
 static void daqgert_ai_set_chan_range(struct comedi_device *,
 	unsigned int, char);
 static unsigned int daqgert_ai_get_sample(struct comedi_device *,
@@ -1421,7 +1421,7 @@ static int daqgert_attach(struct comedi_device *dev, struct comedi_devconfig *it
 		comedi_alloc_subdev_readback(s);
 	}
 	/* setup kthread */
-	daqgert_task = kthread_run(&daqgert_ai_thread_function, (void *) dev, "daq_gert_ai");
+	spi_adc.daqgert_task = kthread_run(&daqgert_ai_thread_function, (void *) dev, "daq_gert_ai");
 	dev_info(dev->class_dev, "Daq_gert SPI ADC i/o thread started\n");
 
 	dev_info(dev->class_dev, "%s attached: GPIO iobase 0x%lx, ioremap 0x%lx, GPIO wpi-pins 0x%x\n",
