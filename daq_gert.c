@@ -188,7 +188,7 @@ The output range is 0 to 4095 for 0.0 to 2.048 onboard devices (output resolutio
 /* Function stubs */
 static void (*pinMode) (int pin, int mode);
 static void (*digitalWrite) (int pin, int value);
-static oid (*setPadDrive) (int group, int value);
+static oid(*setPadDrive) (int group, int value);
 static int (*digitalRead) (int pin);
 static int daqgert_spi_probe(struct comedi_device *);
 static void daqgert_ai_clear_eoc(struct comedi_device *);
@@ -271,7 +271,7 @@ struct daqgert_private {
 	unsigned int ai_scans; /*  length of scanlist */
 	unsigned int ai_act_scan; /*  how many scans we finished */
 	struct spi_param_type *ai_spi;
-	struct spi_param_type *ao_spi; 
+	struct spi_param_type *ao_spi;
 };
 
 #define CSnA    0       /* GPIO 8  Gertboard ADC */
@@ -833,9 +833,11 @@ static int daqgert_ai_thread_function(void *data)
 
 static void daqgert_ai_start_pacer(struct comedi_device *dev, bool load_timers)
 {
+	struct daqgert_private *devpriv = dev->private;
+
 	if (load_timers) {
 		/* setup timer interval to msecs */
-		mod_timer(&spi_adc.my_timer, jiffies + msecs_to_jiffies(10));
+		mod_timer(&devpriv->ai_spi->my_timer, jiffies + msecs_to_jiffies(10));
 	}
 }
 
@@ -1145,8 +1147,8 @@ static void daqgert_ai_clear_eoc(struct comedi_device *dev)
 	struct daqgert_private *devpriv = dev->private;
 	int count = 0;
 
-	del_timer_sync(&spi_adc.my_timer);
-	setup_timer(&spi_adc.my_timer, my_timer_ai_callback, (unsigned long) dev);
+	del_timer_sync(&devpriv->ai_spi->my_timer);
+	setup_timer(&devpriv->ai_spi->my_timer, my_timer_ai_callback, (unsigned long) dev);
 	devpriv->run = false;
 	devpriv->timer = false;
 	do { // wait if needed to SPI to clear or timeout
@@ -1327,8 +1329,8 @@ static int daqgert_attach(struct comedi_device *dev, struct comedi_devconfig *it
 	devpriv->cmd_delay_usecs = 10;
 	devpriv->conv_delay_usecs = 30;
 	devpriv->ai_neverending = 1;
-	devpriv->ai_spi=&spi_adc;
-	devpriv->ao_spi=&spi_dac;
+	devpriv->ai_spi = &spi_adc;
+	devpriv->ao_spi = &spi_dac;
 
 	/* Use the kernel system_rev EXPORT_SYMBOL */
 	devpriv->RPisys_rev = system_rev; /* what board are we running on? */
@@ -1358,7 +1360,7 @@ static int daqgert_attach(struct comedi_device *dev, struct comedi_devconfig *it
 	if (piBoardRev(dev) > 2) /* This a Rev 3 or higher board "I hope" */
 		num_dio_chan = NUM_DIO_CHAN_REV3;
 
-	/* assume we have DON"T a gertboard */
+	/* assume we have DON"T a GertBoard */
 	dev_info(dev->class_dev, "GertBoard Detection Started\n");
 	num_subdev = 1;
 	if (daqgert_spi_probe(dev)) num_subdev += 2;
@@ -1425,7 +1427,7 @@ static int daqgert_attach(struct comedi_device *dev, struct comedi_devconfig *it
 		comedi_alloc_subdev_readback(s);
 	}
 	/* setup kthread */
-	spi_adc.daqgert_task = kthread_run(&daqgert_ai_thread_function, (void *) dev, "daq_gert_ai");
+	devpriv->ai_spi->daqgert_task = kthread_run(&daqgert_ai_thread_function, (void *) dev, "daq_gert_ai");
 	dev_info(dev->class_dev, "Daq_gert SPI ADC i/o thread started\n");
 
 	dev_info(dev->class_dev, "%s attached: GPIO iobase 0x%lx, ioremap 0x%lx, GPIO wpi-pins 0x%x\n",
@@ -1439,13 +1441,15 @@ static int daqgert_attach(struct comedi_device *dev, struct comedi_devconfig *it
 
 static void daqgert_detach(struct comedi_device *dev)
 {
-	if (spi_adc.daqgert_task) kthread_stop(spi_adc.daqgert_task);
-	spi_adc.daqgert_task = NULL;
+	struct daqgert_private *devpriv = dev->private;
+
+	if (devpriv->ai_spi->daqgert_task) kthread_stop(devpriv->ai_spi->daqgert_task);
+	devpriv->ai_spi->daqgert_task = NULL;
 
 	if (1) {
 
 		/* remove kernel timer when unloading module */
-		del_timer_sync(&spi_adc.my_timer);
+		del_timer_sync(&devpriv->ai_spi->my_timer);
 	}
 
 	iounmap(gpio);
@@ -1504,12 +1508,12 @@ static int spidev_spi_probe(struct spi_device *spi)
 	}
 
 	if (spi->chip_select == CSnA) {
-		/* get a copy of the slave device 0 */ /* we need a device to talk to the ADC */
+		/* get a copy of the slave device 0 to share with comedi */ /* we need a device to talk to the ADC */
 		spi_adc.spi = spi;
 		spi->max_speed_hz = 1000000;
 	}
 	if (spi->chip_select == CSnB) {
-		/* get a copy of the slave device 1 */ /* we need a device to talk to the DAC */
+		/* get a copy of the slave device 1 to share with comedi */ /* we need a device to talk to the DAC */
 		spi_dac.spi = spi;
 		spi->max_speed_hz = 4000000;
 	}
@@ -1573,7 +1577,7 @@ static struct spi_driver spidev_spi_driver = {
 };
 
 /*
- * setup and probe the spi bus for devices
+ * setup and probe the spi bus for devices, save the data to the global variable
  */
 static int daqgert_spi_probe(struct comedi_device *dev)
 {
