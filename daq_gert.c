@@ -245,7 +245,6 @@ struct spi_param_type {
 	uint16_t pic18 : 2;
 	uint16_t chan : 4;
 	struct spi_device *spi;
-	struct comedi_device *dev;
 	int device_type;
 	int multi_mode; /* combine transfers into one message */
 	int multi_size; /* the number of needed values returned as data */
@@ -1591,7 +1590,6 @@ static int daqgert_spi_probe(struct comedi_device *dev)
 		return spi_adc.chan;
 	}
 
-	spi_adc.dev = dev;
 	spi_dac.chan = NUM_AO_CHAN;
 
 	switch (daqgert_conf) {
