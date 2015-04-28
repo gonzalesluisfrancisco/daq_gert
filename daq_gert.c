@@ -188,7 +188,7 @@ The output range is 0 to 4095 for 0.0 to 2.048 onboard devices (output resolutio
 /* Function stubs */
 static void (*pinMode) (int pin, int mode);
 static void (*digitalWrite) (int pin, int value);
-static oid(*setPadDrive) (int group, int value);
+static void(*setPadDrive) (int group, int value);
 static int (*digitalRead) (int pin);
 static int daqgert_spi_probe(struct comedi_device *);
 static void daqgert_ai_clear_eoc(struct comedi_device *);
@@ -1409,7 +1409,7 @@ static int daqgert_attach(struct comedi_device *dev, struct comedi_devconfig *it
 		dev->read_subdev = s;
 
 		/* setup the timer to call my_timer_ai_callback */
-		setup_timer(devpriv->ai_spi->my_timer, my_timer_ai_callback, (unsigned long) dev);
+		setup_timer(&devpriv->ai_spi->my_timer, my_timer_ai_callback, (unsigned long) dev);
 
 		/* daq-gert ao */
 		s = &dev->subdevices[2];
