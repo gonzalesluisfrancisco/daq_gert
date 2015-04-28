@@ -186,10 +186,10 @@ The output range is 0 to 4095 for 0.0 to 2.048 onboard devices (output resolutio
 #include "8253.h"
 
 /* Function stubs */
-void (*pinMode) (int pin, int mode);
-void (*digitalWrite) (int pin, int value);
-void (*setPadDrive) (int group, int value);
-int (*digitalRead) (int pin);
+static void (*pinMode) (int pin, int mode);
+static void (*digitalWrite) (int pin, int value);
+static oid (*setPadDrive) (int group, int value);
+static int (*digitalRead) (int pin);
 static int daqgert_spi_probe(struct comedi_device *);
 static void daqgert_ai_clear_eoc(struct comedi_device *);
 static int daqgert_ai_cancel(struct comedi_device *,
@@ -224,6 +224,13 @@ static int dio_conf = 0;
 module_param(dio_conf, int, S_IRUGO);
 static int count = 0;
 module_param(count, int, S_IRUGO);
+
+struct daqgert_board {
+	const char *name;
+	int board_type;
+	int n_aochan;
+	unsigned int ai_ns_min;
+};
 
 struct comedi_control {
 	u8 *tx_buff;
@@ -263,6 +270,8 @@ struct daqgert_private {
 	unsigned int val;
 	unsigned int ai_scans; /*  length of scanlist */
 	unsigned int ai_act_scan; /*  how many scans we finished */
+	struct spi_param_type *ai_spi;
+	struct spi_param_type *ao_spi; 
 };
 
 #define CSnA    0       /* GPIO 8  Gertboard ADC */
@@ -788,13 +797,6 @@ static int wiringPiSetupGpio(struct comedi_device *dev)
 
 	return 0;
 }
-
-struct daqgert_board {
-	const char *name;
-	int board_type;
-	int n_aochan;
-	unsigned int ai_ns_min;
-};
 
 /* A client must be connected with a valid comedi cmd for this not to segfault */
 static int daqgert_ai_thread_function(void *data)
@@ -1325,6 +1327,8 @@ static int daqgert_attach(struct comedi_device *dev, struct comedi_devconfig *it
 	devpriv->cmd_delay_usecs = 10;
 	devpriv->conv_delay_usecs = 30;
 	devpriv->ai_neverending = 1;
+	devpriv->ai_spi=&spi_adc;
+	devpriv->ao_spi=&spi_dac;
 
 	/* Use the kernel system_rev EXPORT_SYMBOL */
 	devpriv->RPisys_rev = system_rev; /* what board are we running on? */
@@ -1382,15 +1386,15 @@ static int daqgert_attach(struct comedi_device *dev, struct comedi_devconfig *it
 	if (num_subdev > 1) { /* we have the SPI ADC DAC on board */
 		/* daq_gert ai */
 		s = &dev->subdevices[1];
-		s->private = &spi_adc; /* SPI adc comedi state */
+		s->private = devpriv->ai_spi; /* SPI adc comedi state */
 		num_ai_chan = daqgert_ai_config(dev, s); /* config SPI ports for ai use */
 		s->type = COMEDI_SUBD_AI;
 		/* we support single-ended (ground)  */
 		s->subdev_flags = SDF_READABLE | SDF_GROUND | SDF_CMD_READ | SDF_COMMON;
 		s->n_chan = num_ai_chan;
 		s->len_chanlist = num_ai_chan;
-		s->maxdata = (1 << (12 - spi_adc.device_type)) - 1;
-		if (spi_adc.range) {
+		s->maxdata = (1 << (12 - devpriv->ai_spi->device_type)) - 1;
+		if (devpriv->ai_spi->range) {
 			s->range_table = &daqgert_ai_range2_048;
 		} else {
 			s->range_table = &daqgert_ai_range3_300;
@@ -1403,11 +1407,11 @@ static int daqgert_attach(struct comedi_device *dev, struct comedi_devconfig *it
 		dev->read_subdev = s;
 
 		/* setup the timer to call my_timer_ai_callback */
-		setup_timer(&spi_adc.my_timer, my_timer_ai_callback, (unsigned long) dev);
+		setup_timer(devpriv->ai_spi->my_timer, my_timer_ai_callback, (unsigned long) dev);
 
 		/* daq-gert ao */
 		s = &dev->subdevices[2];
-		s->private = &spi_dac; /* SPI dac comedi state */
+		s->private = devpriv->ao_spi; /* SPI dac comedi state */
 		num_ao_chan = daqgert_ao_config(dev, s); /* config SPI ports for ao use */
 		s->type = COMEDI_SUBD_AO;
 		/* we support single-ended (ground)  */
