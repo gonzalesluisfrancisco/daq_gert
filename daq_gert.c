@@ -22,10 +22,17 @@
 
 /*
 Driver: "experimental" daq_gert in progress ... for 3.18+ kernels
-Test program code in /fujitsu/nidaq700/raspigert/bmc/bmc 
+ * 
+ * git clone https://github.com/nsaspook/daq_gert.git
+ * 
+ * 
+ * Test program executable: bmc_test_program
+ * 
+ * cd to the linux kernel source directory: /usr/src/linux etc...
+ * 
  *** edit arch/arm/mach-bcm2709/bcm2709.c to add spigert device info to spidev info
  *** edit arch/arm/mach-bcm2708/bcm2708.c
-recompile kernel
+
 
 	{
 		.modalias = "spidev",
@@ -54,13 +61,12 @@ recompile kernel
 		.mode = SPI_MODE_0,
 	}
  * 
- * 
- *  Added daq_gert.o to the COMEDI_MISC_DRIVERS
- *  comedi/drivers/Makefile
+ *  copy daq_gert.c to driver/staging/comedi/drivers
+ *  Add daq_gert.o to the COMEDI_MISC_DRIVERS
+ *  driver/staging/comedi/drivers/Makefile
  *  obj-$(CONFIG_COMEDI_DAQ_GERT)           += daq_gert.o
- *  Added daq_gert to the comedi Kconfig file
  * 
-
+ *  Ad daq_gert to the comedi Kconfig file
  * section COMEDI_MISC_DRIVERS
 
  config COMEDI_DAQ_GERT
@@ -69,12 +75,20 @@ recompile kernel
 	---help---
        Enable support for a raspi gertboard
 
-       To compile this driver as a module, choose M here: the module will be
-       called daq_gert.
-
+ *  Use the included .config in the /usr/src/linux directory
+ *  to recompile the Linux kernel with the SPI inline instead of a module
+ *  and to make the needed daq_gert module
+ * 
+ *  make -j4 for a RPi 2
+ *  make modules_install
+ *  then copy the Image file to the /boot directory with a new kernel image name
+ *  and modify the boot file to use that image
+ *  after the reboot: modprobe daq_gert if needed then setup the comedi device: comedi_config /dev/comedi0 daq_gert
+ *  dmesg should the the kernel module messages
+ *  run the test program: bmc_test_program to see if it's working
  * 
  * 
-Description: GERTBOARD daq-gert
+Description: GERTBOARD daq_gert
 Author: Fred Brooks <spam@sma2.rain.com>
  * 
 Most of the actual GPIO setup code was copied from
@@ -97,7 +111,7 @@ WiringPI
  * spi-atmel.c, Copyright (C) 2006 Atmel Corporation
 
 Devices: [] GERTBOARD (daq_gert)
-Status: inprogress (DIO 95%) (AI 90%) AO (90%) (My code cleanup 75%)
+Status: inprogress (DIO 95%) (AI 90%) AO (90%) (My code cleanup 85%)
 Updated: Apr 2015 12:07:20 +0000
 
 The DAQ-GERT appears in Comedi as a  digital I/O subdevice (0) with
@@ -1683,6 +1697,6 @@ module_exit(daqgert_exit);
 MODULE_AUTHOR("Fred Brooks <spam@sma2.rain.com>");
 MODULE_DESCRIPTION(
 	"Comedi driver for RASPI GERTBOARD DIO/AI/AO");
-MODULE_VERSION("0.0.19");
+MODULE_VERSION("0.0.20");
 MODULE_LICENSE("GPL");
 MODULE_ALIAS("spi:spigert");
