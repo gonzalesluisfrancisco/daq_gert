@@ -1,0 +1,105 @@
+diff --git a/arch/arm/mach-bcm2708/bcm2708.c b/arch/arm/mach-bcm2708/bcm2708.c
+index 762e17c..329f978 100644
+--- a/arch/arm/mach-bcm2708/bcm2708.c
++++ b/arch/arm/mach-bcm2708/bcm2708.c
+@@ -563,16 +563,29 @@ static struct spi_board_info bcm2708_spi_devices[] = {
+ 	{
+ 		.modalias = "spidev",
+ 		.max_speed_hz = 500000,
+-		.bus_num = 0,
++		.bus_num = 1,
+ 		.chip_select = 0,
+ 		.mode = SPI_MODE_0,
+ 	}, {
+ 		.modalias = "spidev",
+ 		.max_speed_hz = 500000,
+-		.bus_num = 0,
++		.bus_num = 1,
+ 		.chip_select = 1,
+ 		.mode = SPI_MODE_0,
+-	}
++	},
++        {
++                .modalias = "spigert",
++                .max_speed_hz = 500000,
++                .bus_num = 0,
++                .chip_select = 0,
++                .mode = SPI_MODE_0,
++        }, {
++                .modalias = "spigert",
++                .max_speed_hz = 500000,
++                .bus_num = 0,
++                .chip_select = 1,
++                .mode = SPI_MODE_0,
++        }
+ #endif
+ };
+ #endif
+diff --git a/arch/arm/mach-bcm2709/bcm2709.c b/arch/arm/mach-bcm2709/bcm2709.c
+index 7e3affd..9125592 100644
+--- a/arch/arm/mach-bcm2709/bcm2709.c
++++ b/arch/arm/mach-bcm2709/bcm2709.c
+@@ -585,16 +585,29 @@ static struct spi_board_info bcm2708_spi_devices[] = {
+ 	{
+ 		.modalias = "spidev",
+ 		.max_speed_hz = 500000,
+-		.bus_num = 0,
++		.bus_num = 1,
+ 		.chip_select = 0,
+ 		.mode = SPI_MODE_0,
+ 	}, {
+ 		.modalias = "spidev",
+ 		.max_speed_hz = 500000,
+-		.bus_num = 0,
++		.bus_num = 1,
+ 		.chip_select = 1,
+ 		.mode = SPI_MODE_0,
+-	}
++	},
++        {
++                .modalias = "spigert",
++                .max_speed_hz = 500000,
++                .bus_num = 0,
++                .chip_select = 0,
++                .mode = SPI_MODE_0,
++        }, {
++                .modalias = "spigert",
++                .max_speed_hz = 500000,
++                .bus_num = 0,
++                .chip_select = 1,
++                .mode = SPI_MODE_0,
++        }
+ #endif
+ };
+ #endif
+diff --git a/drivers/staging/comedi/Kconfig b/drivers/staging/comedi/Kconfig
+index 152f4c1..c749980 100644
+--- a/drivers/staging/comedi/Kconfig
++++ b/drivers/staging/comedi/Kconfig
+@@ -84,6 +84,14 @@ config COMEDI_SERIAL2002
+ 	  To compile this driver as a module, choose M here: the module will be
+ 	  called serial2002.
+ 
++config COMEDI_DAQ_GERT
++        tristate "Driver for RPi connected hardware"
++        ---help---
++          Enable support for RPi connected hardware
++
++          To compile this driver as a module, choose M here: the module will be
++          called daq_gert.
++
+ config COMEDI_SSV_DNP
+ 	tristate "SSV Embedded Systems DIL/Net-PC support"
+ 	depends on X86_32 || COMPILE_TEST
+diff --git a/drivers/staging/comedi/drivers/Makefile b/drivers/staging/comedi/drivers/Makefile
+index 6bc9ef3..3ead1ea 100644
+--- a/drivers/staging/comedi/drivers/Makefile
++++ b/drivers/staging/comedi/drivers/Makefile
+@@ -9,6 +9,7 @@ obj-$(CONFIG_COMEDI_BOND)		+= comedi_bond.o
+ obj-$(CONFIG_COMEDI_TEST)		+= comedi_test.o
+ obj-$(CONFIG_COMEDI_PARPORT)		+= comedi_parport.o
+ obj-$(CONFIG_COMEDI_SERIAL2002)		+= serial2002.o
++obj-$(CONFIG_COMEDI_DAQ_GERT)           += daq_gert.o
+ 
+ # Comedi ISA drivers
+ obj-$(CONFIG_COMEDI_AMPLC_DIO200_ISA)	+= amplc_dio200.o
