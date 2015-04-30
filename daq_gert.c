@@ -25,68 +25,28 @@ Driver: "experimental" daq_gert in progress ... for 3.18+ kernels
  * 
  * git clone https://github.com/nsaspook/daq_gert.git
  * 
- * 
  * Test program executable: bmc_test_program
  * 
+ * git clone https://github.com/raspberrypi/linux.git in /usr/src for the latest
+ * linux kernel source tree
+ * 
  * cd to the linux kernel source directory: /usr/src/linux etc...
+ * copy the daq_gert.diff patch file from the daq_gert directory to here
+ * copy the .config from the daq_gert directory to here
  * 
- *** edit arch/arm/mach-bcm2709/bcm2709.c to add spigert device info to spidev info
- *** edit arch/arm/mach-bcm2708/bcm2708.c
-
-
-	{
-		.modalias = "spidev",
-		.max_speed_hz = 500000,
-		.bus_num = 1,
-		.chip_select = 0,
-		.mode = SPI_MODE_0,
-	}, {
-		.modalias = "spidev",
-		.max_speed_hz = 500000,
-		.bus_num = 1,
-		.chip_select = 1,
-		.mode = SPI_MODE_0,
-	},
-	{
-		.modalias = "spigert",
-		.max_speed_hz = 500000,
-		.bus_num = 0,
-		.chip_select = 0,
-		.mode = SPI_MODE_0,
-	}, {
-		.modalias = "spigert",
-		.max_speed_hz = 500000,
-		.bus_num = 0,
-		.chip_select = 1,
-		.mode = SPI_MODE_0,
-	}
+ * patch the kernel source with the daq_gert.diff patch file
+ * patch -p1 <daq_gert.diff
  * 
- *  copy daq_gert.c to driver/staging/comedi/drivers
- *  Add daq_gert.o to the COMEDI_MISC_DRIVERS
- *  driver/staging/comedi/drivers/Makefile
- *  obj-$(CONFIG_COMEDI_DAQ_GERT)           += daq_gert.o
- * 
- *  Ad daq_gert to the comedi Kconfig file
- * section COMEDI_MISC_DRIVERS
-
- config COMEDI_DAQ_GERT
-	tristate "GERTBOARD support"
-	depends on COMEDI_KCOMEDILIB
-	---help---
-       Enable support for a raspi gertboard
-
- *  Use the included .config in the /usr/src/linux directory
- *  to recompile the Linux kernel with the SPI inline instead of a module
- *  and to make the needed daq_gert module
  * 
  *  make -j4 for a RPi 2
  *  make modules_install
+ *  to recompile the Linux kernel with the SPI inline instead of a module
+ *  and to make the needed daq_gert module
  *  then copy the Image file to the /boot directory with a new kernel image name
  *  and modify the boot file to use that image
  *  after the reboot: modprobe daq_gert if needed then setup the comedi device: comedi_config /dev/comedi0 daq_gert
  *  dmesg should the the kernel module messages
  *  run the test program: bmc_test_program to see if it's working
- * 
  * 
 Description: GERTBOARD daq_gert
 Author: Fred Brooks <spam@sma2.rain.com>
@@ -281,8 +241,19 @@ struct daqgert_private {
 	int chan, timer, run, spi_run, count, cmd_running, cmd_canceled;
 	struct mutex drvdata_lock, cmd_lock;
 	unsigned int val;
+	int hunk : 1;
+	int ai_eos : 1;
+	int ai_hunk : 1;
+	unsigned int hwhunksize;
+	unsigned int last_hunk_run;
+	int next_hunk_buf;
+	unsigned int bytestomove[2]; /* how many bytes to transfer */
+	unsigned long hunkbuf[2]; /* PTR to HUNK buf */
+	unsigned int hwhunkptr[2]; /* HW PTR to HUNK buf */
+	unsigned int runs_to_end; /* how many times we must switch buffers */
 	unsigned int ai_scans; /*  length of scanlist */
 	unsigned int ai_act_scan; /*  how many scans we finished */
+	unsigned int ai_poll_ptr;
 	struct spi_param_type *ai_spi;
 	struct spi_param_type *ao_spi;
 };
@@ -1001,11 +972,94 @@ static int daqgert_ai_eoc(struct comedi_device *dev,
 }
 #endif
 
+static void daqgert_ai_setup_next_hunk(struct comedi_device *dev,
+	struct comedi_subdevice *s)
+{
+	struct daqgert_private *devpriv = dev->private;
+
+	devpriv->next_hunk_buf = 1 - devpriv->next_hunk_buf;
+
+	if (devpriv->ai_eos) {
+	} else {
+		devpriv->runs_to_end--;
+	}
+}
+
+static void transfer_from_hunk_buf(struct comedi_device *dev,
+	struct comedi_subdevice *s,
+	unsigned short *ptr,
+	unsigned int bufptr, unsigned int len)
+{
+	unsigned int i;
+	for (i = len; i; i--) {
+		comedi_buf_put(s, ptr[bufptr++]);
+		if (!daqgert_ai_next_chan(dev, s))
+			break;
+	}
+}
+
+static void daqgert_handle_hunk(struct comedi_device *dev,
+	struct comedi_subdevice *s)
+{
+	struct daqgert_private *devpriv = dev->private;
+	int len, bufptr;
+	unsigned short *ptr;
+
+	ptr = (unsigned short *) devpriv->hunkbuf[devpriv->next_hunk_buf];
+	len = (devpriv->bytestomove[devpriv->next_hunk_buf] >> 1) -
+		devpriv->ai_poll_ptr;
+	daqgert_ai_setup_next_hunk(dev, s);
+	bufptr = devpriv->ai_poll_ptr;
+	devpriv->ai_poll_ptr = 0;
+	transfer_from_hunk_buf(dev, s, ptr, bufptr, len);
+}
+
+static void daqgert_ai_setup_hunk(struct comedi_device *dev,
+	struct comedi_subdevice *s)
+{
+	struct daqgert_private *devpriv = dev->private;
+	struct comedi_cmd *cmd = &s->async->cmd;
+	unsigned int bytes;
+
+	/* we use EOS, so adapt buffer to one scan */
+	if (devpriv->ai_eos) {
+		devpriv->bytestomove[0] = cfc_bytes_per_scan(s);
+		devpriv->bytestomove[1] = cfc_bytes_per_scan(s);
+		devpriv->runs_to_end = 1;
+	} else {
+		if (cmd->stop_src == TRIG_NONE) {
+			devpriv->runs_to_end = 1;
+		} else {
+			/* how many samples we must transfer? */
+			bytes = cmd->stop_arg * cfc_bytes_per_scan(s);
+			/* how many hunk pages we must fill */
+			devpriv->runs_to_end =
+				bytes / devpriv->bytestomove[0];
+			/* on last hunk transfer must be moved */
+			devpriv->last_hunk_run =
+				bytes % devpriv->bytestomove[0];
+			if (devpriv->runs_to_end == 0)
+				devpriv->bytestomove[0] =
+				devpriv->last_hunk_run;
+			devpriv->runs_to_end--;
+		}
+	}
+	if (devpriv->bytestomove[0] > devpriv->hwhunksize) {
+		devpriv->bytestomove[0] = devpriv->hwhunksize;
+		devpriv->ai_eos = 0;
+	}
+	if (devpriv->bytestomove[1] > devpriv->hwhunksize) {
+		devpriv->bytestomove[1] = devpriv->hwhunksize;
+		devpriv->ai_eos = 0;
+	}
+	devpriv->next_hunk_buf = 0;
+}
+
 static int daqgert_ai_cmd(struct comedi_device *dev, struct comedi_subdevice *s)
 {
 	struct comedi_cmd *cmd = &s->async->cmd;
 	struct daqgert_private *devpriv = dev->private;
-	int ret = -EBUSY;
+	int ret = -EBUSY, i;
 
 	mutex_lock(&devpriv->cmd_lock);
 	dev_info(dev->class_dev, "ai_cmd\n");
@@ -1036,9 +1090,32 @@ static int daqgert_ai_cmd(struct comedi_device *dev, struct comedi_subdevice *s)
 		devpriv->ai_neverending = 1;
 	}
 
+	if (devpriv->hunk) { /* check if we can use DMA transfer */
+		devpriv->ai_hunk = 1;
+		for (i = 1; i < cmd->chanlist_len; i++)
+			if (cmd->chanlist[0] != cmd->chanlist[i]) {
+				/* we can't use HUNK :-( */
+				devpriv->ai_hunk = 0;
+				break;
+			}
+	} else {
+		devpriv->ai_hunk = 0;
+	}
+
 	devpriv->ai_act_scan = 0;
 	s->async->cur_chan = 0;
 	daqgert_ai_set_chan_range(dev, cmd->chanlist[s->async->cur_chan], 1);
+
+	/* don't we want wake up every scan? */
+	if (cmd->flags & CMDF_WAKE_EOS) {
+		devpriv->ai_eos = 1;
+		/* HUNK is useless for this situation */
+		if (cmd->chanlist_len == 1)
+			devpriv->ai_hunk = 0;
+	}
+
+	if (devpriv->ai_hunk)
+		daqgert_ai_setup_hunk(dev, s);
 
 	devpriv->run = false;
 	devpriv->timer = true;
@@ -1342,6 +1419,7 @@ static int daqgert_attach(struct comedi_device *dev, struct comedi_devconfig *it
 	devpriv->cmd_delay_usecs = 10;
 	devpriv->conv_delay_usecs = 30;
 	devpriv->ai_neverending = 1;
+	devpriv->ai_eos = 1;
 	devpriv->ai_spi = &spi_adc;
 	devpriv->ao_spi = &spi_dac;
 
