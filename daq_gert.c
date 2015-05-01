@@ -242,8 +242,8 @@ struct daqgert_private {
 	int chan, timer, run, spi_run, count, hunk_count, cmd_running, cmd_canceled;
 	struct mutex drvdata_lock, cmd_lock;
 	unsigned int val;
-	int hunk : 1;
-	int ai_hunk : 1;
+	int hunk;
+	int ai_hunk;
 	int mix_chan;
 	unsigned int last_hunk_run;
 	int next_hunk_buf;
