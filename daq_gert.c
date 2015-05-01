@@ -873,7 +873,7 @@ static unsigned int daqgert_ai_get_sample(struct comedi_device *dev,
 		val += pdata->rx_buff[0] << 8;
 	} else { /* Gertboard onboard ADC device */
 		memset(&t, 0, sizeof(t)); // clear the transfer array
-		if (devpriv->ai_hunk) { /* for single channel command scans */
+		if (devpriv->ai_hunk) { /* for single channel command scans with pre-formatted tx_buffer*/
 			t[0].tx_buf = pdata->tx_buff;
 			if (spi_data->device_type == MCP3002) { // 10 bit adc data
 				t[0].len = 2 * HUNK_LEN;
@@ -882,7 +882,7 @@ static unsigned int daqgert_ai_get_sample(struct comedi_device *dev,
 			}
 			t[0].rx_buf = pdata->rx_buff;
 		} else {
-			pdata->tx_buff[2] = 0; // format the ADC data as a single transmission
+			pdata->tx_buff[2] = 0; // format the ADC data as a single transmission into the buffer
 			pdata->tx_buff[1] = 0;
 			pdata->tx_buff[0] = 0b11010000 | ((chan & 0x01) << 5);
 
@@ -1043,6 +1043,7 @@ static void daqgert_handle_ai_hunk(struct comedi_device *dev,
 	int len, offset, bufptr;
 	unsigned short *ptr;
 
+	daqgert_ai_get_sample(dev, s);
 	ptr = (unsigned short *) pdata->rx_buff;
 	bufptr = 0;
 	len = HUNK_LEN;
