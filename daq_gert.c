@@ -177,7 +177,7 @@ static void daqgert_ai_set_chan_range(struct comedi_device *,
 static unsigned int daqgert_ai_get_sample(struct comedi_device *,
 	struct comedi_subdevice *);
 static void daqgert_handle_ai_hunk(struct comedi_device *,
-        struct comedi_subdevice *);
+	struct comedi_subdevice *);
 
 /* analog chip types (type - 12 bits) */
 #define MCP3002 2 /* 10 bit ADC */
@@ -875,20 +875,28 @@ static unsigned int daqgert_ai_get_sample(struct comedi_device *dev,
 		spi_write_then_read(spi_data->spi, pdata->tx_buff, 1, pdata->rx_buff, 1);
 		val += pdata->rx_buff[0] << 8;
 	} else { /* Gertboard onboard ADC device */
+		memset(&t, 0, sizeof(t)); // clear the transfer array
 		if (devpriv->ai_hunk) { /* for single channel command scans */
+			t[0].tx_buf = pdata->tx_buff;
+			if (spi_data->device_type == MCP3002) { // 10 bit adc data
+				t[0].len = 2 * HUNK_LEN;
+			} else {
+				t[0].len = 3 * HUNK_LEN;
+			}
+			t[0].rx_buf = pdata->rx_buff;
 		} else {
 			pdata->tx_buff[2] = 0; // format the ADC data as a single transmission
 			pdata->tx_buff[1] = 0;
 			pdata->tx_buff[0] = 0b11010000 | ((chan & 0x01) << 5);
+
+			t[0].tx_buf = pdata->tx_buff;
+			if (spi_data->device_type == MCP3002) { // 10 bit adc data
+				t[0].len = 2;
+			} else {
+				t[0].len = 3;
+			}
+			t[0].rx_buf = pdata->rx_buff;
 		}
-		memset(&t, 0, sizeof(t)); // clear the transfer array
-		t[0].tx_buf = pdata->tx_buff;
-		if (spi_data->device_type == MCP3002) { // 10 bit adc data
-			t[0].len = 2;
-		} else {
-			t[0].len = 3;
-		}
-		t[0].rx_buf = pdata->rx_buff;
 		spi_message_init_with_transfers(&m, &t[0], 1); // make the proper message with the transfer
 		spi_sync(spi_data->spi, &m); // exchange SPI data
 		/* ADC type code result munging */
@@ -986,10 +994,39 @@ static void transfer_from_hunk_buf(struct comedi_device *dev,
 	unsigned short *ptr,
 	unsigned int bufptr, unsigned int len, unsigned int offset)
 {
+	struct daqgert_private *devpriv = dev->private;
+	struct spi_param_type *spi_data = s->private;
+	struct spi_device *spi = spi_data->spi;
 	unsigned int i;
+	int val;
 
 	for (i = len; i; i--) {
-		comedi_buf_put(s, ptr[bufptr += offset]);
+		if (spi_data->device_type == MCP3002) { // 10 bit adc data
+			val = ((ptr[0 + bufptr] << 7) | (ptr[1 + bufptr] >> 1)) & 0x3FF;
+		} else { // 12 bit adc data
+			val = (ptr[2 + bufptr]&0x80) >> 7;
+			val += ptr[1 + bufptr] << 1;
+			val += (ptr[0 + bufptr]&0x0f) << 9;
+		}
+		bufptr += offset;
+		comedi_buf_put(s, val);
+	}
+	s->async->events |= COMEDI_CB_BLOCK | COMEDI_CB_EOS;
+	cfc_handle_events(dev, s);
+}
+
+static void transfer_to_hunk_buf(struct comedi_device *dev,
+	struct comedi_subdevice *s,
+	unsigned short *ptr,
+	unsigned int bufptr, unsigned int len, unsigned int offset)
+{
+	struct daqgert_private *devpriv = dev->private;
+	unsigned int i;
+	int chan;
+
+	chan = CR_CHAN(devpriv->chan);
+	for (i = len; i; i--) {
+		ptr[bufptr += offset] = 0b11010000 | ((chan & 0x01) << 5);
 	}
 }
 
@@ -1021,11 +1058,13 @@ static void daqgert_ai_setup_hunk(struct comedi_device *dev,
 {
 	struct daqgert_private *devpriv = dev->private;
 	struct comedi_cmd *cmd = &s->async->cmd;
+	struct spi_device *spi = spi_data->spi;
+	struct comedi_control *pdata = spi->dev.platform_data;
 	unsigned int bytes;
+	int len, offset, bufptr;
+	unsigned short *ptr;
 
 	/* we use EOS, so adapt buffer to one scan */
-	devpriv->bytestomove[0] = cfc_bytes_per_scan(s);
-	devpriv->bytestomove[1] = cfc_bytes_per_scan(s);
 	devpriv->runs_to_end = 1;
 
 	if (cmd->stop_src == TRIG_NONE) {
@@ -1036,6 +1075,16 @@ static void daqgert_ai_setup_hunk(struct comedi_device *dev,
 		devpriv->runs_to_end = 0;
 	}
 	devpriv->next_hunk_buf = 0;
+	ptr = (unsigned short *) pdata->tx_buff;
+	bufptr = 0;
+	len = HUNK_LEN;
+	if (spi_data->device_type == MCP3002) { // 10 bit adc data
+		offset = 2;
+	} else {
+		offset = 3;
+	}
+	/* load the message for the ADC conversions in to the tx buffer */
+	transfer_to_hunk_buf(dev, s, ptr, bufptr, len, offset);
 }
 
 static int daqgert_ai_cmd(struct comedi_device *dev, struct comedi_subdevice * s)
