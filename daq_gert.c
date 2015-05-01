@@ -1089,7 +1089,7 @@ static void daqgert_ai_setup_hunk(struct comedi_device *dev,
 		offset = 3;
 	}
 	/* load the message for the ADC conversions in to the tx buffer */
-	transfer_to_hunk_buf(dev, s, ptr, bufptr, len, offset, false);
+	transfer_to_hunk_buf(dev, s, ptr, bufptr, len, offset, mix_mode);
 }
 
 static int daqgert_ai_cmd(struct comedi_device *dev, struct comedi_subdevice * s)
@@ -1129,6 +1129,7 @@ static int daqgert_ai_cmd(struct comedi_device *dev, struct comedi_subdevice * s
 
 	if (devpriv->hunk) { /* check if we can use HUNK transfer */
 		devpriv->ai_hunk = 1;
+                devpriv->mix_chan = CR_CHAN(cmd->chanlist[0]);
 		for (i = 1; i < cmd->chanlist_len; i++) {
 			if (cmd->chanlist[0] != cmd->chanlist[i]) {
 				/* we can't use HUNK :-( */
@@ -1157,7 +1158,7 @@ static int daqgert_ai_cmd(struct comedi_device *dev, struct comedi_subdevice * s
 	}
 
 	if (devpriv->ai_hunk) /* run batch conversions in background */
-		daqgert_ai_setup_hunk(dev, s, false);
+		daqgert_ai_setup_hunk(dev, s, true);
 
 	devpriv->run = false;
 	devpriv->timer = true;
@@ -1462,7 +1463,7 @@ static int daqgert_attach(struct comedi_device *dev, struct comedi_devconfig * i
 	devpriv->cmd_delay_usecs = 10;
 	devpriv->conv_delay_usecs = 30;
 	devpriv->ai_neverending = 1;
-	devpriv->hunk = 0;
+	devpriv->hunk = 1;
 	devpriv->ai_spi = &spi_adc;
 	devpriv->ao_spi = &spi_dac;
 
@@ -1521,6 +1522,7 @@ static int daqgert_attach(struct comedi_device *dev, struct comedi_devconfig * i
 
 	if (num_subdev > 1) { /* we have the SPI ADC DAC on board */
 		/* daq_gert ai */
+		if (devpriv->hunk) dev_info(dev->class_dev, "Hunk AI transfers enabled\n");
 		s = &dev->subdevices[1];
 		s->private = devpriv->ai_spi; /* SPI adc comedi state */
 		num_ai_chan = daqgert_ai_config(dev, s); /* config SPI ports for ai use */
