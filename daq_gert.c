@@ -242,8 +242,8 @@ struct daqgert_private {
 	int chan, timer, run, spi_run, count, hunk_count, cmd_running, cmd_canceled;
 	struct mutex drvdata_lock, cmd_lock;
 	unsigned int val;
-	int hunk;
-	int ai_hunk;
+	uint16_t hunk : 1;
+	uint16_t ai_hunk : 1;
 	int mix_chan;
 	unsigned int last_hunk_run;
 	int next_hunk_buf;
@@ -1129,7 +1129,7 @@ static int daqgert_ai_cmd(struct comedi_device *dev, struct comedi_subdevice * s
 
 	if (devpriv->hunk) { /* check if we can use HUNK transfer */
 		devpriv->ai_hunk = 1;
-                devpriv->mix_chan = CR_CHAN(cmd->chanlist[0]);
+		devpriv->mix_chan = CR_CHAN(cmd->chanlist[0]);
 		for (i = 1; i < cmd->chanlist_len; i++) {
 			if (cmd->chanlist[0] != cmd->chanlist[i]) {
 				/* we can't use HUNK :-( */
@@ -1141,6 +1141,7 @@ static int daqgert_ai_cmd(struct comedi_device *dev, struct comedi_subdevice * s
 		if (cmd->chanlist_len == 2 && (cmd->chanlist[0] != cmd->chanlist[1])) {
 			devpriv->ai_hunk = 1;
 			devpriv->mix_chan = CR_CHAN(cmd->chanlist[1]);
+			dev_info(dev->class_dev, "Hunk AI mix_mode transfers enabled\n");
 		}
 	} else {
 		devpriv->ai_hunk = 0;
@@ -1507,6 +1508,7 @@ static int daqgert_attach(struct comedi_device *dev, struct comedi_devconfig * i
 		return ret;
 
 	/* daq_gert dio */
+	if (devpriv->hunk) dev_info(dev->class_dev, "Hunk AI transfers enabled\n");
 	s = &dev->subdevices[0];
 	s->type = COMEDI_SUBD_DIO;
 	s->subdev_flags = SDF_READABLE | SDF_WRITABLE;
@@ -1522,7 +1524,6 @@ static int daqgert_attach(struct comedi_device *dev, struct comedi_devconfig * i
 
 	if (num_subdev > 1) { /* we have the SPI ADC DAC on board */
 		/* daq_gert ai */
-		if (devpriv->hunk) dev_info(dev->class_dev, "Hunk AI transfers enabled\n");
 		s = &dev->subdevices[1];
 		s->private = devpriv->ai_spi; /* SPI adc comedi state */
 		num_ai_chan = daqgert_ai_config(dev, s); /* config SPI ports for ai use */
