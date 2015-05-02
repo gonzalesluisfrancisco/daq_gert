@@ -130,7 +130,10 @@ by the module option variable daqgert_conf
 The input  range is 0 to 1023/4095 for 0.0 to 3.3(Vdd) onboard devices or 2.048 volts/Vdd for PIC slaves 
 The output range is 0 to 4095 for 0.0 to 2.048 onboard devices (output resolution depends on the device)
  * In the async command mode transfers can be handled in HUNK mode by creating a SPI message
- * of many conversion sequences into one message, this allows for close to wire-speed HUNK_LEN data samples
+ * of many conversion sequences into one message, this allows for close to native driver wire-speed 
+ * An optimized DMA driver is in the works
+ * https://github.com/msperl/spi-bcm2835/wiki
+ * (the current interrupt driven kernel driver is limited to a 12 or 16 byte FIFO and no DMA) HUNK_LEN data samples
  * into the Comedi read buffer with a special mix_mode for sampling both ADC devices in an alt sequence for
  * programs like xoscope at full speed. The transfer array is currently static but can easily be made into
  * a config size parameter runtime value if needed with kmalloc for the required space
