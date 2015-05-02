@@ -261,7 +261,7 @@ struct daqgert_private {
 
 #define SPI_BUFF_SIZE 8192
 #define MAX_CHANLIST_LEN	256
-#define HUNK_LEN	512
+#define HUNK_LEN	2
 
 /* PIC Slave commands */
 #define CMD_ZERO        0b00000000
