@@ -888,7 +888,7 @@ static unsigned int daqgert_ai_get_sample(struct comedi_device *dev,
 				t[i].len = len;
 				t[i].tx_buf = tx_buff;
 				t[i].rx_buf = rx_buff;
-				tx_buff += t[i].len;
+				tx_buff += t[i].len; /* move the buffer ptr to the next transfer slot in the buffer memory */
 				rx_buff += t[i].len;
 			}
 			spi_message_init_with_transfers(&m, &t[0], HUNK_LEN); // make the proper message with the transfers
