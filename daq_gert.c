@@ -190,6 +190,10 @@ static void daqgert_handle_ai_hunk(struct comedi_device *,
 #define NUM_AI_CHAN 2
 #define NUM_AO_CHAN 2
 
+#define SPI_BUFF_SIZE 8192
+#define MAX_CHANLIST_LEN	256
+#define HUNK_LEN	256
+
 static int daqgert_conf = 0;
 module_param(daqgert_conf, int, S_IRUGO);
 static int pullups = 2;
@@ -213,6 +217,7 @@ struct daqgert_board {
 struct comedi_control {
 	u8 *tx_buff;
 	u8 *rx_buff;
+	struct spi_transfer t[HUNK_LEN];
 	struct mutex daqgert_platform_lock;
 };
 
@@ -258,10 +263,6 @@ struct daqgert_private {
 
 #define CSnA    0       /* GPIO 8  Gertboard ADC */
 #define CSnB    1       /* GPIO 7  Gertboard DAC */
-
-#define SPI_BUFF_SIZE 8192
-#define MAX_CHANLIST_LEN	256
-#define HUNK_LEN	2
 
 /* PIC Slave commands */
 #define CMD_ZERO        0b00000000
@@ -850,7 +851,6 @@ static unsigned int daqgert_ai_get_sample(struct comedi_device *dev,
 	struct spi_param_type *spi_data = s->private;
 	struct spi_device *spi = spi_data->spi;
 	struct comedi_control *pdata = spi->dev.platform_data;
-	struct spi_transfer t[HUNK_LEN];
 	struct spi_message m;
 	u8 *tx_buff, *rx_buff;
 
@@ -874,7 +874,7 @@ static unsigned int daqgert_ai_get_sample(struct comedi_device *dev,
 		spi_write_then_read(spi_data->spi, pdata->tx_buff, 1, pdata->rx_buff, 1);
 		val += pdata->rx_buff[0] << 8;
 	} else { /* Gertboard onboard ADC device */
-		memset(&t, 0, sizeof(t)); // clear the transfer array
+		memset(&pdata->t, 0, sizeof(pdata->t)); // clear the transfer array
 		if (devpriv->ai_hunk) { /* for single channel command scans with pre-formatted tx_buffer*/
 			if (spi_data->device_type == MCP3002) { // 10 bit adc data
 				len = 2;
@@ -884,27 +884,27 @@ static unsigned int daqgert_ai_get_sample(struct comedi_device *dev,
 			tx_buff = pdata->tx_buff;
 			rx_buff = pdata->rx_buff;
 			for (i = 0; i < HUNK_LEN; i++) { /* be sure we toggle CS between ADC commands */
-				t[i].cs_change = 1;
-				t[i].len = len;
-				t[i].tx_buf = tx_buff;
-				t[i].rx_buf = rx_buff;
-				tx_buff += t[i].len; /* move the buffer ptr to the next transfer slot in the buffer memory */
-				rx_buff += t[i].len;
+				pdata->t[i].cs_change = 1;
+				pdata->t[i].len = len;
+				pdata->t[i].tx_buf = tx_buff;
+				pdata->t[i].rx_buf = rx_buff;
+				tx_buff += pdata->t[i].len; /* move the buffer ptr to the next transfer slot in the buffer memory */
+				rx_buff += pdata->t[i].len;
 			}
-			spi_message_init_with_transfers(&m, &t[0], HUNK_LEN); // make the proper message with the transfers
+			spi_message_init_with_transfers(&m, &pdata->t[0], HUNK_LEN); // make the proper message with the transfers
 		} else {
 			pdata->tx_buff[2] = 0; // format the ADC data as a single transmission into the buffer
 			pdata->tx_buff[1] = 0;
 			pdata->tx_buff[0] = 0b11010000 | ((chan & 0x01) << 5);
 
-			t[0].tx_buf = pdata->tx_buff;
+			pdata->t[0].tx_buf = pdata->tx_buff;
 			if (spi_data->device_type == MCP3002) { // 10 bit adc data
-				t[0].len = 2;
+				pdata->t[0].len = 2;
 			} else {
-				t[0].len = 3;
+				pdata->t[0].len = 3;
 			}
-			t[0].rx_buf = pdata->rx_buff;
-			spi_message_init_with_transfers(&m, &t[0], 1); // make the proper message with the transfer
+			pdata->t[0].rx_buf = pdata->rx_buff;
+			spi_message_init_with_transfers(&m, &pdata->t[0], 1); // make the proper message with the transfer
 		}
 		spi_sync(spi_data->spi, &m); // exchange SPI data
 		/* ADC type code result munging */
