@@ -133,7 +133,7 @@ The output range is 0 to 4095 for 0.0 to 2.048 onboard devices (output resolutio
  * of many conversion sequences into one message, this allows for close to native driver wire-speed 
  * An optimized DMA driver is in the works
  * https://github.com/msperl/spi-bcm2835/wiki
- * (the current interrupt driven kernel driver is limited to a 12 or 16 byte FIFO and no DMA) HUNK_LEN data samples
+ * (the current interrupt driven kernel driver is limited to a 12 to 64 byte FIFO and no DMA) HUNK_LEN data samples
  * into the Comedi read buffer with a special mix_mode for sampling both ADC devices in an alt sequence for
  * programs like xoscope at full speed. The transfer array is currently static but can easily be made into
  * a config size parameter runtime value if needed with kmalloc for the required space
