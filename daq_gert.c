@@ -132,7 +132,8 @@ The output range is 0 to 4095 for 0.0 to 2.048 onboard devices (output resolutio
  * In the async command mode transfers can be handled in HUNK mode by creating a SPI message
  * of many conversion sequences into one message, this allows for close to wire-speed HUNK_LEN data samples
  * into the Comedi read buffer with a special mix_mode for sampling both ADC devices in an alt sequence for
- * programs like xoscope at full speed
+ * programs like xoscope at full speed. The transfer array is currently static but can easily be made into
+ * a config size parameter runtime value if needed with kmalloc for the required space
 
  *  PIC Slave Info:
  * 
@@ -196,7 +197,7 @@ static void daqgert_handle_ai_hunk(struct comedi_device *,
 
 #define SPI_BUFF_SIZE 8192
 #define MAX_CHANLIST_LEN	256
-#define HUNK_LEN	256
+#define HUNK_LEN	1024
 
 static int daqgert_conf = 0;
 module_param(daqgert_conf, int, S_IRUGO);
@@ -210,6 +211,8 @@ static int count = 0;
 module_param(count, int, S_IRUGO);
 static int hunk_count = 0;
 module_param(hunk_count, int, S_IRUGO);
+static int hunk_len = HUNK_LEN;
+module_param(hunk_len, int, S_IRUGO);
 
 struct daqgert_board {
 	const char *name;
