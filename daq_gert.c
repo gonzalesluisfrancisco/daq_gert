@@ -898,8 +898,8 @@ static unsigned int daqgert_ai_get_sample(struct comedi_device *dev,
 				pdata->t[i].len = len;
 				pdata->t[i].tx_buf = tx_buff;
 				pdata->t[i].rx_buf = rx_buff;
-				tx_buff += pdata->t[i].len; /* move the buffer ptr to the next transfer slot in the buffer memory */
-				rx_buff += pdata->t[i].len;
+				tx_buff += len; /* move the buffer ptr to the next transfer slot in the buffer memory */
+				rx_buff += len;
 			}
 			spi_message_init_with_transfers(&m, &pdata->t[0], HUNK_LEN); // make the proper message with the transfers
 		} else {
