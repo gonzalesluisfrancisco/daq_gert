@@ -1557,7 +1557,7 @@ static int daqgert_attach(struct comedi_device *dev, struct comedi_devconfig * i
 
 	if (num_subdev > 1) { /* we have the SPI ADC DAC on board */
 		/* daq_gert ai */
-		if (devpriv->hunk) dev_info(dev->class_dev, "Hunk AI transfers enabled\n");
+		if (devpriv->hunk) dev_info(dev->class_dev, "Hunk AI transfers enabled, length: %i\n", HUNK_LEN);
 		s = &dev->subdevices[1];
 		s->private = devpriv->ai_spi; /* SPI adc comedi state */
 		num_ai_chan = daqgert_ai_config(dev, s); /* config SPI ports for ai use */
