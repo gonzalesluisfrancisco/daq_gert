@@ -187,7 +187,7 @@ static void daqgert_handle_ai_hunk(struct comedi_device *,
 #define MCP4822 0
 #define PICSL10 2
 #define PICSL12 0
-#define NUM_AI_CHAN 1
+#define NUM_AI_CHAN 2
 #define NUM_AO_CHAN 2
 
 static int daqgert_conf = 0;
@@ -260,7 +260,7 @@ struct daqgert_private {
 
 #define SPI_BUFF_SIZE 8192
 #define MAX_CHANLIST_LEN	256
-#define HUNK_LEN	1
+#define HUNK_LEN	512
 
 /* PIC Slave commands */
 #define CMD_ZERO        0b00000000
