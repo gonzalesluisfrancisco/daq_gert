@@ -244,6 +244,7 @@ struct daqgert_private {
 	unsigned int val;
 	uint16_t hunk : 1;
 	uint16_t ai_hunk : 1;
+        uint16_t ai_mix : 1;
 	int mix_chan;
 	unsigned int last_hunk_run;
 	int next_hunk_buf;
@@ -989,7 +990,8 @@ static int daqgert_ai_eoc(struct comedi_device *dev,
 static void transfer_from_hunk_buf(struct comedi_device *dev,
 	struct comedi_subdevice *s,
 	u8 *ptr,
-	unsigned int bufptr, unsigned int len, unsigned int offset)
+	unsigned int bufptr, unsigned int len, unsigned int offset,
+	bool mix_mode)
 {
 	struct spi_param_type *spi_data = s->private;
 	unsigned int i;
@@ -1004,11 +1006,26 @@ static void transfer_from_hunk_buf(struct comedi_device *dev,
 			val += (ptr[0 + bufptr]&0x0f) << 9;
 		}
 		bufptr += offset;
-		comedi_buf_put(s, val);
+
+		s->async->events |= COMEDI_CB_BLOCK;
+		if (mix_mode) {
+			if (i & 0x01) { /* use a even/odd mix of adc devices */
+				s->async->cur_chan = 1;
+				comedi_buf_put(s, val);
+				s->async->cur_chan = 0;
+				s->async->events |= COMEDI_CB_EOS;
+			} else {
+				s->async->cur_chan = 0;
+				comedi_buf_put(s, val);
+			}
+		} else {
+			s->async->cur_chan = 0;
+			comedi_buf_put(s, val);
+			s->async->events |= COMEDI_CB_EOS;
+		}
+		cfc_handle_events(dev, s);
 	}
-	s->async->events |= COMEDI_CB_BLOCK;
-	s->async->events |= COMEDI_CB_EOS;
-	cfc_handle_events(dev, s);
+
 }
 
 static void transfer_to_hunk_buf(struct comedi_device *dev,
@@ -1054,7 +1071,7 @@ static void daqgert_handle_ai_hunk(struct comedi_device *dev,
 	} else {
 		offset = 3;
 	}
-	transfer_from_hunk_buf(dev, s, ptr, bufptr, len, offset);
+	transfer_from_hunk_buf(dev, s, ptr, bufptr, len, offset,true);
 	devpriv->next_hunk_buf++;
 	if (devpriv->next_hunk_buf > 1) devpriv->next_hunk_buf = 0;
 }
@@ -1131,6 +1148,7 @@ static int daqgert_ai_cmd(struct comedi_device *dev, struct comedi_subdevice * s
 
 	if (devpriv->hunk) { /* check if we can use HUNK transfer */
 		devpriv->ai_hunk = 1;
+                devpriv->ai_mix = 0;
 		devpriv->mix_chan = CR_CHAN(cmd->chanlist[0]);
 		for (i = 1; i < cmd->chanlist_len; i++) {
 			if (cmd->chanlist[0] != cmd->chanlist[i]) {
@@ -1142,6 +1160,7 @@ static int daqgert_ai_cmd(struct comedi_device *dev, struct comedi_subdevice * s
 		/* check for the special mix_mode case */
 		if (cmd->chanlist_len == 2 && (cmd->chanlist[0] != cmd->chanlist[1])) {
 			devpriv->ai_hunk = 1;
+                        devpriv->ai_mix = 1;
 			devpriv->mix_chan = CR_CHAN(cmd->chanlist[1]);
 			dev_info(dev->class_dev, "Hunk AI mix_mode transfers enabled\n");
 		}
@@ -1179,6 +1198,8 @@ static int daqgert_ai_poll(struct comedi_device *dev, struct comedi_subdevice * 
 	struct daqgert_private *devpriv = dev->private;
 	int num_bytes;
 
+	if (!devpriv->ai_hunk)
+		return 0; /* poll is valid only for HUNK transfer */
 	mutex_lock(&devpriv->cmd_lock);
 	dev_info(dev->class_dev, "ai_poll\n");
 
@@ -1467,6 +1488,7 @@ static int daqgert_attach(struct comedi_device *dev, struct comedi_devconfig * i
 	devpriv->conv_delay_usecs = 30;
 	devpriv->ai_neverending = 1;
 	devpriv->hunk = 1;
+        devpriv->ai_mix = 0;
 	devpriv->ai_spi = &spi_adc;
 	devpriv->ao_spi = &spi_dac;
 
