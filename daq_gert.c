@@ -187,7 +187,7 @@ static void daqgert_handle_ai_hunk(struct comedi_device *,
 #define MCP4822 0
 #define PICSL10 2
 #define PICSL12 0
-#define NUM_AI_CHAN 2
+#define NUM_AI_CHAN 1
 #define NUM_AO_CHAN 2
 
 static int daqgert_conf = 0;
@@ -260,7 +260,7 @@ struct daqgert_private {
 
 #define SPI_BUFF_SIZE 8192
 #define MAX_CHANLIST_LEN	256
-#define HUNK_LEN	1024
+#define HUNK_LEN	1
 
 /* PIC Slave commands */
 #define CMD_ZERO        0b00000000
@@ -988,14 +988,14 @@ static int daqgert_ai_eoc(struct comedi_device *dev,
 
 static void transfer_from_hunk_buf(struct comedi_device *dev,
 	struct comedi_subdevice *s,
-	unsigned short *ptr,
+	u8 *ptr,
 	unsigned int bufptr, unsigned int len, unsigned int offset)
 {
 	struct spi_param_type *spi_data = s->private;
 	unsigned int i;
 	int val;
 
-	for (i = len; i; i--) {
+	for (i = 0; i < len; i++) {
 		if (spi_data->device_type == MCP3002) { // 10 bit adc data
 			val = ((ptr[0 + bufptr] << 7) | (ptr[1 + bufptr] >> 1)) & 0x3FF;
 		} else { // 12 bit adc data
@@ -1006,13 +1006,14 @@ static void transfer_from_hunk_buf(struct comedi_device *dev,
 		bufptr += offset;
 		comedi_buf_put(s, val);
 	}
-	s->async->events |= COMEDI_CB_BLOCK | COMEDI_CB_EOS;
+	s->async->events |= COMEDI_CB_BLOCK;
+	s->async->events |= COMEDI_CB_EOS;
 	cfc_handle_events(dev, s);
 }
 
 static void transfer_to_hunk_buf(struct comedi_device *dev,
 	struct comedi_subdevice *s,
-	unsigned short *ptr,
+	u8 *ptr,
 	unsigned int bufptr, unsigned int len, unsigned int offset,
 	bool mix_mode)
 {
@@ -1029,7 +1030,8 @@ static void transfer_to_hunk_buf(struct comedi_device *dev,
 				chan = devpriv->chan;
 			}
 		}
-		ptr[bufptr += offset] = 0b11010000 | ((chan & 0x01) << 5);
+		ptr[bufptr] = 0b11010000 | ((chan & 0x01) << 5);
+		bufptr += offset;
 	}
 }
 
@@ -1041,10 +1043,10 @@ static void daqgert_handle_ai_hunk(struct comedi_device *dev,
 	struct spi_device *spi = spi_data->spi;
 	struct comedi_control *pdata = spi->dev.platform_data;
 	int len, offset, bufptr;
-	unsigned short *ptr;
+	u8 *ptr;
 
 	daqgert_ai_get_sample(dev, s);
-	ptr = (unsigned short *) pdata->rx_buff;
+	ptr = (u8 *) pdata->rx_buff;
 	bufptr = 0;
 	len = HUNK_LEN;
 	if (spi_data->device_type == MCP3002) { // 10 bit adc data
@@ -1067,7 +1069,7 @@ static void daqgert_ai_setup_hunk(struct comedi_device *dev,
 	struct comedi_control *pdata = spi->dev.platform_data;
 	unsigned int bytes;
 	int len, offset, bufptr;
-	unsigned short *ptr;
+	u8 *ptr;
 
 	/* we use EOS, so adapt buffer to one scan */
 	devpriv->runs_to_end = 1;
@@ -1080,7 +1082,7 @@ static void daqgert_ai_setup_hunk(struct comedi_device *dev,
 		devpriv->runs_to_end = 0;
 	}
 	devpriv->next_hunk_buf = 0;
-	ptr = (unsigned short *) pdata->tx_buff;
+	ptr = (u8 *) pdata->tx_buff;
 	bufptr = 0;
 	len = HUNK_LEN;
 	if (spi_data->device_type == MCP3002) { // 10 bit adc data
@@ -1508,7 +1510,6 @@ static int daqgert_attach(struct comedi_device *dev, struct comedi_devconfig * i
 		return ret;
 
 	/* daq_gert dio */
-	if (devpriv->hunk) dev_info(dev->class_dev, "Hunk AI transfers enabled\n");
 	s = &dev->subdevices[0];
 	s->type = COMEDI_SUBD_DIO;
 	s->subdev_flags = SDF_READABLE | SDF_WRITABLE;
@@ -1524,6 +1525,7 @@ static int daqgert_attach(struct comedi_device *dev, struct comedi_devconfig * i
 
 	if (num_subdev > 1) { /* we have the SPI ADC DAC on board */
 		/* daq_gert ai */
+		if (devpriv->hunk) dev_info(dev->class_dev, "Hunk AI transfers enabled\n");
 		s = &dev->subdevices[1];
 		s->private = devpriv->ai_spi; /* SPI adc comedi state */
 		num_ai_chan = daqgert_ai_config(dev, s); /* config SPI ports for ai use */
@@ -1564,7 +1566,11 @@ static int daqgert_attach(struct comedi_device *dev, struct comedi_devconfig * i
 		comedi_alloc_subdev_readback(s);
 	}
 	/* setup kthread */
-	devpriv->ai_spi->daqgert_task = kthread_run(&daqgert_ai_thread_function, (void *) dev, "daq_gert_ai");
+	if (devpriv->hunk) {
+		devpriv->ai_spi->daqgert_task = kthread_run(&daqgert_ai_thread_function, (void *) dev, "daq_gert_ai_hunk");
+	} else {
+		devpriv->ai_spi->daqgert_task = kthread_run(&daqgert_ai_thread_function, (void *) dev, "daq_gert_ai");
+	}
 	dev_info(dev->class_dev, "Daq_gert SPI ADC i/o thread started\n");
 
 	dev_info(dev->class_dev, "%s attached: GPIO iobase 0x%lx, ioremap 0x%lx, GPIO wpi-pins 0x%x\n",
