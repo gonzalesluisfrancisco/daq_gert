@@ -244,7 +244,7 @@ struct daqgert_private {
 	unsigned int val;
 	uint16_t hunk : 1;
 	uint16_t ai_hunk : 1;
-        uint16_t ai_mix : 1;
+	uint16_t ai_mix : 1;
 	int mix_chan;
 	unsigned int last_hunk_run;
 	int next_hunk_buf;
@@ -845,13 +845,14 @@ static unsigned int daqgert_ai_get_sample(struct comedi_device *dev,
 	struct comedi_subdevice *s)
 {
 	int chan;
-	unsigned int val;
+	unsigned int val, i, len;
 	struct daqgert_private *devpriv = dev->private;
 	struct spi_param_type *spi_data = s->private;
 	struct spi_device *spi = spi_data->spi;
 	struct comedi_control *pdata = spi->dev.platform_data;
-	struct spi_transfer t[1];
+	struct spi_transfer t[HUNK_LEN];
 	struct spi_message m;
+	u8 *tx_buff, *rx_buff;
 
 	mutex_lock(&devpriv->drvdata_lock);
 	chan = CR_CHAN(devpriv->chan);
@@ -875,13 +876,22 @@ static unsigned int daqgert_ai_get_sample(struct comedi_device *dev,
 	} else { /* Gertboard onboard ADC device */
 		memset(&t, 0, sizeof(t)); // clear the transfer array
 		if (devpriv->ai_hunk) { /* for single channel command scans with pre-formatted tx_buffer*/
-			t[0].tx_buf = pdata->tx_buff;
 			if (spi_data->device_type == MCP3002) { // 10 bit adc data
-				t[0].len = 2 * HUNK_LEN;
+				len = 2;
 			} else {
-				t[0].len = 3 * HUNK_LEN;
+				len = 3;
 			}
-			t[0].rx_buf = pdata->rx_buff;
+			tx_buff = pdata->tx_buff;
+			rx_buff = pdata->rx_buff;
+			for (i = 0; i < HUNK_LEN; i++) { /* be sure we toggle CS between ADC commands */
+				t[i].cs_change = 1;
+				t[i].len = len;
+				t[i].tx_buf = tx_buff;
+				t[i].rx_buf = rx_buff;
+				tx_buff += t[i].len;
+				rx_buff += t[i].len;
+			}
+			spi_message_init_with_transfers(&m, &t[0], HUNK_LEN); // make the proper message with the transfers
 		} else {
 			pdata->tx_buff[2] = 0; // format the ADC data as a single transmission into the buffer
 			pdata->tx_buff[1] = 0;
@@ -894,8 +904,8 @@ static unsigned int daqgert_ai_get_sample(struct comedi_device *dev,
 				t[0].len = 3;
 			}
 			t[0].rx_buf = pdata->rx_buff;
+			spi_message_init_with_transfers(&m, &t[0], 1); // make the proper message with the transfer
 		}
-		spi_message_init_with_transfers(&m, &t[0], 1); // make the proper message with the transfer
 		spi_sync(spi_data->spi, &m); // exchange SPI data
 		/* ADC type code result munging */
 		if (devpriv->ai_hunk) { /* for single channel command scans */
@@ -1071,7 +1081,7 @@ static void daqgert_handle_ai_hunk(struct comedi_device *dev,
 	} else {
 		offset = 3;
 	}
-	transfer_from_hunk_buf(dev, s, ptr, bufptr, len, offset,true);
+	transfer_from_hunk_buf(dev, s, ptr, bufptr, len, offset, true);
 	devpriv->next_hunk_buf++;
 	if (devpriv->next_hunk_buf > 1) devpriv->next_hunk_buf = 0;
 }
@@ -1148,7 +1158,7 @@ static int daqgert_ai_cmd(struct comedi_device *dev, struct comedi_subdevice * s
 
 	if (devpriv->hunk) { /* check if we can use HUNK transfer */
 		devpriv->ai_hunk = 1;
-                devpriv->ai_mix = 0;
+		devpriv->ai_mix = 0;
 		devpriv->mix_chan = CR_CHAN(cmd->chanlist[0]);
 		for (i = 1; i < cmd->chanlist_len; i++) {
 			if (cmd->chanlist[0] != cmd->chanlist[i]) {
@@ -1160,7 +1170,7 @@ static int daqgert_ai_cmd(struct comedi_device *dev, struct comedi_subdevice * s
 		/* check for the special mix_mode case */
 		if (cmd->chanlist_len == 2 && (cmd->chanlist[0] != cmd->chanlist[1])) {
 			devpriv->ai_hunk = 1;
-                        devpriv->ai_mix = 1;
+			devpriv->ai_mix = 1;
 			devpriv->mix_chan = CR_CHAN(cmd->chanlist[1]);
 			dev_info(dev->class_dev, "Hunk AI mix_mode transfers enabled\n");
 		}
@@ -1488,7 +1498,7 @@ static int daqgert_attach(struct comedi_device *dev, struct comedi_devconfig * i
 	devpriv->conv_delay_usecs = 30;
 	devpriv->ai_neverending = 1;
 	devpriv->hunk = 1;
-        devpriv->ai_mix = 0;
+	devpriv->ai_mix = 0;
 	devpriv->ai_spi = &spi_adc;
 	devpriv->ao_spi = &spi_dac;
 
