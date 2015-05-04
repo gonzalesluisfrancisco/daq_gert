@@ -203,19 +203,19 @@ static void daqgert_handle_ai_hunk(struct comedi_device *,
 #define HUNK_LEN	1024
 
 static int32_t daqgert_conf = 0;
-module_param(daqgert_conf, int32_t, S_IRUGO);
+module_param(daqgert_conf, int, S_IRUGO);
 static int32_t pullups = 2;
-module_param(pullups, int32_t, S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);
+module_param(pullups, int, S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);
 static int32_t gpiosafe = 1;
-module_param(gpiosafe, int32_t, S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);
+module_param(gpiosafe, int, S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);
 static int32_t dio_conf = 0;
-module_param(dio_conf, int32_t, S_IRUGO);
+module_param(dio_conf, int, S_IRUGO);
 static int32_t count = 0;
-module_param(count, int32_t, S_IRUGO);
+module_param(count, int, S_IRUGO);
 static int32_t hunk_count = 0;
-module_param(hunk_count, int32_t, S_IRUGO);
+module_param(hunk_count, int, S_IRUGO);
 static int32_t hunk_len = HUNK_LEN;
-module_param(hunk_len, int32_t, S_IRUGO);
+module_param(hunk_len, int, S_IRUGO);
 
 struct daqgert_board {
 	const char *name;
@@ -1043,7 +1043,7 @@ static void transfer_to_hunk_buf(struct comedi_device *dev,
 	struct spi_param_type *spi_data = s->private;
 	struct spi_device *spi = spi_data->spi;
 	struct comedi_control *pdata = spi->dev.platform_data;
-	uint32_t i, len, delay_usec = 0;
+	uint32_t i, len, delay_usecs = 0;
 	uint32_t chan;
 	uint8_t *tx_buff, *rx_buff;
 
@@ -1074,7 +1074,7 @@ static void transfer_to_hunk_buf(struct comedi_device *dev,
 		pdata->t[i].len = len;
 		pdata->t[i].tx_buf = tx_buff;
 		pdata->t[i].rx_buf = rx_buff;
-		pdata->t[i].delay_usecs = delay_usec;
+		pdata->t[i].delay_usecs = delay_usecs;
 		tx_buff += len; /* move the buffer pointers to the next transfer slot in the buffer memory */
 		rx_buff += len;
 	}
@@ -1168,32 +1168,32 @@ static int32_t daqgert_ai_cmd(struct comedi_device *dev, struct comedi_subdevice
 
 	if (cmd->stop_src == TRIG_COUNT) {
 		devpriv->ai_scans = cmd->stop_arg;
-		devpriv->ai_neverending = 0;
+		devpriv->ai_neverending = false;
 	} else {
 		devpriv->ai_scans = 0;
-		devpriv->ai_neverending = 1;
+		devpriv->ai_neverending = true;
 	}
 
 	if (devpriv->hunk) { /* check if we can use HUNK transfer */
-		devpriv->ai_hunk = 1;
-		devpriv->ai_mix = 0;
+		devpriv->ai_hunk = true;
+		devpriv->ai_mix = false;
 		devpriv->mix_chan = CR_CHAN(cmd->chanlist[0]);
 		for (i = 1; i < cmd->chanlist_len; i++) {
 			if (cmd->chanlist[0] != cmd->chanlist[i]) {
 				/* we can't use HUNK :-( */
-				devpriv->ai_hunk = 0;
+				devpriv->ai_hunk = false;
 				break;
 			}
 		}
 		/* check for the special mix_mode case */
 		if (cmd->chanlist_len == 2 && (cmd->chanlist[0] != cmd->chanlist[1])) {
-			devpriv->ai_hunk = 1;
-			devpriv->ai_mix = 1;
+			devpriv->ai_hunk = true;
+			devpriv->ai_mix = true;
 			devpriv->mix_chan = CR_CHAN(cmd->chanlist[1]);
 			dev_info(dev->class_dev, "Hunk AI mix_mode transfers enabled\n");
 		}
 	} else {
-		devpriv->ai_hunk = 0;
+		devpriv->ai_hunk = false;
 	}
 
 	devpriv->ai_act_scan = 0;
@@ -1204,7 +1204,7 @@ static int32_t daqgert_ai_cmd(struct comedi_device *dev, struct comedi_subdevice
 	if (cmd->flags & CMDF_WAKE_EOS) {
 		/* HUNK is useless for this situation */
 		if (cmd->chanlist_len == 1)
-			devpriv->ai_hunk = 0;
+			devpriv->ai_hunk = false;
 	}
 
 	if (devpriv->ai_hunk) /* run batch conversions in background */
@@ -1354,6 +1354,7 @@ static int daqgert_ai_cancel(struct comedi_device *dev,
 	dev_info(dev->class_dev, "ai cancel\n");
 	count = devpriv->count;
 	hunk_count = devpriv->hunk_count;
+	devpriv->ai_hunk = false;
 	s->async->cur_chan = 0;
 	s->async->inttrig = NULL;
 	devpriv->cmd_canceled = false;
@@ -1443,6 +1444,7 @@ static int daqgert_ai_rinsn(struct comedi_device *dev,
 		goto ai_read_exit;
 
 	mutex_lock(&devpriv->drvdata_lock);
+	devpriv->ai_hunk = false;
 	devpriv->chan = CR_CHAN(insn->chanspec);
 	mutex_unlock(&devpriv->drvdata_lock);
 	/* convert n samples */
@@ -1514,9 +1516,9 @@ static int daqgert_attach(struct comedi_device *dev, struct comedi_devconfig * i
 	/* Board  operation data */
 	devpriv->cmd_delay_usecs = 10;
 	devpriv->conv_delay_usecs = 30;
-	devpriv->ai_neverending = 1;
-	devpriv->hunk = 1;
-	devpriv->ai_mix = 0;
+	devpriv->ai_neverending = true;
+	devpriv->hunk = true;
+	devpriv->ai_mix = false;
 	devpriv->ai_spi = &spi_adc;
 	devpriv->ao_spi = &spi_dac;
 
