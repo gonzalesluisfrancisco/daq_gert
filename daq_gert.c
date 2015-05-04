@@ -168,21 +168,21 @@ The output range is 0 to 4095 for 0.0 to 2.048 onboard devices (output resolutio
 #include "8253.h"
 
 /* Function stubs */
-static void (*pinMode) (int pin, int mode);
-static void (*digitalWrite) (int pin, int value);
-static void(*setPadDrive) (int group, int value);
-static int (*digitalRead) (int pin);
-static int daqgert_spi_probe(struct comedi_device *);
+static void (*pinMode) (int32_t pin, int32_t mode);
+static void (*digitalWrite) (int32_t pin, int32_t value);
+static void(*setPadDrive) (int32_t group, int32_t value);
+static int32_t(*digitalRead) (int32_t pin);
+static int32_t daqgert_spi_probe(struct comedi_device *);
 static void daqgert_ai_clear_eoc(struct comedi_device *);
-static int daqgert_ai_cancel(struct comedi_device *,
+static int32_t daqgert_ai_cancel(struct comedi_device *,
 	struct comedi_subdevice *);
 static void daqgert_handle_ai_eoc(struct comedi_device *,
 	struct comedi_subdevice *);
 static void my_timer_ai_callback(unsigned long);
 //static void my_timer_ao_callback(unsigned long);
 static void daqgert_ai_set_chan_range(struct comedi_device *,
-	unsigned int, char);
-static unsigned int daqgert_ai_get_sample(struct comedi_device *,
+	uint32_t, char);
+static uint32_t daqgert_ai_get_sample(struct comedi_device *,
 	struct comedi_subdevice *);
 static void daqgert_handle_ai_hunk(struct comedi_device *,
 	struct comedi_subdevice *);
@@ -202,44 +202,45 @@ static void daqgert_handle_ai_hunk(struct comedi_device *,
 #define MAX_CHANLIST_LEN	256
 #define HUNK_LEN	1024
 
-static int daqgert_conf = 0;
-module_param(daqgert_conf, int, S_IRUGO);
-static int pullups = 2;
-module_param(pullups, int, S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);
-static int gpiosafe = 1;
-module_param(gpiosafe, int, S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);
-static int dio_conf = 0;
-module_param(dio_conf, int, S_IRUGO);
-static int count = 0;
-module_param(count, int, S_IRUGO);
-static int hunk_count = 0;
-module_param(hunk_count, int, S_IRUGO);
-static int hunk_len = HUNK_LEN;
-module_param(hunk_len, int, S_IRUGO);
+static int32_t daqgert_conf = 0;
+module_param(daqgert_conf, int32_t, S_IRUGO);
+static int32_t pullups = 2;
+module_param(pullups, int32_t, S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);
+static int32_t gpiosafe = 1;
+module_param(gpiosafe, int32_t, S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);
+static int32_t dio_conf = 0;
+module_param(dio_conf, int32_t, S_IRUGO);
+static int32_t count = 0;
+module_param(count, int32_t, S_IRUGO);
+static int32_t hunk_count = 0;
+module_param(hunk_count, int32_t, S_IRUGO);
+static int32_t hunk_len = HUNK_LEN;
+module_param(hunk_len, int32_t, S_IRUGO);
 
 struct daqgert_board {
 	const char *name;
-	int board_type;
-	int n_aochan;
-	unsigned int ai_ns_min;
+	int32_t board_type;
+	int32_t n_aochan;
+	uint32_t ai_ns_min;
 };
 
 struct comedi_control {
-	u8 *tx_buff;
-	u8 *rx_buff;
+	uint8_t *tx_buff;
+	uint8_t *rx_buff;
 	struct spi_transfer t[HUNK_LEN];
+	uint32_t delay_usecs;
 	struct mutex daqgert_platform_lock;
 };
 
 struct spi_param_type {
-	uint16_t range : 1;
-	uint16_t bits : 2;
-	uint16_t link : 1;
-	uint16_t pic18 : 2;
-	uint16_t chan : 4;
+	uint32_t range : 1;
+	uint32_t bits : 2;
+	uint32_t link : 1;
+	uint32_t pic18 : 2;
+	uint32_t chan : 4;
 	struct spi_device *spi;
-	int device_type;
-	int hunk_size; /* the number of needed values returned as data */
+	int32_t device_type;
+	int32_t hunk_size; /* the number of needed values returned as data */
 	struct timer_list my_timer;
 	struct task_struct *daqgert_task;
 };
@@ -252,21 +253,21 @@ static struct spi_param_type spi_adc = {
 };
 
 struct daqgert_private {
-	unsigned int RPisys_rev;
+	uint32_t RPisys_rev;
 	uint16_t conv_delay_usecs, cmd_delay_usecs, ai_neverending;
 	int chan, timer, run, spi_run, count, hunk_count, cmd_running, cmd_canceled;
 	struct mutex drvdata_lock, cmd_lock;
-	unsigned int val;
+	uint32_t val;
 	uint16_t hunk : 1;
 	uint16_t ai_hunk : 1;
 	uint16_t ai_mix : 1;
-	int mix_chan;
-	unsigned int last_hunk_run;
-	int next_hunk_buf;
-	unsigned int runs_to_end; /* how many times we must switch buffers */
-	unsigned int ai_scans; /*  length of scanlist */
-	unsigned int ai_act_scan; /*  how many scans we finished */
-	unsigned int ai_poll_ptr;
+	int32_t mix_chan;
+	uint32_t last_hunk_run;
+	int32_t next_hunk_buf;
+	uint32_t runs_to_end; /* how many times we must switch buffers */
+	uint32_t ai_scans; /*  length of scanlist */
+	uint32_t ai_act_scan; /*  how many scans we finished */
+	uint32_t ai_poll_ptr;
 	struct spi_param_type *ai_spi;
 	struct spi_param_type *ao_spi;
 };
@@ -346,9 +347,9 @@ struct daqgert_private {
 static volatile uint32_t *gpio;
 
 /* Global for the RPi board rev */
-extern unsigned int system_rev; // from the kernel symbol table exports */
-extern unsigned int system_serial_low;
-extern unsigned int system_serial_high;
+extern uint32_t system_rev; // from the kernel symbol table exports */
+extern uint32_t system_serial_low;
+extern uint32_t system_serial_high;
 
 static const struct comedi_lrange daqgert_ai_range3_300 = {1,
 	{
@@ -365,12 +366,12 @@ static const struct comedi_lrange daqgert_ao_range = {1,
 	}};
 
 /* pin exclude list */
-static int wpi_pin_safe(int pin)
+static int32_t wpi_pin_safe(int32_t pin)
 {
-	unsigned int pin_bit = (0x01 << pin);
-	if (!gpiosafe) return TRUE;
-	if (pin_bit & PIN_SAFE_MASK) return FALSE;
-	return TRUE;
+	uint32_t pin_bit = (0x01 << pin);
+	if (!gpiosafe) return true;
+	if (pin_bit & PIN_SAFE_MASK) return false;
+	return true;
 }
 
 /*
@@ -855,14 +856,13 @@ static void daqgert_ai_set_chan_range(struct comedi_device *dev,
 static unsigned int daqgert_ai_get_sample(struct comedi_device *dev,
 	struct comedi_subdevice *s)
 {
-	int chan;
-	unsigned int val, i, len;
+	int32_t chan;
+	uint32_t val;
 	struct daqgert_private *devpriv = dev->private;
 	struct spi_param_type *spi_data = s->private;
 	struct spi_device *spi = spi_data->spi;
 	struct comedi_control *pdata = spi->dev.platform_data;
 	struct spi_message m;
-	u8 *tx_buff, *rx_buff;
 
 	mutex_lock(&devpriv->drvdata_lock);
 	chan = CR_CHAN(devpriv->chan);
@@ -884,25 +884,10 @@ static unsigned int daqgert_ai_get_sample(struct comedi_device *dev,
 		spi_write_then_read(spi_data->spi, pdata->tx_buff, 1, pdata->rx_buff, 1);
 		val += pdata->rx_buff[0] << 8;
 	} else { /* Gertboard onboard ADC device */
-		memset(&pdata->t, 0, sizeof(pdata->t)); // clear the transfer array
-		if (devpriv->ai_hunk) { /* for single channel command scans with pre-formatted tx_buffer*/
-			if (spi_data->device_type == MCP3002) { // 10 bit adc data
-				len = 2;
-			} else {
-				len = 3;
-			}
-			tx_buff = pdata->tx_buff;
-			rx_buff = pdata->rx_buff;
-			for (i = 0; i < HUNK_LEN; i++) { /* be sure we toggle CS between ADC commands */
-				pdata->t[i].cs_change = 1;
-				pdata->t[i].len = len;
-				pdata->t[i].tx_buf = tx_buff;
-				pdata->t[i].rx_buf = rx_buff;
-				tx_buff += len; /* move the buffer ptr to the next transfer slot in the buffer memory */
-				rx_buff += len;
-			}
+		if (devpriv->ai_hunk) { /* for single channel command scans with pre-formatted tx_buffer & transfer array */
 			spi_message_init_with_transfers(&m, &pdata->t[0], HUNK_LEN); // make the proper message with the transfers
 		} else {
+			memset(&pdata->t, 0, sizeof(pdata->t)); // clear the transfer array
 			pdata->tx_buff[2] = 0; // format the ADC data as a single transmission into the buffer
 			pdata->tx_buff[1] = 0;
 			pdata->tx_buff[0] = 0b11010000 | ((chan & 0x01) << 5);
@@ -971,7 +956,7 @@ static void daqgert_handle_ai_eoc(struct comedi_device *dev,
 	struct comedi_subdevice *s)
 {
 	struct comedi_cmd *cmd = &s->async->cmd;
-	unsigned int next_chan, val;
+	uint32_t next_chan, val;
 
 	val = daqgert_ai_get_sample(dev, s);
 	comedi_buf_put(s, val);
@@ -991,8 +976,8 @@ static void daqgert_ai_soft_trig(struct comedi_device *dev)
 {
 	struct daqgert_private *devpriv = dev->private;
 
-	devpriv->timer = TRUE;
-	daqgert_ai_start_pacer(dev, TRUE);
+	devpriv->timer = true;
+	daqgert_ai_start_pacer(dev, true);
 }
 
 static int daqgert_ai_eoc(struct comedi_device *dev,
@@ -1009,13 +994,13 @@ static int daqgert_ai_eoc(struct comedi_device *dev,
 
 static void transfer_from_hunk_buf(struct comedi_device *dev,
 	struct comedi_subdevice *s,
-	u8 *ptr,
-	unsigned int bufptr, unsigned int len, unsigned int offset,
+	uint8_t *ptr,
+	uint32_t bufptr, uint32_t len, uint32_t offset,
 	bool mix_mode)
 {
 	struct spi_param_type *spi_data = s->private;
-	unsigned int i;
-	int val;
+	uint32_t i;
+	uint32_t val;
 
 	for (i = 0; i < len; i++) {
 		if (spi_data->device_type == MCP3002) { // 10 bit adc data
@@ -1050,25 +1035,48 @@ static void transfer_from_hunk_buf(struct comedi_device *dev,
 
 static void transfer_to_hunk_buf(struct comedi_device *dev,
 	struct comedi_subdevice *s,
-	u8 *ptr,
-	unsigned int bufptr, unsigned int len, unsigned int offset,
+	uint8_t *ptr,
+	uint32_t bufptr, uint32_t hunk_len, uint32_t offset,
 	bool mix_mode)
 {
 	struct daqgert_private *devpriv = dev->private;
-	unsigned int i;
-	int chan;
+	struct spi_param_type *spi_data = s->private;
+	struct spi_device *spi = spi_data->spi;
+	struct comedi_control *pdata = spi->dev.platform_data;
+	uint32_t i, len, delay_usec = 0;
+	uint32_t chan;
+	uint8_t *tx_buff, *rx_buff;
 
 	chan = devpriv->chan;
-	for (i = 0; i < len; i++) {
+	memset(&pdata->t, 0, sizeof(pdata->t)); // clear the transfer array
+	if (spi_data->device_type == MCP3002) { // 10 bit adc data
+		len = 2;
+	} else {
+		len = 3;
+	}
+	tx_buff = pdata->tx_buff;
+	rx_buff = pdata->rx_buff;
+	for (i = 0; i < hunk_len; i++) {
+		/* format the tx_buffer */
 		if (mix_mode) {
 			if (i & 0x01) { /* use a even/odd mix of adc devices */
 				chan = devpriv->mix_chan;
+				delay_usecs = pdata->delay_usecs;
 			} else {
 				chan = devpriv->chan;
+				delay_usecs = 0;
 			}
 		}
-		ptr[bufptr] = 0b11010000 | ((chan & 0x01) << 5);
+		ptr[bufptr] = 0b11010000 | ((chan & 0x01) << 5); /* set the channel and config data */
 		bufptr += offset;
+		/* format the transfer array */
+		pdata->t[i].cs_change = 1;
+		pdata->t[i].len = len;
+		pdata->t[i].tx_buf = tx_buff;
+		pdata->t[i].rx_buf = rx_buff;
+		pdata->t[i].delay_usecs = delay_usec;
+		tx_buff += len; /* move the buffer pointers to the next transfer slot in the buffer memory */
+		rx_buff += len;
 	}
 }
 
@@ -1079,11 +1087,11 @@ static void daqgert_handle_ai_hunk(struct comedi_device *dev,
 	struct spi_param_type *spi_data = s->private;
 	struct spi_device *spi = spi_data->spi;
 	struct comedi_control *pdata = spi->dev.platform_data;
-	int len, offset, bufptr;
-	u8 *ptr;
+	int32_t len, offset, bufptr;
+	uint8_t *ptr;
 
 	daqgert_ai_get_sample(dev, s);
-	ptr = (u8 *) pdata->rx_buff;
+	ptr = (uint8_t *) pdata->rx_buff;
 	bufptr = 0;
 	len = HUNK_LEN;
 	if (spi_data->device_type == MCP3002) { // 10 bit adc data
@@ -1104,9 +1112,9 @@ static void daqgert_ai_setup_hunk(struct comedi_device *dev,
 	struct spi_param_type *spi_data = s->private;
 	struct spi_device *spi = spi_data->spi;
 	struct comedi_control *pdata = spi->dev.platform_data;
-	unsigned int bytes;
-	int len, offset, bufptr;
-	u8 *ptr;
+	uint32_t bytes;
+	uint32_t len, offset, bufptr;
+	uint8_t *ptr;
 
 	/* we use EOS, so adapt buffer to one scan */
 	devpriv->runs_to_end = 1;
@@ -1119,7 +1127,7 @@ static void daqgert_ai_setup_hunk(struct comedi_device *dev,
 		devpriv->runs_to_end = 0;
 	}
 	devpriv->next_hunk_buf = 0;
-	ptr = (u8 *) pdata->tx_buff;
+	ptr = (uint8_t *) pdata->tx_buff;
 	bufptr = 0;
 	len = HUNK_LEN;
 	if (spi_data->device_type == MCP3002) { // 10 bit adc data
@@ -1131,11 +1139,11 @@ static void daqgert_ai_setup_hunk(struct comedi_device *dev,
 	transfer_to_hunk_buf(dev, s, ptr, bufptr, len, offset, mix_mode);
 }
 
-static int daqgert_ai_cmd(struct comedi_device *dev, struct comedi_subdevice * s)
+static int32_t daqgert_ai_cmd(struct comedi_device *dev, struct comedi_subdevice * s)
 {
 	struct comedi_cmd *cmd = &s->async->cmd;
 	struct daqgert_private *devpriv = dev->private;
-	int ret = -EBUSY, i;
+	int32_t ret = -EBUSY, i;
 
 	mutex_lock(&devpriv->cmd_lock);
 	dev_info(dev->class_dev, "ai_cmd\n");
@@ -1204,7 +1212,7 @@ static int daqgert_ai_cmd(struct comedi_device *dev, struct comedi_subdevice * s
 
 	devpriv->run = false;
 	devpriv->timer = true;
-	daqgert_ai_start_pacer(dev, TRUE);
+	daqgert_ai_start_pacer(dev, true);
 	devpriv->cmd_running = true;
 	devpriv->cmd_canceled = false;
 	ret = 0;
@@ -1213,10 +1221,10 @@ ai_cmd_exit:
 	return ret;
 }
 
-static int daqgert_ai_poll(struct comedi_device *dev, struct comedi_subdevice * s)
+static int32_t daqgert_ai_poll(struct comedi_device *dev, struct comedi_subdevice * s)
 {
 	struct daqgert_private *devpriv = dev->private;
-	int num_bytes;
+	int32_t num_bytes;
 
 	if (!devpriv->ai_hunk)
 		return 0; /* poll is valid only for HUNK transfer */
@@ -1229,14 +1237,14 @@ static int daqgert_ai_poll(struct comedi_device *dev, struct comedi_subdevice * 
 }
 
 /* For a single channel scan we can do a quasi-DMA transfer that's much faster */
-static int daqgert_ai_cmdtest(struct comedi_device *dev,
+static int32_t daqgert_ai_cmdtest(struct comedi_device *dev,
 	struct comedi_subdevice *s, struct comedi_cmd * cmd)
 {
 	const struct daqgert_board *board = dev->board_ptr;
 
-	int err = 0;
-	unsigned int flags, divisor1 = 0, divisor2 = 0;
-	unsigned int arg;
+	int32_t err = 0;
+	uint32_t flags, divisor1 = 0, divisor2 = 0;
+	uint32_t arg;
 
 	//	dev_info(dev->class_dev, "ai_cmdtest\n");
 	/* Step 1 : check if triggers are trivially valid */
@@ -1322,7 +1330,7 @@ static void my_timer_ai_callback(unsigned long data)
 static void daqgert_ai_clear_eoc(struct comedi_device * dev)
 {
 	struct daqgert_private *devpriv = dev->private;
-	int count = 0;
+	int32_t count = 0;
 
 	del_timer_sync(&devpriv->ai_spi->my_timer);
 	setup_timer(&devpriv->ai_spi->my_timer, my_timer_ai_callback, (unsigned long) dev);
