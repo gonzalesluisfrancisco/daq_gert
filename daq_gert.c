@@ -1521,8 +1521,6 @@ static int daqgert_attach(struct comedi_device *dev, struct comedi_devconfig * i
 	devpriv->ai_neverending = true;
 	devpriv->hunk = true;
 	devpriv->ai_mix = false;
-	devpriv->delay_usecs = 0; /* delay between any single conversion */
-	devpriv->mix_delay_usecs = 0; /* delay for alt mix command conversions */
 	devpriv->ai_spi = &spi_adc;
 	devpriv->ao_spi = &spi_dac;
 
@@ -1723,6 +1721,9 @@ static int spidev_spi_probe(struct spi_device * spi)
 		"setup: cd %d: %d Hz, bpw %u, mode 0x%x\n",
 		spi->chip_select, spi->max_speed_hz, spi->bits_per_word,
 		spi->mode);
+
+        pdata->delay_usecs = 0; /* delay between any single conversion */
+        pdata->mix_delay_usecs = 0; /* delay for alt mix command conversions */
 
 	/* Check for basic errors */
 	ret = spi_w8r8(spi, 0); /* check for spi comm error */
