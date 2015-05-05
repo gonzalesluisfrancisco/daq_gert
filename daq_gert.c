@@ -229,6 +229,7 @@ struct comedi_control {
 	uint8_t *rx_buff;
 	struct spi_transfer t[HUNK_LEN];
 	uint32_t delay_usecs;
+	uint32_t mix_delay_usecs;
 	struct mutex daqgert_platform_lock;
 };
 
@@ -1043,7 +1044,7 @@ static void transfer_to_hunk_buf(struct comedi_device *dev,
 	struct spi_param_type *spi_data = s->private;
 	struct spi_device *spi = spi_data->spi;
 	struct comedi_control *pdata = spi->dev.platform_data;
-	uint32_t i, len, delay_usecs = 0;
+	uint32_t i, len, delay_usecs = pdata->delay_usecs;
 	uint32_t chan;
 	uint8_t *tx_buff, *rx_buff;
 
@@ -1061,10 +1062,10 @@ static void transfer_to_hunk_buf(struct comedi_device *dev,
 		if (mix_mode) {
 			if (i & 0x01) { /* use a even/odd mix of adc devices */
 				chan = devpriv->mix_chan;
-				delay_usecs = pdata->delay_usecs;
+				delay_usecs = pdata->mix_delay_usecs;
 			} else {
 				chan = devpriv->chan;
-				delay_usecs = 0;
+				delay_usecs = pdata->delay_usecs;
 			}
 		}
 		ptr[bufptr] = 0b11010000 | ((chan & 0x01) << 5); /* set the channel and config data */
@@ -1143,6 +1144,7 @@ static int32_t daqgert_ai_cmd(struct comedi_device *dev, struct comedi_subdevice
 {
 	struct comedi_cmd *cmd = &s->async->cmd;
 	struct daqgert_private *devpriv = dev->private;
+	struct spi_param_type *spi_data = s->private;
 	int32_t ret = -EBUSY, i;
 
 	mutex_lock(&devpriv->cmd_lock);
@@ -1174,7 +1176,7 @@ static int32_t daqgert_ai_cmd(struct comedi_device *dev, struct comedi_subdevice
 		devpriv->ai_neverending = true;
 	}
 
-	if (devpriv->hunk) { /* check if we can use HUNK transfer */
+	if (devpriv->hunk && !spi_data->pic18) { /* check if we can use HUNK transfer */
 		devpriv->ai_hunk = true;
 		devpriv->ai_mix = false;
 		devpriv->mix_chan = CR_CHAN(cmd->chanlist[0]);
@@ -1514,11 +1516,13 @@ static int daqgert_attach(struct comedi_device *dev, struct comedi_devconfig * i
 	mutex_init(&devpriv->drvdata_lock);
 
 	/* Board  operation data */
-	devpriv->cmd_delay_usecs = 10;
+	devpriv->cmd_delay_usecs = 10; /* PIC slave delays */
 	devpriv->conv_delay_usecs = 30;
 	devpriv->ai_neverending = true;
 	devpriv->hunk = true;
 	devpriv->ai_mix = false;
+	devpriv->delay_usecs = 0; /* delay between any single conversion */
+	devpriv->mix_delay_usecs = 0; /* delay for alt mix command conversions */
 	devpriv->ai_spi = &spi_adc;
 	devpriv->ao_spi = &spi_dac;
 
