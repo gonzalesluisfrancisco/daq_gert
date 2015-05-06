@@ -255,7 +255,8 @@ static struct spi_param_type spi_adc = {
 };
 
 struct daqgert_private {
-	uint32_t RPisys_rev, max_rate;
+	uint32_t RPisys_rev;
+	int32_t max_rate;
 	uint32_t conv_delay_usecs, conv_delay_10nsecs, cmd_delay_usecs, ai_neverending;
 	int chan, timer, run, spi_run, count, hunk_count, cmd_running, cmd_canceled;
 	struct mutex drvdata_lock, cmd_lock;
@@ -1240,14 +1241,20 @@ static int32_t daqgert_ai_poll(struct comedi_device *dev, struct comedi_subdevic
 	return num_bytes;
 }
 
-static uint32 daqgert_ai_delay_rate(uint32_t conv_delay, int32_t rate)
+static uint32_t daqgert_ai_delay_rate(struct comedi_device *dev, int32_t rate)
 {
-	int32 spacing_usecs;
+	struct daqgert_private *devpriv = dev->private;
+	int32_t spacing_usecs;
 
-	if (rate>20480) rate=20480
-	spacing_usecs = 20480-rate;
+	//	if (rate > devpriv->max_rate) rate = devpriv->max_rate;
+	spacing_usecs = rate - devpriv->max_rate;
+	spacing_usecs = spacing_usecs * 49;
+	spacing_usecs /= HUNK_LEN * 100;
 
+	/* set limits */
+	//	if (spacing_usecs > (devpriv->max_rate * 49)) spacing_usecs = devpriv->max_rate * 49;
 	if (spacing_usecs < 0) spacing_usecs = 0;
+	dev_info(dev->class_dev, "rate %i, max_rate %i, spacing usecs %i\n", rate, devpriv->max_rate, spacing_usecs);
 	return spacing_usecs;
 }
 
@@ -1257,6 +1264,9 @@ static int32_t daqgert_ai_cmdtest(struct comedi_device *dev,
 {
 	const struct daqgert_board *board = dev->board_ptr;
 	struct daqgert_private *devpriv = dev->private;
+	struct spi_param_type *spi_data = s->private;
+	struct spi_device *spi = spi_data->spi;
+	struct comedi_control *pdata = spi->dev.platform_data;
 
 	int32_t err = 0;
 	uint32_t flags, divisor1 = 0, divisor2 = 0;
@@ -1319,6 +1329,8 @@ static int32_t daqgert_ai_cmdtest(struct comedi_device *dev,
 			&divisor1,
 			&divisor2,
 			&arg, cmd->flags);
+		pdata->delay_usecs = daqgert_ai_delay_rate(dev, arg);
+		pdata->mix_delay_usecs = pdata->delay_usecs;
 		err |= cfc_check_trigger_arg_is(&cmd->convert_arg, arg);
 	}
 
@@ -1538,7 +1550,7 @@ static int daqgert_attach(struct comedi_device *dev, struct comedi_devconfig * i
 	devpriv->ai_spi = &spi_adc;
 	devpriv->ao_spi = &spi_dac;
 	devpriv->conv_delay_10nsecs = CONV_SPEED;
-	devpriv->max_rate= 1e8/CONV_SPEED;
+	devpriv->max_rate = 20480;
 
 	/* Use the kernel system_rev EXPORT_SYMBOL */
 	devpriv->RPisys_rev = system_rev; /* what board are we running on? */
