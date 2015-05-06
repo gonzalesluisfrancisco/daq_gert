@@ -65,9 +65,9 @@ WiringPI
  *
  * Copyright (C) 2012 Chris Boot
  *
- * This driver is inspired by:
- * spi-ath79.c, Copyright (C) 2009-2011 Gabor Juhos <juhosg@openwrt.org>
- * spi-atmel.c, Copyright (C) 2006 Atmel Corporation
+ * 
+ Also many other Comedi drivers
+ * 
 
 Devices: [] GERTBOARD (daq_gert)
 Status: inprogress (DIO 95%) (AI 90%) AO (90%) (My code cleanup 85%)
@@ -134,7 +134,8 @@ The output range is 0 to 4095 for 0.0 to 2.048 onboard devices (output resolutio
  * https://github.com/msperl/spi-bcm2835/wiki
  * (the current interrupt driven kernel driver is limited to a 12 to 64 byte FIFO and no DMA) HUNK_LEN data samples
  * into the Comedi read buffer with a special mix_mode for sampling both ADC devices in an alt sequence for
- * programs like xoscope at full speed. The transfer array is currently static but can easily be made into
+ * programs like xoscope at full speed (48828 ns per conversion over a 10 second period). 
+ * The transfer array is currently static but can easily be made into
  * a config size parameter runtime value if needed with kmalloc for the required space
 
  *  PIC Slave Info:
@@ -200,6 +201,7 @@ static void daqgert_handle_ai_hunk(struct comedi_device *,
 #define SPI_BUFF_SIZE 8192
 #define MAX_CHANLIST_LEN	256
 #define HUNK_LEN	1024
+#define CONV_SPEED	4883 /* two conversions per mix scan */
 
 static int32_t daqgert_conf = 0;
 module_param(daqgert_conf, int, S_IRUGO);
@@ -254,7 +256,7 @@ static struct spi_param_type spi_adc = {
 
 struct daqgert_private {
 	uint32_t RPisys_rev;
-	uint16_t conv_delay_usecs, cmd_delay_usecs, ai_neverending;
+	uint16_t conv_delay_usecs, conv_delay_nsecs, cmd_delay_usecs, ai_neverending;
 	int chan, timer, run, spi_run, count, hunk_count, cmd_running, cmd_canceled;
 	struct mutex drvdata_lock, cmd_lock;
 	uint32_t val;
@@ -817,6 +819,7 @@ static int daqgert_ai_thread_function(void *data)
 				daqgert_handle_ai_hunk(dev, s);
 				usleep_range(50, 250);
 				devpriv->hunk_count++;
+				hunk_count = devpriv->hunk_count;
 			} else {
 				daqgert_handle_ai_eoc(dev, s);
 				usleep_range(50, 250);
@@ -1242,6 +1245,7 @@ static int32_t daqgert_ai_cmdtest(struct comedi_device *dev,
 	struct comedi_subdevice *s, struct comedi_cmd * cmd)
 {
 	const struct daqgert_board *board = dev->board_ptr;
+	struct daqgert_private *devpriv = dev->private;
 
 	int32_t err = 0;
 	uint32_t flags, divisor1 = 0, divisor2 = 0;
@@ -1300,7 +1304,7 @@ static int32_t daqgert_ai_cmdtest(struct comedi_device *dev,
 	/* step 4: fix up any arguments */
 	if (cmd->convert_src == TRIG_TIMER) {
 		arg = cmd->convert_arg;
-		i8253_cascade_ns_to_timer(500000,
+		i8253_cascade_ns_to_timer(devpriv->conv_delay_nsecs,
 			&divisor1,
 			&divisor2,
 			&arg, cmd->flags);
@@ -1522,6 +1526,7 @@ static int daqgert_attach(struct comedi_device *dev, struct comedi_devconfig * i
 	devpriv->ai_mix = false;
 	devpriv->ai_spi = &spi_adc;
 	devpriv->ao_spi = &spi_dac;
+	devpriv->conv_delay_nsecs = CONV_SPEED;
 
 	/* Use the kernel system_rev EXPORT_SYMBOL */
 	devpriv->RPisys_rev = system_rev; /* what board are we running on? */
@@ -1721,8 +1726,9 @@ static int spidev_spi_probe(struct spi_device * spi)
 		spi->chip_select, spi->max_speed_hz, spi->bits_per_word,
 		spi->mode);
 
-        pdata->delay_usecs = 0; /* delay between any single conversion */
-        pdata->mix_delay_usecs = 0; /* delay for alt mix command conversions */
+	/* speed adjustments */
+	pdata->delay_usecs = 0; /* delay between any single conversion */
+	pdata->mix_delay_usecs = 0; /* delay for alt mix command conversions */
 
 	/* Check for basic errors */
 	ret = spi_w8r8(spi, 0); /* check for spi comm error */
