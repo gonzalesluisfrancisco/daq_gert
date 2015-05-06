@@ -255,8 +255,8 @@ static struct spi_param_type spi_adc = {
 };
 
 struct daqgert_private {
-	uint32_t RPisys_rev;
-	uint16_t conv_delay_usecs, conv_delay_nsecs, cmd_delay_usecs, ai_neverending;
+	uint32_t RPisys_rev, max_rate;
+	uint32_t conv_delay_usecs, conv_delay_10nsecs, cmd_delay_usecs, ai_neverending;
 	int chan, timer, run, spi_run, count, hunk_count, cmd_running, cmd_canceled;
 	struct mutex drvdata_lock, cmd_lock;
 	uint32_t val;
@@ -1240,6 +1240,17 @@ static int32_t daqgert_ai_poll(struct comedi_device *dev, struct comedi_subdevic
 	return num_bytes;
 }
 
+static uint32 daqgert_ai_delay_rate(uint32_t conv_delay, int32_t rate)
+{
+	int32 spacing_usecs;
+
+	if (rate>20480) rate=20480
+	spacing_usecs = 20480-rate;
+
+	if (spacing_usecs < 0) spacing_usecs = 0;
+	return spacing_usecs;
+}
+
 /* For a single channel scan we can do a quasi-DMA transfer that's much faster */
 static int32_t daqgert_ai_cmdtest(struct comedi_device *dev,
 	struct comedi_subdevice *s, struct comedi_cmd * cmd)
@@ -1304,7 +1315,7 @@ static int32_t daqgert_ai_cmdtest(struct comedi_device *dev,
 	/* step 4: fix up any arguments */
 	if (cmd->convert_src == TRIG_TIMER) {
 		arg = cmd->convert_arg;
-		i8253_cascade_ns_to_timer(devpriv->conv_delay_nsecs,
+		i8253_cascade_ns_to_timer(devpriv->conv_delay_10nsecs,
 			&divisor1,
 			&divisor2,
 			&arg, cmd->flags);
@@ -1526,7 +1537,8 @@ static int daqgert_attach(struct comedi_device *dev, struct comedi_devconfig * i
 	devpriv->ai_mix = false;
 	devpriv->ai_spi = &spi_adc;
 	devpriv->ao_spi = &spi_dac;
-	devpriv->conv_delay_nsecs = CONV_SPEED;
+	devpriv->conv_delay_10nsecs = CONV_SPEED;
+	devpriv->max_rate= 1e8/CONV_SPEED;
 
 	/* Use the kernel system_rev EXPORT_SYMBOL */
 	devpriv->RPisys_rev = system_rev; /* what board are we running on? */
