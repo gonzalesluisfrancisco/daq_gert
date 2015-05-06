@@ -32,11 +32,10 @@ Driver: "experimental" daq_gert in progress ... for 3.18+ kernels
  * 
  * cd to the linux kernel source directory: /usr/src/linux etc...
  * copy the daq_gert.diff patch file from the daq_gert directory to here
- * copy the .config from the daq_gert directory to here
+ * copy RPI2.config or RPi.confg the from the daq_gert directory to .config in the Linux source directory
  * 
  * patch the kernel source with the daq_gert.diff patch file
  * patch -p1 <daq_gert.diff
- * 
  * 
  *  make -j4 for a RPi 2
  *  make modules_install
