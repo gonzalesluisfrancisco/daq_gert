@@ -200,8 +200,9 @@ static void daqgert_handle_ai_hunk(struct comedi_device *,
 
 #define SPI_BUFF_SIZE 8192
 #define MAX_CHANLIST_LEN	256
-#define HUNK_LEN	1024
-#define CONV_SPEED	4883 /* two conversions per mix scan */
+#define HUNK_LEN	1000
+#define CONV_SPEED	5000 /* 10s of nsecs: the true rate is ~4883 so we need a fixup,  two conversions per mix scan */
+#define CONV_SPEED_FIX	1 /* usecs: round it up to ~50usecs total with this */
 
 static int32_t daqgert_conf = 0;
 module_param(daqgert_conf, int, S_IRUGO);
@@ -1068,7 +1069,7 @@ static void transfer_to_hunk_buf(struct comedi_device *dev,
 				delay_usecs = pdata->mix_delay_usecs;
 			} else {
 				chan = devpriv->chan;
-				delay_usecs = pdata->delay_usecs;
+				delay_usecs = 0;
 			}
 		}
 		ptr[bufptr] = 0b11010000 | ((chan & 0x01) << 5); /* set the channel and config data */
@@ -1241,20 +1242,20 @@ static int32_t daqgert_ai_poll(struct comedi_device *dev, struct comedi_subdevic
 	return num_bytes;
 }
 
-static uint32_t daqgert_ai_delay_rate(struct comedi_device *dev, int32_t rate)
+/* get close to a good sample spacing for one second, test_mode is to see what the max sample rate is */
+static uint32_t daqgert_ai_delay_rate(struct comedi_device *dev, int32_t rate, bool test_mode)
 {
 	struct daqgert_private *devpriv = dev->private;
 	int32_t spacing_usecs;
 
-	//	if (rate > devpriv->max_rate) rate = devpriv->max_rate;
+	if (test_mode) return 0;
 	spacing_usecs = rate - devpriv->max_rate;
-	spacing_usecs = spacing_usecs * 49;
-	spacing_usecs /= HUNK_LEN * 100;
-
-	/* set limits */
-	//	if (spacing_usecs > (devpriv->max_rate * 49)) spacing_usecs = devpriv->max_rate * 49;
+	spacing_usecs = spacing_usecs * 50;
+	spacing_usecs /= (HUNK_LEN * 25);
+	//	dev_info(dev->class_dev, "rate %i, max_rate %i, spacing usecs %i\n", rate, devpriv->max_rate, spacing_usecs);
 	if (spacing_usecs < 0) spacing_usecs = 0;
-	dev_info(dev->class_dev, "rate %i, max_rate %i, spacing usecs %i\n", rate, devpriv->max_rate, spacing_usecs);
+	spacing_usecs += CONV_SPEED_FIX;
+	dev_info(dev->class_dev, "rate %i, max_rate %i, spacing usecs %i Done\n", rate, devpriv->max_rate, spacing_usecs);
 	return spacing_usecs;
 }
 
@@ -1272,7 +1273,6 @@ static int32_t daqgert_ai_cmdtest(struct comedi_device *dev,
 	uint32_t flags, divisor1 = 0, divisor2 = 0;
 	uint32_t arg;
 
-	//	dev_info(dev->class_dev, "ai_cmdtest\n");
 	/* Step 1 : check if triggers are trivially valid */
 
 	err |= cfc_check_trigger_src(&cmd->start_src, TRIG_NOW);
@@ -1285,7 +1285,6 @@ static int32_t daqgert_ai_cmdtest(struct comedi_device *dev,
 	err |= cfc_check_trigger_src(&cmd->scan_end_src, TRIG_COUNT);
 	err |= cfc_check_trigger_src(&cmd->stop_src, TRIG_NONE);
 
-	//	dev_info(dev->class_dev, "ai_cmdtest 1\n");
 	if (err)
 		return 1;
 
@@ -1295,7 +1294,6 @@ static int32_t daqgert_ai_cmdtest(struct comedi_device *dev,
 
 	/* Step 2b : and mutually compatible */
 
-	//	dev_info(dev->class_dev, "ai_cmdtest 2\n");
 	if (err)
 		return 2;
 
@@ -1318,7 +1316,6 @@ static int32_t daqgert_ai_cmdtest(struct comedi_device *dev,
 	else /* TRIG_NONE */
 		err |= cfc_check_trigger_arg_is(&cmd->stop_arg, 0);
 
-	//	dev_info(dev->class_dev, "ai_cmdtest 3\n");
 	if (err)
 		return 3;
 
@@ -1329,12 +1326,11 @@ static int32_t daqgert_ai_cmdtest(struct comedi_device *dev,
 			&divisor1,
 			&divisor2,
 			&arg, cmd->flags);
-		pdata->delay_usecs = daqgert_ai_delay_rate(dev, arg);
-		pdata->mix_delay_usecs = pdata->delay_usecs;
+		pdata->delay_usecs = daqgert_ai_delay_rate(dev, arg, false);
+		pdata->mix_delay_usecs = pdata->delay_usecs < 2; /* double delay with zero for the first scan chan */
 		err |= cfc_check_trigger_arg_is(&cmd->convert_arg, arg);
 	}
 
-	//	dev_info(dev->class_dev, "ai_cmdtest 4\n");
 	if (err)
 		return 4;
 
@@ -1550,7 +1546,7 @@ static int daqgert_attach(struct comedi_device *dev, struct comedi_devconfig * i
 	devpriv->ai_spi = &spi_adc;
 	devpriv->ao_spi = &spi_dac;
 	devpriv->conv_delay_10nsecs = CONV_SPEED;
-	devpriv->max_rate = 20480;
+	devpriv->max_rate = 20000; /* samples per second */
 
 	/* Use the kernel system_rev EXPORT_SYMBOL */
 	devpriv->RPisys_rev = system_rev; /* what board are we running on? */
