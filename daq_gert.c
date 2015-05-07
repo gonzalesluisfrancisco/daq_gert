@@ -121,11 +121,16 @@ Digital direction configuration: [0..1] are input only due to pullups,
  * all other ports can be input or outputs
 
 Analog: The type and resolution of the onboard ADC/DAC chips are set
-by the module option variable daqgert_conf
+by the module option variable daqgert_conf in the /etc/modprobe.d directory
+ * options daq_gert daqgert_conf=1
+ * 
 0 = Factory Gertboard configuratin of MCP3002 ADC and MCP4802 ADC: 10bit in/8bit out
 1 = MCP3202 ADC and MCP4822 DAC: 12bit in/12bit out 
 2 = MCP3002 ADC and MCP4822 DAC: 10bit in/12bit out
 3 = MCP3202 ADC and MCP4802 DAC: 12bit in/8bit out
+ * 
+ * Module parameters are found in the /sys/modules/daq_gert/parameters directory
+ * 
 The input  range is 0 to 1023/4095 for 0.0 to 3.3(Vdd) onboard devices or 2.048 volts/Vdd for PIC slaves 
 The output range is 0 to 4095 for 0.0 to 2.048 onboard devices (output resolution depends on the device)
  * In the async command mode transfers can be handled in HUNK mode by creating a SPI message
@@ -205,6 +210,7 @@ static void daqgert_handle_ai_hunk(struct comedi_device *,
 #define CONV_SPEED_FIX	1 /* usecs: round it up to ~50usecs total with this */
 #define CONV_SPEED_FIX_FAST 16 /* used for the MCP3002 ADC */
 
+/* found at /sys/modules/daq_gert/parameters */
 static int32_t daqgert_conf = 0;
 module_param(daqgert_conf, int, S_IRUGO);
 static int32_t pullups = 2;
