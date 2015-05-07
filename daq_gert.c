@@ -203,6 +203,7 @@ static void daqgert_handle_ai_hunk(struct comedi_device *,
 #define HUNK_LEN	1000
 #define CONV_SPEED	5000 /* 10s of nsecs: the true rate is ~4883 so we need a fixup,  two conversions per mix scan */
 #define CONV_SPEED_FIX	1 /* usecs: round it up to ~50usecs total with this */
+#define CONV_SPEED_FIX_FAST 16 /* used for the MCP3002 ADC */
 
 static int32_t daqgert_conf = 0;
 module_param(daqgert_conf, int, S_IRUGO);
@@ -1243,7 +1244,7 @@ static int32_t daqgert_ai_poll(struct comedi_device *dev, struct comedi_subdevic
 }
 
 /* get close to a good sample spacing for one second, test_mode is to see what the max sample rate is */
-static uint32_t daqgert_ai_delay_rate(struct comedi_device *dev, int32_t rate, bool test_mode)
+static uint32_t daqgert_ai_delay_rate(struct comedi_device *dev, int32_t rate, int32_t device_type, bool test_mode)
 {
 	struct daqgert_private *devpriv = dev->private;
 	int32_t spacing_usecs;
@@ -1255,6 +1256,7 @@ static uint32_t daqgert_ai_delay_rate(struct comedi_device *dev, int32_t rate, b
 	//	dev_info(dev->class_dev, "rate %i, max_rate %i, spacing usecs %i\n", rate, devpriv->max_rate, spacing_usecs);
 	if (spacing_usecs < 0) spacing_usecs = 0;
 	spacing_usecs += CONV_SPEED_FIX;
+	if (device_type == MCP3002) spacing_usecs += CONV_SPEED_FIX_FAST;
 	dev_info(dev->class_dev, "rate %i, max_rate %i, spacing usecs %i Done\n", rate, devpriv->max_rate, spacing_usecs);
 	return spacing_usecs;
 }
@@ -1326,7 +1328,7 @@ static int32_t daqgert_ai_cmdtest(struct comedi_device *dev,
 			&divisor1,
 			&divisor2,
 			&arg, cmd->flags);
-		pdata->delay_usecs = daqgert_ai_delay_rate(dev, arg, false);
+		pdata->delay_usecs = daqgert_ai_delay_rate(dev, arg, spi_data->device_type, false);
 		pdata->mix_delay_usecs = pdata->delay_usecs < 2; /* double delay with zero for the first scan chan */
 		err |= cfc_check_trigger_arg_is(&cmd->convert_arg, arg);
 	}
@@ -1645,9 +1647,9 @@ static int daqgert_attach(struct comedi_device *dev, struct comedi_devconfig * i
 	}
 	/* setup kthread */
 	if (devpriv->hunk) {
-		devpriv->ai_spi->daqgert_task = kthread_run(&daqgert_ai_thread_function, (void *) dev, "daq_gert_ai_hunk");
+		devpriv->ai_spi->daqgert_task = kthread_run(&daqgert_ai_thread_function, (void *) dev, "daqgert_hunk");
 	} else {
-		devpriv->ai_spi->daqgert_task = kthread_run(&daqgert_ai_thread_function, (void *) dev, "daq_gert_ai");
+		devpriv->ai_spi->daqgert_task = kthread_run(&daqgert_ai_thread_function, (void *) dev, "daqgert");
 	}
 	dev_info(dev->class_dev, "Daq_gert SPI ADC i/o thread started\n");
 
