@@ -960,7 +960,7 @@ static bool daqgert_ai_next_chan(struct comedi_device *dev,
 			}
 		}
 	}
-	cfc_handle_events(dev, s);
+	comedi_handle_events(dev, s);
 	return true;
 }
 
@@ -971,7 +971,7 @@ static void daqgert_handle_ai_eoc(struct comedi_device *dev,
 	uint32_t next_chan, val;
 
 	val = daqgert_ai_get_sample(dev, s);
-	comedi_buf_put(s, val);
+	comedi_buf_write_samples(s, &val,1);
 
 	next_chan = s->async->cur_chan + 1;
 	if (next_chan >= cmd->chanlist_len)
@@ -1028,19 +1028,19 @@ static void transfer_from_hunk_buf(struct comedi_device *dev,
 		if (mix_mode) {
 			if (i & 0x01) { /* use a even/odd mix of adc devices */
 				s->async->cur_chan = 1;
-				comedi_buf_put(s, val);
+				comedi_buf_write_samples(s, &val,1);
 				s->async->cur_chan = 0;
 				s->async->events |= COMEDI_CB_EOS;
 			} else {
 				s->async->cur_chan = 0;
-				comedi_buf_put(s, val);
+				comedi_buf_write_samples(s, &val,1);
 			}
 		} else {
 			s->async->cur_chan = 0;
-			comedi_buf_put(s, val);
+			comedi_buf_write_samples(s, &val,1);
 			s->async->events |= COMEDI_CB_EOS;
 		}
-		cfc_handle_events(dev, s);
+		comedi_handle_events(dev, s);
 	}
 
 }
@@ -1135,7 +1135,7 @@ static void daqgert_ai_setup_hunk(struct comedi_device *dev,
 		devpriv->runs_to_end = 1;
 	} else {
 		/* how many samples we must transfer? */
-		bytes = cmd->stop_arg * cfc_bytes_per_scan(s);
+		bytes = cmd->stop_arg * comedi_bytes_per_scan(s);
 		devpriv->runs_to_end = 0;
 	}
 	devpriv->next_hunk_buf = 0;
