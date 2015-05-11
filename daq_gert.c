@@ -21,7 +21,7 @@
  */
 
 /*
-Driver: "experimental" daq_gert in progress ... for 3.18+ kernels
+Driver: "experimental" daq_gert in progress ... for 4.+ kernels
  * 
  * git clone https://github.com/nsaspook/daq_gert.git
  * 
@@ -938,7 +938,6 @@ static bool daqgert_ai_next_chan(struct comedi_device *dev,
 	struct comedi_cmd *cmd = &s->async->cmd;
 
 	//    dev_info(dev->class_dev, "ai_next_chan\n");
-//	s->async->events |= COMEDI_CB_BLOCK;
 
 	s->async->cur_chan++;
 	if (s->async->cur_chan >= cmd->chanlist_len) {
@@ -1024,7 +1023,6 @@ static void transfer_from_hunk_buf(struct comedi_device *dev,
 		}
 		bufptr += offset;
 
-//		s->async->events |= COMEDI_CB_BLOCK;
 		if (mix_mode) {
 			if (i & 0x01) { /* use a even/odd mix of adc devices */
 				s->async->cur_chan = 1;
