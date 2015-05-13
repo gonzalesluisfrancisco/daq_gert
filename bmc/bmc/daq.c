@@ -85,6 +85,45 @@ int init_daq(double min_range, double max_range, int range_update) {
     return 0;
 }
 
+
+int init_dac(double min_range, double max_range, int range_update) {
+    int i = 0;
+
+    if (!DEV_OPEN) {
+        it = comedi_open("/dev/comedi0");
+        if (it == NULL) {
+            comedi_perror("comedi_open");
+            ADC_OPEN = FALSE;
+            DEV_OPEN = FALSE;
+            return -1;
+        }
+        DEV_OPEN = TRUE;
+    }
+
+    subdev_ao = comedi_find_subdevice_by_type(it, COMEDI_SUBD_AO, subdev_ao);
+    if (subdev_ao < 0) {
+        HAS_AO = FALSE;
+    } else {
+        HAS_AO = TRUE;
+    }
+
+    if (HAS_AO) {
+        printf("Subdev AO  %i ", subdev_ao);
+        channels_ao = comedi_get_n_channels(it, subdev_ao);
+        printf("Analog  Channels %i ", channels_ao);
+        maxdata_ao = comedi_get_maxdata(it, subdev_ao, i);
+        printf("Maxdata %i ", maxdata_ao);
+        ranges_ao = comedi_get_n_ranges(it, subdev_ao, i);
+        printf("Ranges %i ", ranges_ao);
+        da_range = comedi_get_range(it, subdev_ao, i, ranges_ao - 1);
+        printf(": da_range .min = %.3f, max = %.3f\n", da_range->min,
+                da_range->max);
+    }
+
+    comedi_set_global_oor_behavior(COMEDI_OOR_NUMBER);
+    return 0;
+}
+
 int adc_range(double min_range, double max_range) {
     if (ADC_OPEN) {
         ad_range->min = min_range;
