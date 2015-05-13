@@ -205,7 +205,7 @@ static void daqgert_handle_ai_hunk(struct comedi_device *,
 
 #define SPI_BUFF_SIZE 8192
 #define MAX_CHANLIST_LEN	256
-#define HUNK_LEN	1000
+#define HUNK_LEN	2048
 #define CONV_SPEED	5000 /* 10s of nsecs: the true rate is ~4883 so we need a fixup,  two conversions per mix scan */
 #define CONV_SPEED_FIX	1 /* usecs: round it up to ~50usecs total with this */
 #define CONV_SPEED_FIX_FAST 16 /* used for the MCP3002 ADC */
