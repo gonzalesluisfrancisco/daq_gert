@@ -203,7 +203,7 @@ static void daqgert_handle_ai_hunk(struct comedi_device *,
 #define NUM_AI_CHAN 2
 #define NUM_AO_CHAN 2
 
-#define SPI_BUFF_SIZE 8192
+#define SPI_BUFF_SIZE 3072
 #define MAX_CHANLIST_LEN	256
 #define HUNK_LEN	2048
 #define CONV_SPEED	5000 /* 10s of nsecs: the true rate is ~4883 so we need a fixup,  two conversions per mix scan */

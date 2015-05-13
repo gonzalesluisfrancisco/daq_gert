@@ -25,6 +25,7 @@ extern "C" {
 
 #define LPCHANC        16
 
+#include <stdint.h>
 #include <comedilib.h>
 #include "bmc.h"
 
@@ -49,6 +50,7 @@ extern "C" {
     extern struct dodata dataout;
 
     int init_daq(double, double, int);
+    int init_dac(double, double, int);
     int init_dio(void);
     int adc_range(double, double);
     int dac_range(double, double);
