@@ -225,6 +225,8 @@ static int32_t hunk_count = 0;
 module_param(hunk_count, int, S_IRUGO);
 static int32_t hunk_len = HUNK_LEN;
 module_param(hunk_len, int, S_IRUGO);
+static int32_t gert_autoload = 0;
+module_param(gert_autoload, int, S_IRUGO);
 
 struct daqgert_board {
 	const char *name;
@@ -877,7 +879,6 @@ static unsigned int daqgert_ai_get_sample(struct comedi_device *dev,
 	struct spi_message m;
 
 	mutex_lock(&devpriv->drvdata_lock);
-	spi_bus_lock(spi_data->spi->master);
 	chan = CR_CHAN(devpriv->chan);
 	/* Make SPI messages for the type of ADC are we talking to */
 	/* The PIC Slave needs 8 bit transfers only */
@@ -914,7 +915,9 @@ static unsigned int daqgert_ai_get_sample(struct comedi_device *dev,
 			pdata->t[0].rx_buf = pdata->rx_buff;
 			spi_message_init_with_transfers(&m, &pdata->t[0], 1); // make the proper message with the transfer
 		}
+		spi_bus_lock(spi_data->spi->master);
 		spi_sync_locked(spi_data->spi, &m); // exchange SPI data
+		spi_bus_unlock(spi_data->spi->master);
 		/* ADC type code result munging */
 		if (devpriv->ai_hunk) { /* for single channel command scans */
 			val = 0; /* data in the buffers will be sent to comedi buffers later */
@@ -928,7 +931,6 @@ static unsigned int daqgert_ai_get_sample(struct comedi_device *dev,
 			}
 		}
 	}
-	spi_bus_unlock(spi_data->spi->master);
 	mutex_unlock(&devpriv->drvdata_lock);
 	return val & s->maxdata;
 }
@@ -1502,7 +1504,6 @@ static int daqgert_ao_winsn(struct comedi_device *dev,
 	unsigned int n, junk, val = s->readback[chan];
 
 	mutex_lock(&devpriv->cmd_lock);
-	spi_bus_lock(spi_data->spi->master);
 	for (n = 0; n < insn->n; n++) {
 		val = data[n];
 		junk = val & 0xfff; /* strip to 12 bits */
@@ -1511,7 +1512,6 @@ static int daqgert_ao_winsn(struct comedi_device *dev,
 		spi_write_then_read(spi_data->spi, pdata->tx_buff, 2, pdata->rx_buff, 2); /* Load DAC channel, send two bytes */
 	}
 	s->readback[chan] = val;
-	spi_bus_unlock(spi_data->spi->master);
 	mutex_unlock(&devpriv->cmd_lock);
 	return insn->n;
 }
@@ -1592,11 +1592,10 @@ static int daqgert_auto_attach(struct comedi_device *dev, unsigned long context)
 	if (daqgert_spi_probe(dev)) num_subdev += 2;
 	// add AI and AO channels */
 	dev_info(dev->class_dev, "GertBoard Detection Completed\n");
-	dev->board_name = thisboard->name;
 	ret = comedi_alloc_subdevices(dev, num_subdev);
 	if (ret)
 		return ret;
-
+	dev_info(dev->class_dev, "%i subdevices\n", num_subdev);
 	/* daq_gert dio */
 	s = &dev->subdevices[0];
 	s->type = COMEDI_SUBD_DIO;
@@ -1689,7 +1688,7 @@ static void daqgert_detach(struct comedi_device * dev)
 
 static const struct daqgert_board daqgert_boards[] = {
 	{
-		.name = "daq-gert",
+		.name = "gertboard",
 		.board_type = 0,
 		.n_aochan = 2,
 		.ai_ns_min = 10000,
@@ -1846,11 +1845,9 @@ static int daqgert_spi_probe(struct comedi_device * dev)
 		spi_dac.device_type = MCP4802;
 	}
 	/* SPI data transfers, send a few dummys for config info */
-	spi_bus_lock(spi_adc.spi->master);
 	spi_w8r8(spi_adc.spi, CMD_DUMMY_CFG);
 	spi_w8r8(spi_adc.spi, CMD_DUMMY_CFG);
 	ret = spi_w8r8(spi_adc.spi, CMD_DUMMY_CFG);
-	spi_bus_unlock(spi_adc.spi->master);
 	dev_info(dev->class_dev,
 		"Gertboard ADC Board pre Detect Code %i, daqgert_conf option value %i\n",
 		ret, daqgert_conf);
@@ -1906,7 +1903,7 @@ static int __init daqgert_init(void)
 	ret = comedi_driver_register(&daqgert_driver);
 	if (ret < 0)
 		return ret;
-
+	if (gert_autoload) return comedi_auto_config(&spi_adc.spi->master->dev, &daqgert_driver, 0);
 	return 0;
 }
 module_init(daqgert_init);
