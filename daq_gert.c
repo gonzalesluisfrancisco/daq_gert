@@ -225,7 +225,7 @@ static int32_t hunk_count = 0;
 module_param(hunk_count, int, S_IRUGO);
 static int32_t hunk_len = HUNK_LEN;
 module_param(hunk_len, int, S_IRUGO);
-static int32_t gert_autoload = 0;
+static int32_t gert_autoload = 1;
 module_param(gert_autoload, int, S_IRUGO);
 static int32_t gert_type = 0;
 module_param(gert_type, int, S_IRUGO);
@@ -242,13 +242,13 @@ static const struct daqgert_board daqgert_boards[] = {
 		.name = "gertboard",
 		.board_type = 0,
 		.n_aochan = 2,
-		.ai_ns_min = 10000,
+		.ai_ns_min = 50000,
 	},
 	{
 		.name = "daq_gert",
 		.board_type = 0,
 		.n_aochan = 2,
-		.ai_ns_min = 10000,
+		.ai_ns_min = 50000,
 	},
 };
 
