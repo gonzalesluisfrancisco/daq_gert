@@ -43,7 +43,7 @@ Driver: "experimental" daq_gert in progress ... for 4.+ kernels
  *  and to make the needed daq_gert module
  *  then copy the Image file to the /boot directory with a new kernel image name
  *  and modify the boot file to use that image
- *  after the reboot: modprobe daq_gert if needed then setup the comedi device: comedi_config /dev/comedi0 daq_gert
+ *  after the reboot: daq_gert should auto-load to device /dev/comedi0
  *  dmesg should the the kernel module messages
  *  run the test program: bmc_test_program to see if it's working
  * 
@@ -227,6 +227,8 @@ static int32_t hunk_len = HUNK_LEN;
 module_param(hunk_len, int, S_IRUGO);
 static int32_t gert_autoload = 0;
 module_param(gert_autoload, int, S_IRUGO);
+static int32_t gert_type = 0;
+module_param(gert_type, int, S_IRUGO);
 
 struct daqgert_board {
 	const char *name;
@@ -1549,7 +1551,7 @@ static int daqgert_ao_config(struct comedi_device *dev,
 
 static int daqgert_auto_attach(struct comedi_device *dev, unsigned long context)
 {
-	const struct daqgert_board *thisboard = &daqgert_boards[0];
+	const struct daqgert_board *thisboard = &daqgert_boards[gert_type];
 	struct comedi_subdevice *s;
 	int ret, num_subdev = 1, i, d;
 	int num_ai_chan, num_ao_chan, num_dio_chan = NUM_DIO_CHAN;
