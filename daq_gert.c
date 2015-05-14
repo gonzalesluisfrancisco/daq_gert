@@ -235,6 +235,21 @@ struct daqgert_board {
 	uint32_t ai_ns_min;
 };
 
+static const struct daqgert_board daqgert_boards[] = {
+	{
+		.name = "gertboard",
+		.board_type = 0,
+		.n_aochan = 2,
+		.ai_ns_min = 10000,
+	},
+	{
+		.name = "daq_gert",
+		.board_type = 0,
+		.n_aochan = 2,
+		.ai_ns_min = 10000,
+	},
+};
+
 struct comedi_control {
 	uint8_t *tx_buff;
 	uint8_t *rx_buff;
@@ -1534,7 +1549,7 @@ static int daqgert_ao_config(struct comedi_device *dev,
 
 static int daqgert_auto_attach(struct comedi_device *dev, unsigned long context)
 {
-	const struct daqgert_board *thisboard = dev->board_ptr;
+	const struct daqgert_board *thisboard = &daqgert_boards[0];
 	struct comedi_subdevice *s;
 	int ret, num_subdev = 1, i, d;
 	int num_ai_chan, num_ao_chan, num_dio_chan = NUM_DIO_CHAN;
@@ -1557,6 +1572,9 @@ static int daqgert_auto_attach(struct comedi_device *dev, unsigned long context)
 	devpriv->ao_spi = &spi_dac;
 	devpriv->conv_delay_10nsecs = CONV_SPEED;
 	devpriv->max_rate = 20000; /* samples per second */
+
+	dev->board_ptr = thisboard;
+	dev->board_name = thisboard->name;
 
 	/* Use the kernel system_rev EXPORT_SYMBOL */
 	devpriv->RPisys_rev = system_rev; /* what board are we running on? */
@@ -1685,21 +1703,6 @@ static void daqgert_detach(struct comedi_device * dev)
 	iounmap(gpio);
 	dev_info(dev->class_dev, "Daq_gert detached\n");
 }
-
-static const struct daqgert_board daqgert_boards[] = {
-	{
-		.name = "gertboard",
-		.board_type = 0,
-		.n_aochan = 2,
-		.ai_ns_min = 10000,
-	},
-	{
-		.name = "daq_gert",
-		.board_type = 0,
-		.n_aochan = 2,
-		.ai_ns_min = 10000,
-	},
-};
 
 static struct comedi_driver daqgert_driver = {
 	.driver_name = "daq_gert",
