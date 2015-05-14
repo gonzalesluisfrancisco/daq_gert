@@ -877,6 +877,7 @@ static unsigned int daqgert_ai_get_sample(struct comedi_device *dev,
 	struct spi_message m;
 
 	mutex_lock(&devpriv->drvdata_lock);
+	spi_bus_lock(spi_data->spi->master);
 	chan = CR_CHAN(devpriv->chan);
 	/* Make SPI messages for the type of ADC are we talking to */
 	/* The PIC Slave needs 8 bit transfers only */
@@ -913,7 +914,7 @@ static unsigned int daqgert_ai_get_sample(struct comedi_device *dev,
 			pdata->t[0].rx_buf = pdata->rx_buff;
 			spi_message_init_with_transfers(&m, &pdata->t[0], 1); // make the proper message with the transfer
 		}
-		spi_sync(spi_data->spi, &m); // exchange SPI data
+		spi_sync_locked(spi_data->spi, &m); // exchange SPI data
 		/* ADC type code result munging */
 		if (devpriv->ai_hunk) { /* for single channel command scans */
 			val = 0; /* data in the buffers will be sent to comedi buffers later */
@@ -927,6 +928,7 @@ static unsigned int daqgert_ai_get_sample(struct comedi_device *dev,
 			}
 		}
 	}
+	spi_bus_unlock(spi_data->spi->master);
 	mutex_unlock(&devpriv->drvdata_lock);
 	return val & s->maxdata;
 }
@@ -970,7 +972,7 @@ static void daqgert_handle_ai_eoc(struct comedi_device *dev,
 	uint32_t next_chan, val;
 
 	val = daqgert_ai_get_sample(dev, s);
-	comedi_buf_write_samples(s, &val,1);
+	comedi_buf_write_samples(s, &val, 1);
 
 	next_chan = s->async->cur_chan + 1;
 	if (next_chan >= cmd->chanlist_len)
@@ -1026,16 +1028,16 @@ static void transfer_from_hunk_buf(struct comedi_device *dev,
 		if (mix_mode) {
 			if (i & 0x01) { /* use a even/odd mix of adc devices */
 				s->async->cur_chan = 1;
-				comedi_buf_write_samples(s, &val,1);
+				comedi_buf_write_samples(s, &val, 1);
 				s->async->cur_chan = 0;
 				s->async->events |= COMEDI_CB_EOS;
 			} else {
 				s->async->cur_chan = 0;
-				comedi_buf_write_samples(s, &val,1);
+				comedi_buf_write_samples(s, &val, 1);
 			}
 		} else {
 			s->async->cur_chan = 0;
-			comedi_buf_write_samples(s, &val,1);
+			comedi_buf_write_samples(s, &val, 1);
 			s->async->events |= COMEDI_CB_EOS;
 		}
 		comedi_handle_events(dev, s);
@@ -1500,6 +1502,7 @@ static int daqgert_ao_winsn(struct comedi_device *dev,
 	unsigned int n, junk, val = s->readback[chan];
 
 	mutex_lock(&devpriv->cmd_lock);
+	spi_bus_lock(spi_data->spi->master);
 	for (n = 0; n < insn->n; n++) {
 		val = data[n];
 		junk = val & 0xfff; /* strip to 12 bits */
@@ -1508,6 +1511,7 @@ static int daqgert_ao_winsn(struct comedi_device *dev,
 		spi_write_then_read(spi_data->spi, pdata->tx_buff, 2, pdata->rx_buff, 2); /* Load DAC channel, send two bytes */
 	}
 	s->readback[chan] = val;
+	spi_bus_unlock(spi_data->spi->master);
 	mutex_unlock(&devpriv->cmd_lock);
 	return insn->n;
 }
@@ -1528,7 +1532,7 @@ static int daqgert_ao_config(struct comedi_device *dev,
 	return spi_data->chan;
 }
 
-static int daqgert_attach(struct comedi_device *dev, struct comedi_devconfig * it)
+static int daqgert_auto_attach(struct comedi_device *dev, unsigned long context)
 {
 	const struct daqgert_board *thisboard = dev->board_ptr;
 	struct comedi_subdevice *s;
@@ -1701,7 +1705,7 @@ static const struct daqgert_board daqgert_boards[] = {
 static struct comedi_driver daqgert_driver = {
 	.driver_name = "daq_gert",
 	.module = THIS_MODULE,
-	.attach = daqgert_attach,
+	.auto_attach = daqgert_auto_attach,
 	.detach = daqgert_detach,
 	.board_name = &daqgert_boards[0].name,
 	.num_names = ARRAY_SIZE(daqgert_boards),
@@ -1759,7 +1763,7 @@ static int spidev_spi_probe(struct spi_device * spi)
 	/* Check for basic errors */
 	ret = spi_w8r8(spi, 0); /* check for spi comm error */
 	if (ret < 0) {
-		dev_err(&spi->dev, "SPI not working\n");
+		dev_err(&spi->dev, "SPI comm error\n");
 		ret = -EIO;
 		goto kfree_rx_exit;
 	}
@@ -1842,9 +1846,11 @@ static int daqgert_spi_probe(struct comedi_device * dev)
 		spi_dac.device_type = MCP4802;
 	}
 	/* SPI data transfers, send a few dummys for config info */
+	spi_bus_lock(spi_adc.spi->master);
+	spi_w8r8(spi_adc.spi, CMD_DUMMY_CFG);
+	spi_w8r8(spi_adc.spi, CMD_DUMMY_CFG);
 	ret = spi_w8r8(spi_adc.spi, CMD_DUMMY_CFG);
-	ret = spi_w8r8(spi_adc.spi, CMD_DUMMY_CFG);
-	ret = spi_w8r8(spi_adc.spi, CMD_DUMMY_CFG);
+	spi_bus_unlock(spi_adc.spi->master);
 	dev_info(dev->class_dev,
 		"Gertboard ADC Board pre Detect Code %i, daqgert_conf option value %i\n",
 		ret, daqgert_conf);
@@ -1915,6 +1921,6 @@ module_exit(daqgert_exit);
 MODULE_AUTHOR("Fred Brooks <spam@sma2.rain.com>");
 MODULE_DESCRIPTION(
 	"Comedi driver for RASPI GERTBOARD DIO/AI/AO");
-MODULE_VERSION("0.0.20");
+MODULE_VERSION("0.0.21");
 MODULE_LICENSE("GPL");
 MODULE_ALIAS("spi:spigert");
