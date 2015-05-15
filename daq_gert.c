@@ -242,14 +242,14 @@ static const struct daqgert_board daqgert_boards[] = {
 		.board_type = 0,
 		.n_aichan = 2,
 		.n_aochan = 2,
-		.ai_ns_min = 25000,
+		.ai_ns_min = 50000,
 	},
 	{
 		.name = "Fredboard",
 		.board_type = 1,
 		.n_aichan = 8,
 		.n_aochan = 8,
-		.ai_ns_min = 25000,
+		.ai_ns_min = 50000,
 	},
 };
 
@@ -1279,7 +1279,7 @@ static uint32_t daqgert_ai_delay_rate(struct comedi_device *dev, int32_t rate, i
 	spacing_usecs = rate - devpriv->max_rate;
 	spacing_usecs = spacing_usecs * 50;
 	spacing_usecs /= (HUNK_LEN * 25);
-	if (spacing_usecs < 0) spacing_usecs = 0;
+	if (spacing_usecs < 30) spacing_usecs = 0;
 	spacing_usecs += CONV_SPEED_FIX;
 	if (device_type == MCP3002) spacing_usecs += CONV_SPEED_FIX_FAST;
 	dev_info(dev->class_dev, "rate %i, max_rate %i, spacing usecs %i\n", rate, devpriv->max_rate, spacing_usecs);
@@ -1632,7 +1632,7 @@ static int daqgert_auto_attach(struct comedi_device *dev, unsigned long context)
 
 	if (num_subdev > 1) { /* we have the SPI ADC DAC on board */
 		/* daq_gert ai */
-		if (devpriv->hunk) dev_info(dev->class_dev, "Hunk AI transfers enabled, length: %i\n", HUNK_LEN);
+		if (devpriv->hunk) dev_info(dev->class_dev, "hunk ai transfers enabled, length: %i\n", HUNK_LEN);
 		s = &dev->subdevices[1];
 		s->private = devpriv->ai_spi; /* SPI adc comedi state */
 		num_ai_chan = daqgert_ai_config(dev, s); /* config SPI ports for ai use */
