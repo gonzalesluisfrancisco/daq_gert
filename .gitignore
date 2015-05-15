@@ -32,3 +32,5 @@
 modules.builtin
 Module.symvers
 *.dwo
+!.gitignore
+!.mailmap
