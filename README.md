@@ -32,8 +32,7 @@ I unhook spidev and point it to my module.
  * 
  *  make -j4 for a RPi 2
  *  make modules_install
- *  to recompile the Linux kernel with the SPI inline instead of a module
- *  and to make the needed daq_gert module
+ *  to recompile the Linux kernel to make the needed daq_gert module
  *  then copy the Image file to the /boot directory with a new kernel image name
  *  and modify the boot file to use that image
  *  after the reboot: daq_gert should auto-load to device /dev/comedi0
