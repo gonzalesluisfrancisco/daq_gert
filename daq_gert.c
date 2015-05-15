@@ -1580,10 +1580,11 @@ static int daqgert_auto_attach(struct comedi_device *dev, unsigned long context)
 	devpriv->ai_spi = &spi_adc;
 	devpriv->ao_spi = &spi_dac;
 	devpriv->conv_delay_10nsecs = CONV_SPEED;
-	devpriv->max_rate = 20000; /* samples per second */
 
 	dev->board_ptr = thisboard;
 	dev->board_name = thisboard->name;
+
+	devpriv->max_rate = 1000000000 / thisboard->ai_ns_min; /* samples per second */
 
 	/* Use the kernel system_rev EXPORT_SYMBOL */
 	devpriv->RPisys_rev = system_rev; /* what board are we running on? */
@@ -1823,7 +1824,7 @@ static struct spi_driver spidev_spi_driver = {
 };
 
 /*
- * setup and probe the spi bus for devices, save the data to the global variable
+ * setup and probe the spi bus for devices, save the data to the global spi variables
  */
 static int daqgert_spi_probe(struct comedi_device * dev)
 {
