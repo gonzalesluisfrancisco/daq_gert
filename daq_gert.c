@@ -227,6 +227,8 @@ static int32_t gert_autoload = 1;
 module_param(gert_autoload, int, S_IRUGO);
 static int32_t gert_type = 0;
 module_param(gert_type, int, S_IRUGO);
+static int32_t speed_test = 0;
+module_param(speed_test, int, S_IRUGO);
 
 struct daqgert_board {
 	const char *name;
@@ -1273,9 +1275,12 @@ static int32_t daqgert_ai_poll(struct comedi_device *dev, struct comedi_subdevic
 static uint32_t daqgert_ai_delay_rate(struct comedi_device *dev, int32_t rate, int32_t device_type, bool test_mode)
 {
 	struct daqgert_private *devpriv = dev->private;
-	int32_t spacing_usecs;
+	int32_t spacing_usecs = 0;
 
-	if (test_mode) return 0;
+	if (test_mode) {
+		dev_info(dev->class_dev, "speed testing: rate %i, max_rate %i, spacing usecs %i\n", rate, devpriv->max_rate, spacing_usecs);
+		return spacing_usecs;
+	}
 	spacing_usecs = rate - devpriv->max_rate;
 	spacing_usecs = spacing_usecs * 50;
 	spacing_usecs /= (HUNK_LEN * 25);
@@ -1353,7 +1358,7 @@ static int32_t daqgert_ai_cmdtest(struct comedi_device *dev,
 			&divisor1,
 			&divisor2,
 			&arg, cmd->flags);
-		pdata->delay_usecs = daqgert_ai_delay_rate(dev, arg, spi_data->device_type, false);
+		pdata->delay_usecs = daqgert_ai_delay_rate(dev, arg, spi_data->device_type, speed_test);
 		pdata->mix_delay_usecs = pdata->delay_usecs < 2; /* double delay with zero for the first scan chan */
 		err |= cfc_check_trigger_arg_is(&cmd->convert_arg, arg);
 	}
@@ -1369,13 +1374,18 @@ static void my_timer_ai_callback(unsigned long data)
 {
 	struct comedi_device *dev = (void*) data;
 	struct daqgert_private *devpriv = dev->private;
+	static uint32_t time_marks = 0;
 
 	if (!devpriv->run) {
 		devpriv->run = true;
 		devpriv->timer = true;
 	}
 	daqgert_ai_start_pacer(dev, true);
-
+	if (speed_test) {
+		if (!(time_marks++ % 1000))
+			dev_info(dev->class_dev, "speed testing %i: count %i, hunk %i, length %i\n",
+			time_marks, count, hunk_count, hunk_len);
+	}
 }
 
 static void daqgert_ai_clear_eoc(struct comedi_device * dev)
@@ -1513,14 +1523,12 @@ static int daqgert_ao_winsn(struct comedi_device *dev,
 	struct comedi_subdevice *s,
 	struct comedi_insn *insn, unsigned int *data)
 {
-	struct daqgert_private *devpriv = dev->private;
 	struct spi_param_type *spi_data = s->private;
 	struct spi_device *spi = spi_data->spi;
 	struct comedi_control *pdata = spi->dev.platform_data;
 	unsigned int chan = CR_CHAN(insn->chanspec);
 	unsigned int n, junk, val = s->readback[chan];
 
-	mutex_lock(&devpriv->cmd_lock);
 	for (n = 0; n < insn->n; n++) {
 		val = data[n];
 		junk = val & 0xfff; /* strip to 12 bits */
@@ -1529,7 +1537,6 @@ static int daqgert_ao_winsn(struct comedi_device *dev,
 		spi_write_then_read(spi_data->spi, pdata->tx_buff, 2, pdata->rx_buff, 2); /* Load DAC channel, send two bytes */
 	}
 	s->readback[chan] = val;
-	mutex_unlock(&devpriv->cmd_lock);
 	return insn->n;
 }
 
@@ -1750,7 +1757,7 @@ static int spidev_spi_probe(struct spi_device * spi)
 	if (spi->chip_select == CSnB) {
 		/* get a copy of the slave device 1 to share with comedi */ /* we need a device to talk to the DAC */
 		spi_dac.spi = spi;
-		spi->max_speed_hz = 4000000;
+		spi->max_speed_hz = 8000000;
 	}
 	spi->bits_per_word = 8;
 	spi->mode = SPI_MODE_3; /* mode 3 for ADC & DAC*/

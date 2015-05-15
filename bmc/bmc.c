@@ -66,10 +66,9 @@ int main(int argc, char *argv[])
 			return -1;
 		}
 		while (TRUE) {
-			set_dac_volts(0, (double) sine_wave[i]*0.007);
-			usleep(1);
-			set_dac_volts(1, (double) sine_wave[255 - i++]*0.007);
-			usleep(1);
+			set_dac_volts(1, ((double) sine_wave[i])*0.007);
+			set_dac_volts(0, ((double) sine_wave[255 - i++])*0.007);
+			usleep(10);
 			//			printf("%d\n", i);
 		}
 	} else {
