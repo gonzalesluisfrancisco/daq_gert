@@ -38,7 +38,7 @@ I unhook spidev and point it to my module.
  *  and modify the boot file to use that image
  *  after the reboot: daq_gert should auto-load to device /dev/comedi0
  *  if the legacy option is set in /etc/modprobe.d/comedi.conf the new device will be created after those
- *  dmesg should the the kernel module messages
+ *  dmesg should see the kernel module messages from daq_gert
  *  run the test program: bmc_test_program to see if it's working
  * 
  * Module parameters are found in the /sys/modules/daq_gert/parameters directory
