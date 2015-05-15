@@ -200,8 +200,6 @@ static void daqgert_handle_ai_hunk(struct comedi_device *,
 #define MCP4822 0
 #define PICSL10 2
 #define PICSL12 0
-#define NUM_AI_CHAN 2
-#define NUM_AO_CHAN 2
 
 #define SPI_BUFF_SIZE 3072
 #define MAX_CHANLIST_LEN	256
@@ -233,22 +231,25 @@ module_param(gert_type, int, S_IRUGO);
 struct daqgert_board {
 	const char *name;
 	int32_t board_type;
+	int32_t n_aichan;
 	int32_t n_aochan;
 	uint32_t ai_ns_min;
 };
 
 static const struct daqgert_board daqgert_boards[] = {
 	{
-		.name = "gertboard",
+		.name = "Gertboard",
 		.board_type = 0,
+		.n_aichan = 2,
 		.n_aochan = 2,
-		.ai_ns_min = 50000,
+		.ai_ns_min = 25000,
 	},
 	{
-		.name = "daq_gert",
-		.board_type = 0,
-		.n_aochan = 2,
-		.ai_ns_min = 50000,
+		.name = "Fredboard",
+		.board_type = 1,
+		.n_aichan = 8,
+		.n_aochan = 8,
+		.ai_ns_min = 25000,
 	},
 };
 
@@ -733,11 +734,11 @@ static int piBoardRev(struct comedi_device *dev)
 	if (devpriv->RPisys_rev & 0x800000) {
 		nscheme = 1;
 		r = devpriv->RPisys_rev & 0xf;
-		dev_info(dev->class_dev, "RPi Board new scheme Rev %x, Serial %08x%08x, New Rev %x\n",
+		dev_info(dev->class_dev, "RPi new scheme rev %x, serial %08x%08x, new rev %x\n",
 			devpriv->RPisys_rev, system_serial_high, system_serial_low, r);
 	} else {
 		r = devpriv->RPisys_rev & 0xff;
-		dev_info(dev->class_dev, "RPi Board old scheme Rev %x, Serial %08x%08x\n",
+		dev_info(dev->class_dev, "RPi old scheme rev %x, serial %08x%08x\n",
 			devpriv->RPisys_rev, system_serial_high, system_serial_low);
 	}
 
@@ -764,7 +765,7 @@ static int piBoardRev(struct comedi_device *dev)
 		}
 	}
 
-	dev_info(dev->class_dev, "Comedi Gpio board rev %u\n",
+	dev_info(dev->class_dev, "driver gpio board rev %u\n",
 		boardRev);
 	dio_conf = boardRev;
 	return boardRev;
@@ -1222,7 +1223,7 @@ static int32_t daqgert_ai_cmd(struct comedi_device *dev, struct comedi_subdevice
 			devpriv->ai_hunk = true;
 			devpriv->ai_mix = true;
 			devpriv->mix_chan = CR_CHAN(cmd->chanlist[1]);
-			dev_info(dev->class_dev, "Hunk AI mix_mode transfers enabled\n");
+			dev_info(dev->class_dev, "hunk ai mix_mode transfers enabled\n");
 		}
 	} else {
 		devpriv->ai_hunk = false;
@@ -1278,11 +1279,10 @@ static uint32_t daqgert_ai_delay_rate(struct comedi_device *dev, int32_t rate, i
 	spacing_usecs = rate - devpriv->max_rate;
 	spacing_usecs = spacing_usecs * 50;
 	spacing_usecs /= (HUNK_LEN * 25);
-	//	dev_info(dev->class_dev, "rate %i, max_rate %i, spacing usecs %i\n", rate, devpriv->max_rate, spacing_usecs);
 	if (spacing_usecs < 0) spacing_usecs = 0;
 	spacing_usecs += CONV_SPEED_FIX;
 	if (device_type == MCP3002) spacing_usecs += CONV_SPEED_FIX_FAST;
-	dev_info(dev->class_dev, "rate %i, max_rate %i, spacing usecs %i Done\n", rate, devpriv->max_rate, spacing_usecs);
+	dev_info(dev->class_dev, "rate %i, max_rate %i, spacing usecs %i\n", rate, devpriv->max_rate, spacing_usecs);
 	return spacing_usecs;
 }
 
@@ -1474,7 +1474,7 @@ static int daqgert_dio_insn_config(struct comedi_device *dev,
 	default:
 		return -EINVAL;
 	}
-	dev_dbg(dev->class_dev, "%s: GPIO wpi-pins setting 0x%x\n",
+	dev_dbg(dev->class_dev, "%s: gpio wpi-pins setting 0x%x\n",
 		dev->board_name,
 		(unsigned int) s->io_bits);
 	return 1;
@@ -1581,37 +1581,37 @@ static int daqgert_auto_attach(struct comedi_device *dev, unsigned long context)
 	/* Use the kernel system_rev EXPORT_SYMBOL */
 	devpriv->RPisys_rev = system_rev; /* what board are we running on? */
 	if (devpriv->RPisys_rev < 2) {
-		dev_err(dev->class_dev, "Invalid RPi board revision! %u\n", devpriv->RPisys_rev);
+		dev_err(dev->class_dev, "invalid RPi board revision! %u\n", devpriv->RPisys_rev);
 		return -EINVAL;
 	}
 
 	gpio = ioremap(GPIO_BASE, SZ_16K); /* lets get access to the GPIO base */
 	if (!gpio) {
-		dev_err(dev->class_dev, "Invalid gpio io base address!\n");
+		dev_err(dev->class_dev, "invalid gpio io base address!\n");
 		return -EINVAL;
 	}
 	dev->iobase = GPIO_BASE; /* filler */
 
 	/* setup the pins in a static matter for now */
 	/* PIN mode for all */
-	dev_info(dev->class_dev, "GertBoard WiringPiSetup\n");
+	dev_info(dev->class_dev, "%s WiringPiSetup\n", thisboard->name);
 	wiringPiSetup(dev);
 	for (i = 0; i < NUM_DIO_OUTPUTS; i++) { /* [0..7] OUTPUTS */
 		pinModeWPi(i, OUTPUT);
 	}
-	dev_info(dev->class_dev, "GertBoard WPi pins set [0..7] to outputs\n");
+	dev_info(dev->class_dev, "%s WPi pins set [0..7] to outputs\n", thisboard->name);
 	num_dio_chan = NUM_DIO_CHAN; /* Rev 1 board setup first */
 	if (piBoardRev(dev) > 1) /* This a Rev 2 or higher board "I hope" */
 		num_dio_chan = NUM_DIO_CHAN_REV2;
 	if (piBoardRev(dev) > 2) /* This a Rev 3 or higher board "I hope" */
 		num_dio_chan = NUM_DIO_CHAN_REV3;
 
-	/* assume we have DON"T a GertBoard */
-	dev_info(dev->class_dev, "GertBoard Detection Started\n");
+	/* assume we have DON"T have a Board */
+	dev_info(dev->class_dev, "%s detection started\n", thisboard->name);
 	num_subdev = 1;
 	if (daqgert_spi_probe(dev)) num_subdev += 2;
 	// add AI and AO channels */
-	dev_info(dev->class_dev, "GertBoard Detection Completed\n");
+	dev_info(dev->class_dev, "%s detection completed\n", thisboard->name);
 	ret = comedi_alloc_subdevices(dev, num_subdev);
 	if (ret)
 		return ret;
@@ -1678,9 +1678,9 @@ static int daqgert_auto_attach(struct comedi_device *dev, unsigned long context)
 	} else {
 		devpriv->ai_spi->daqgert_task = kthread_run(&daqgert_ai_thread_function, (void *) dev, "daqgert");
 	}
-	dev_info(dev->class_dev, "Daq_gert SPI ADC i/o thread started\n");
+	dev_info(dev->class_dev, "daq_gert SPI ADC i/o thread started\n");
 
-	dev_info(dev->class_dev, "%s attached: GPIO iobase 0x%lx, ioremap 0x%lx, GPIO wpi-pins 0x%x\n",
+	dev_info(dev->class_dev, "%s attached: gpio iobase 0x%lx, ioremap 0x%lx, gpio wpi-pins 0x%x\n",
 		dev->driver->driver_name,
 		dev->iobase,
 		(long unsigned int) gpio,
@@ -1703,7 +1703,7 @@ static void daqgert_detach(struct comedi_device * dev)
 	}
 
 	iounmap(gpio);
-	dev_info(dev->class_dev, "Daq_gert detached\n");
+	dev_info(dev->class_dev, "daq_gert detached\n");
 }
 
 static struct comedi_driver daqgert_driver = {
@@ -1767,7 +1767,7 @@ static int spidev_spi_probe(struct spi_device * spi)
 	/* Check for basic errors */
 	ret = spi_w8r8(spi, 0); /* check for spi comm error */
 	if (ret < 0) {
-		dev_err(&spi->dev, "SPI comm error\n");
+		dev_err(&spi->dev, "spi comm error\n");
 		ret = -EIO;
 		goto kfree_rx_exit;
 	}
@@ -1821,16 +1821,17 @@ static struct spi_driver spidev_spi_driver = {
 static int daqgert_spi_probe(struct comedi_device * dev)
 {
 	int ret;
+	const struct daqgert_board *thisboard = dev->board_ptr;
 
-	dev_info(dev->class_dev, "SPI probe\n");
+	dev_info(dev->class_dev, "spi probe\n");
 	if (!spi_adc.spi) {
-		dev_info(dev->class_dev, "No SPI channel detected\n");
+		dev_info(dev->class_dev, "no spi channel detected\n");
 		spi_adc.chan = 0;
 		spi_dac.chan = 0;
 		return spi_adc.chan;
 	}
 
-	spi_dac.chan = NUM_AO_CHAN;
+	spi_dac.chan = thisboard->n_aochan;
 
 	switch (daqgert_conf) {
 	case 1:
@@ -1849,27 +1850,27 @@ static int daqgert_spi_probe(struct comedi_device * dev)
 		spi_adc.device_type = MCP3002;
 		spi_dac.device_type = MCP4802;
 	}
-	/* SPI data transfers, send a few dummys for config info */
+	/* SPI data transfers, send a few dummies for config info */
 	spi_w8r8(spi_adc.spi, CMD_DUMMY_CFG);
 	spi_w8r8(spi_adc.spi, CMD_DUMMY_CFG);
 	ret = spi_w8r8(spi_adc.spi, CMD_DUMMY_CFG);
 	dev_info(dev->class_dev,
-		"Gertboard ADC Board pre Detect Code %i, daqgert_conf option value %i\n",
-		ret, daqgert_conf);
+		"%s adc board pre detect code %i, daqgert_conf option value %i\n",
+		thisboard->name, ret, daqgert_conf);
 	if ((ret != 76) && (ret != 110)) { // PIC slave adc codes
 		ret = spi_w8r8(spi_adc.spi, 0b01100000); /* check for channel 0 SE */
 		if (1) { //FIXME need to add another probe test
 			spi_adc.pic18 = 0; /* MCP3X02 mode */
-			spi_adc.chan = NUM_AI_CHAN;
+			spi_adc.chan = thisboard->n_aichan;
 			spi_adc.range = 0; /* range 2.048 */
 			dev_info(dev->class_dev,
-				"Gertboard ADC chip Board Detected, %i Channels, Range code %i, Device code %i, PIC code %i, Detect Code %i\n",
-				spi_adc.chan, spi_adc.range, spi_adc.device_type, spi_adc.pic18, ret);
+				"%s adc chip board detected, %i channels, range code %i, device code %i, PIC code %i, detect code %i\n",
+				thisboard->name, spi_adc.chan, spi_adc.range, spi_adc.device_type, spi_adc.pic18, ret);
 			return spi_adc.chan;
 		}
 		spi_adc.pic18 = 0; /* SPI probes found nothing */
-		dev_info(dev->class_dev, "No GERT Board ADC Found, GPIO pins only. Detect Code %i\n",
-			ret);
+		dev_info(dev->class_dev, "no %s adc found, gpio pins only. detect code %i\n",
+			thisboard->name, ret);
 		spi_adc.chan = 0;
 		return spi_adc.chan;
 	}
@@ -1884,13 +1885,13 @@ static int daqgert_spi_probe(struct comedi_device * dev)
 			spi_adc.device_type = PICSL12;
 		}
 		dev_info(dev->class_dev,
-			"PIC spi slave ADC chip Board Detected, %i Channels, Range code %i, Device code %i, Bits code %i, PIC code %i, Detect Code %i\n",
+			"PIC spi slave adc chip board detected, %i channels, range code %i, device code %i, bits code %i, PIC code %i, detect Code %i\n",
 			spi_adc.chan, spi_adc.range, spi_adc.device_type, spi_adc.bits, spi_adc.pic18, ret);
 	} else {
 		spi_adc.pic18 = 0; /* SPI probes found nothing */
 		/* look for the gertboard SPI devices .pic18 code 1 */
-		dev_info(dev->class_dev, "No GERT Board PIC Found, GPIO pins only. Detect Code %i\n",
-			ret);
+		dev_info(dev->class_dev, "no %s PIC found, gpio pins only. Detect code %i\n",
+			thisboard->name, ret);
 		spi_adc.chan = 0;
 
 		return spi_adc.chan;
@@ -1922,8 +1923,7 @@ static void __exit daqgert_exit(void)
 module_exit(daqgert_exit);
 
 MODULE_AUTHOR("Fred Brooks <spam@sma2.rain.com>");
-MODULE_DESCRIPTION(
-	"Comedi driver for RASPI GERTBOARD DIO/AI/AO");
-MODULE_VERSION("0.0.21");
+MODULE_DESCRIPTION("RPi DIO/AI/AO Driver");
+MODULE_VERSION("0.0.22");
 MODULE_LICENSE("GPL");
 MODULE_ALIAS("spi:spigert");
