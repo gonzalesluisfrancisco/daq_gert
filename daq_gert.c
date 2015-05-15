@@ -1915,6 +1915,7 @@ module_init(daqgert_init);
 
 static void __exit daqgert_exit(void)
 {
+	comedi_auto_unconfig(&spi_adc.spi->master->dev);
 	comedi_driver_unregister(&daqgert_driver);
 	spi_unregister_driver(&spidev_spi_driver);
 }
