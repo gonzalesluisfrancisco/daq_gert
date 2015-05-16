@@ -290,6 +290,8 @@ struct daqgert_private {
 	uint32_t __iomem *gpio;
 	int *pinToGpio;
 	int *physToGpio;
+	int board_rev;
+	int num_subdev;
 	int32_t max_rate;
 	uint32_t conv_delay_usecs, conv_delay_10nsecs, cmd_delay_usecs, ai_neverending;
 	int chan, timer, run, spi_run, count, hunk_count, cmd_running, cmd_canceled;
@@ -748,9 +750,10 @@ static int piBoardRev(struct comedi_device *dev)
 	int r = -1, nscheme = 0;
 	static int boardRev = -1;
 
-	if (boardRev != -1)
+	if (boardRev != -1) /* skip if already detected */
 		return boardRev;
 
+	if (devpriv->RPisys_rev & 0x80000000) dev_info(dev->class_dev, "over-volt bit set\n");
 	if (devpriv->RPisys_rev & 0x800000) {
 		nscheme = 1;
 		r = devpriv->RPisys_rev & 0xf;
@@ -1580,7 +1583,7 @@ static int daqgert_auto_attach(struct comedi_device *dev, unsigned long context)
 {
 	const struct daqgert_board *thisboard = &daqgert_boards[gert_type];
 	struct comedi_subdevice *s;
-	int ret, num_subdev = 1, i, d;
+	int ret, i, d;
 	int num_ai_chan, num_ao_chan, num_dio_chan = NUM_DIO_CHAN;
 	struct daqgert_private *devpriv;
 
@@ -1628,28 +1631,36 @@ static int daqgert_auto_attach(struct comedi_device *dev, unsigned long context)
 		dev_err(dev->class_dev, "board gpio detection failed!\n");
 		return -EINVAL;
 	}
+
+	devpriv->board_rev = piBoardRev(dev);
+	switch (devpriv->board_rev) {
+	case 2:
+		num_dio_chan = NUM_DIO_CHAN_REV2; /* This a Rev 2 board "I hope" */
+		break;
+	case 3:
+		num_dio_chan = NUM_DIO_CHAN_REV3; /* This a Rev 3 board "I hope" */
+		break;
+	default:
+		num_dio_chan = NUM_DIO_CHAN; /* Rev 1 board setup */
+	}
+
 	for (i = 0; i < NUM_DIO_OUTPUTS; i++) { /* [0..7] OUTPUTS */
 		pinModeWPi(dev, i, OUTPUT);
 	}
 	dev_info(dev->class_dev, "%s WPi pins set [0..7] to outputs\n", thisboard->name);
-	num_dio_chan = NUM_DIO_CHAN; /* Rev 1 board setup first */
-	if (piBoardRev(dev) > 1) /* This a Rev 2 or higher board "I hope" */
-		num_dio_chan = NUM_DIO_CHAN_REV2;
-	if (piBoardRev(dev) > 2) /* This a Rev 3 or higher board "I hope" */
-		num_dio_chan = NUM_DIO_CHAN_REV3;
 
-	/* assume we have DON"T have a Board */
+	/* assume we have DON"T have a Gertboard */
 	dev_info(dev->class_dev, "%s detection started\n", thisboard->name);
-	num_subdev = 1;
-	if (daqgert_spi_probe(dev)) num_subdev += 2;
+	devpriv->num_subdev = 1;
+	if (daqgert_spi_probe(dev)) devpriv->num_subdev += 2;
 	// add AI and AO channels */
 	dev_info(dev->class_dev, "%s detection completed\n", thisboard->name);
-	ret = comedi_alloc_subdevices(dev, num_subdev);
+	ret = comedi_alloc_subdevices(dev, devpriv->num_subdev);
 	if (ret) {
 		dev_err(dev->class_dev, "alloc subdevice(s) failed!\n");
 		return ret;
 	}
-	dev_info(dev->class_dev, "%i subdevices\n", num_subdev);
+	dev_info(dev->class_dev, "%i subdevices\n", devpriv->num_subdev);
 	/* daq_gert dio */
 	s = &dev->subdevices[0];
 	s->type = COMEDI_SUBD_DIO;
@@ -1664,7 +1675,7 @@ static int daqgert_auto_attach(struct comedi_device *dev, unsigned long context)
 	s->io_bits = DIO_PINS_DEFAULT; /* set output bits */
 	d = s->io_bits;
 
-	if (num_subdev > 1) { /* we have the SPI ADC DAC on board */
+	if (devpriv->num_subdev > 1) { /* we have the SPI ADC DAC on board */
 		/* daq_gert ai */
 		if (devpriv->hunk) dev_info(dev->class_dev, "hunk ai transfers enabled, length: %i\n", HUNK_LEN);
 		s = &dev->subdevices[1];
