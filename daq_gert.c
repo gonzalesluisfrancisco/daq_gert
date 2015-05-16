@@ -280,10 +280,8 @@ struct spi_param_type {
 /* SPI devices for COMEDI to use */
 static struct spi_param_type spi_adc = {
 	.device_type = MCP3002,
-	.spi = 0,
 }, spi_dac = {
 	.device_type = MCP4802,
-	.spi = 0,
 };
 
 struct daqgert_private {
@@ -379,7 +377,7 @@ struct daqgert_private {
 
 /* Locals to hold pointers to the hardware */
 
-static volatile uint32_t *gpio;
+static uint32_t __iomem *gpio;
 
 /* Global for the RPi board rev */
 extern uint32_t system_rev; // from the kernel symbol table exports */
@@ -601,14 +599,14 @@ static void pullUpDnControl(int pin, int pud)
 {
 	pin = pinToGpio [pin];
 
-	*(gpio + GPPUD) = pud & 3;
+	iowrite32(pud & 3, gpio + GPPUD);
 	udelay(5);
-	*(gpio + gpioToPUDCLK [pin]) = 1 << (pin & 31);
+	iowrite32(1 << (pin & 31), gpio + gpioToPUDCLK [pin]);
 	udelay(5);
 
-	*(gpio + GPPUD) = 0;
+	iowrite32(0, gpio + GPPUD);
 	udelay(5);
-	*(gpio + gpioToPUDCLK [pin]) = 0;
+	iowrite32(0, gpio + gpioToPUDCLK [pin]);
 	udelay(5);
 }
 
@@ -628,9 +626,9 @@ static void pinModeGpio(int pin, int mode)
 	shift = gpioToShift [pin];
 
 	/**/ if (mode == INPUT) /* Sets bits to zero = input */
-		*(gpio + fSel) = (*(gpio + fSel) & ~(7 << shift));
+		iowrite32(ioread32(gpio + fSel) & ~(7 << shift), gpio + fSel); // *(gpio + fSel) = (*(gpio + fSel) & ~(7 << shift));
 	else if (mode == OUTPUT)
-		*(gpio + fSel) = (*(gpio + fSel) & ~(7 << shift)) | (1 << shift);
+		iowrite32((ioread32(gpio + fSel) & ~(7 << shift)) | (1 << shift), gpio + fSel); // *(gpio + fSel) = (*(gpio + fSel) & ~(7 << shift)) | (1 << shift);
 }
 
 static void pinModeWPi(int pin, int mode)
@@ -660,9 +658,9 @@ static void digitalWriteWPi(int pin, int value)
 	pin = pinToGpio [pin & 63];
 
 	if (value == LOW)
-		*(gpio + gpioToGPCLR [pin]) = 1 << (pin & 31);
+		iowrite32(1 << (pin & 31), gpio + gpioToGPCLR [pin]);
 	else
-		*(gpio + gpioToGPSET [pin]) = 1 << (pin & 31);
+		iowrite32(1 << (pin & 31), gpio + gpioToGPSET [pin]);
 }
 
 static void digitalWriteGpio(int pin, int value)
@@ -670,9 +668,9 @@ static void digitalWriteGpio(int pin, int value)
 	pin &= 63;
 
 	if (value == LOW)
-		*(gpio + gpioToGPCLR [pin]) = 1 << (pin & 31);
+		iowrite32(1 << (pin & 31), gpio + gpioToGPCLR [pin]);
 	else
-		*(gpio + gpioToGPSET [pin]) = 1 << (pin & 31);
+		iowrite32(1 << (pin & 31), gpio + gpioToGPSET [pin]);
 }
 
 /*
@@ -685,7 +683,7 @@ static int digitalReadWPi(int pin)
 {
 	pin = pinToGpio [pin & 63];
 
-	if ((*(gpio + gpioToGPLEV [pin]) & (1 << (pin & 31))) != 0)
+	if ((ioread32(gpio + gpioToGPLEV [pin]) & (1 << (pin & 31))) != 0)
 		return HIGH;
 	else
 		return LOW;
@@ -695,7 +693,7 @@ static int digitalReadGpio(int pin)
 {
 	pin &= 63;
 
-	if ((*(gpio + gpioToGPLEV [pin]) & (1 << (pin & 31))) != 0)
+	if ((ioread32(gpio + gpioToGPLEV [pin]) & (1 << (pin & 31))) != 0)
 		return HIGH;
 	else
 		return LOW;
@@ -1694,7 +1692,7 @@ static int daqgert_auto_attach(struct comedi_device *dev, unsigned long context)
 		dev->driver->driver_name,
 		dev->iobase,
 		(long unsigned int) gpio,
-		(unsigned int) d);
+		(uint32_t) d);
 
 	return 0;
 }
