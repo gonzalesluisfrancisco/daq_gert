@@ -636,7 +636,6 @@ static void pinModeGpio(struct comedi_device *dev, int pin, int mode)
 static void pinModeWPi(struct comedi_device *dev, int pin, int mode)
 {
 	struct daqgert_private *devpriv = dev->private;
-	uint32_t __iomem *gpio = devpriv->gpio;
 	int *pinToGpio = devpriv->pinToGpio;
 
 	pinModeGpio(dev, pinToGpio [pin & 63], mode);
@@ -651,7 +650,6 @@ static void pinModeWPi(struct comedi_device *dev, int pin, int mode)
 static int physPinToGpio(struct comedi_device *dev, int physPin)
 {
 	struct daqgert_private *devpriv = dev->private;
-	uint32_t __iomem *gpio = devpriv->gpio;
 	int *physToGpio = devpriv->physToGpio;
 
 	return physToGpio [physPin & 63];
@@ -797,7 +795,7 @@ static int piBoardRev(struct comedi_device *dev)
  * wiringPiSetup:
  *	Must be called once at the start of your program execution.
  *
- * Default setup: Initialises the system into wiringPi Pin mode and uses the
+ * Default setup: Initializes the system into wiringPi Pin mode and uses the
  *	memory mapped hardware directly.
  ************************************************************************
  */
@@ -805,8 +803,6 @@ static int piBoardRev(struct comedi_device *dev)
 static int wiringPiSetup(struct comedi_device *dev)
 {
 	struct daqgert_private *devpriv = dev->private;
-	int *pinToGpio = devpriv->pinToGpio;
-	int *physToGpio = devpriv->physToGpio;
 	int boardRev;
 
 	pinMode = pinModeWPi;
@@ -816,12 +812,13 @@ static int wiringPiSetup(struct comedi_device *dev)
 	if ((boardRev = piBoardRev(dev)) < 0)
 		return -1;
 
+	/* set the comedi private data */
 	if (boardRev == 1) {
-		pinToGpio = pinToGpioR1;
-		physToGpio = physToGpioR1;
+		devpriv->pinToGpio = pinToGpioR1;
+		devpriv->physToGpio = physToGpioR1;
 	} else {
-		pinToGpio = pinToGpioR2;
-		physToGpio = physToGpioR2;
+		devpriv->pinToGpio = pinToGpioR2;
+		devpriv->physToGpio = physToGpioR2;
 	}
 	return 0;
 }
@@ -1627,7 +1624,10 @@ static int daqgert_auto_attach(struct comedi_device *dev, unsigned long context)
 	/* setup the pins in a static matter for now */
 	/* PIN mode for all */
 	dev_info(dev->class_dev, "%s WiringPiSetup\n", thisboard->name);
-	wiringPiSetup(dev);
+	if (wiringPiSetup(dev) < 0) {
+		dev_err(dev->class_dev, "board gpio detection failed!\n");
+		return -EINVAL;
+	}
 	for (i = 0; i < NUM_DIO_OUTPUTS; i++) { /* [0..7] OUTPUTS */
 		pinModeWPi(dev, i, OUTPUT);
 	}
@@ -1645,8 +1645,10 @@ static int daqgert_auto_attach(struct comedi_device *dev, unsigned long context)
 	// add AI and AO channels */
 	dev_info(dev->class_dev, "%s detection completed\n", thisboard->name);
 	ret = comedi_alloc_subdevices(dev, num_subdev);
-	if (ret)
+	if (ret) {
+		dev_err(dev->class_dev, "alloc subdevice(s) failed!\n");
 		return ret;
+	}
 	dev_info(dev->class_dev, "%i subdevices\n", num_subdev);
 	/* daq_gert dio */
 	s = &dev->subdevices[0];
@@ -1717,7 +1719,6 @@ static int daqgert_auto_attach(struct comedi_device *dev, unsigned long context)
 		dev->iobase,
 		(long unsigned int) devpriv->gpio,
 		(uint32_t) d);
-
 	return 0;
 }
 
