@@ -173,10 +173,10 @@ The output range is 0 to 4095 for 0.0 to 2.048 onboard devices (output resolutio
 #include "8253.h"
 
 /* Function stubs */
-static void (*pinMode) (struct comedi_device *dev,int32_t pin, int32_t mode);
-static void (*digitalWrite) (struct comedi_device *dev,int32_t pin, int32_t value);
-static void(*setPadDrive) (struct comedi_device *dev,int32_t group, int32_t value);
-static int32_t(*digitalRead) (struct comedi_device *dev,int32_t pin);
+static void (*pinMode) (struct comedi_device *dev, int32_t pin, int32_t mode);
+static void (*digitalWrite) (struct comedi_device *dev, int32_t pin, int32_t value);
+static void(*setPadDrive) (struct comedi_device *dev, int32_t group, int32_t value);
+static int32_t(*digitalRead) (struct comedi_device *dev, int32_t pin);
 
 static int32_t daqgert_spi_probe(struct comedi_device *);
 static void daqgert_ai_clear_eoc(struct comedi_device *);
@@ -288,6 +288,8 @@ static struct spi_param_type spi_adc = {
 struct daqgert_private {
 	uint32_t RPisys_rev;
 	uint32_t __iomem *gpio;
+	int *pinToGpio;
+	int *physToGpio;
 	int32_t max_rate;
 	uint32_t conv_delay_usecs, conv_delay_10nsecs, cmd_delay_usecs, ai_neverending;
 	int chan, timer, run, spi_run, count, hunk_count, cmd_running, cmd_canceled;
@@ -337,6 +339,10 @@ struct daqgert_private {
 #define LOW              0
 #define HIGH             1
 
+// GPPUD:
+//      GPIO Pin pull up/down register
+
+#define GPPUD   37
 #define PUD_OFF          0
 #define PUD_DOWN         1
 #define PUD_UP           2
@@ -417,8 +423,6 @@ static int32_t wpi_pin_safe(int32_t pin)
       Take a Wiring pin (0 through X) and re-map it to the BCM_GPIO pin
       Cope for 2 different board revisions here
  */
-static int *pinToGpio;
-static int *physToGpio;
 
 static int pinToGpioR1 [64] = {
 	17, 18, 21, 22, 23, 24, 25, 4, // From the Original Wiki - GPIO 0 through 7:   wpi  0 -  7
@@ -457,8 +461,6 @@ static int pinToGpioR2 [64] = {
 //      Take a physical pin (1 through 26) and re-map it to the BCM_GPIO pin
 //      Cope for 2 different board revisions here.
 //      Also add in the P5 connector, so the P5 pins are 3,4,5,6, so 53,54,55,56
-
-static int *physToGpio;
 
 static int physToGpioR1 [64] = {
 	-1, // 0
@@ -574,11 +576,6 @@ static uint8_t gpioToGPLEV [] = {
 	14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14,
 };
 
-// GPPUD:
-//      GPIO Pin pull up/down register
-
-#define GPPUD   37
-
 // gpioToPUDCLK
 //      (Word) offset to the Pull Up Down Clock regsiter
 
@@ -600,9 +597,9 @@ static void pullUpDnControl(struct comedi_device *dev, int32_t pin, int32_t pud)
 {
 	struct daqgert_private *devpriv = dev->private;
 	uint32_t __iomem *gpio = devpriv->gpio;
+	int *pinToGpio = devpriv->pinToGpio;
 
 	pin = pinToGpio [pin];
-
 	iowrite32(pud & 3, gpio + GPPUD);
 	udelay(5);
 	iowrite32(1 << (pin & 31), gpio + gpioToPUDCLK [pin]);
@@ -627,7 +624,6 @@ static void pinModeGpio(struct comedi_device *dev, int pin, int mode)
 	int fSel, shift;
 
 	pin &= 63;
-
 	fSel = gpioToGPFSEL [pin];
 	shift = gpioToShift [pin];
 
@@ -639,6 +635,10 @@ static void pinModeGpio(struct comedi_device *dev, int pin, int mode)
 
 static void pinModeWPi(struct comedi_device *dev, int pin, int mode)
 {
+	struct daqgert_private *devpriv = dev->private;
+	uint32_t __iomem *gpio = devpriv->gpio;
+	int *pinToGpio = devpriv->pinToGpio;
+
 	pinModeGpio(dev, pinToGpio [pin & 63], mode);
 }
 
@@ -650,6 +650,10 @@ static void pinModeWPi(struct comedi_device *dev, int pin, int mode)
 
 static int physPinToGpio(struct comedi_device *dev, int physPin)
 {
+	struct daqgert_private *devpriv = dev->private;
+	uint32_t __iomem *gpio = devpriv->gpio;
+	int *physToGpio = devpriv->physToGpio;
+
 	return physToGpio [physPin & 63];
 }
 
@@ -663,6 +667,7 @@ static void digitalWriteWPi(struct comedi_device *dev, int pin, int value)
 {
 	struct daqgert_private *devpriv = dev->private;
 	uint32_t __iomem *gpio = devpriv->gpio;
+	int *pinToGpio = devpriv->pinToGpio;
 
 	pin = pinToGpio [pin & 63];
 	if (value == LOW)
@@ -693,6 +698,7 @@ static int digitalReadWPi(struct comedi_device *dev, int pin)
 {
 	struct daqgert_private *devpriv = dev->private;
 	uint32_t __iomem *gpio = devpriv->gpio;
+	int *pinToGpio = devpriv->pinToGpio;
 
 	pin = pinToGpio [pin & 63];
 	if ((ioread32(gpio + gpioToGPLEV [pin]) & (1 << (pin & 31))) != 0)
@@ -1607,12 +1613,13 @@ static int daqgert_auto_attach(struct comedi_device *dev, unsigned long context)
 		return -EINVAL;
 	}
 
-	devpriv->gpio = ioremap(GPIO_BASE, SZ_16K); /* lets get access to the GPIO base */
+	dev->iobase = GPIO_BASE; /* bcm iobase */
+
+	devpriv->gpio = ioremap(dev->iobase, SZ_16K); /* lets get access to the GPIO base */
 	if (!devpriv->gpio) {
 		dev_err(dev->class_dev, "invalid gpio io base address!\n");
 		return -EINVAL;
 	}
-	dev->iobase = GPIO_BASE; /* filler */
 
 	/* setup the pins in a static matter for now */
 	/* PIN mode for all */
