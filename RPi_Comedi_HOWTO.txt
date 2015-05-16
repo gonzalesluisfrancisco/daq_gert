@@ -6,6 +6,11 @@ This version requires you to patch the kernel source so we can get
 direct access to the SPI master.
 I unhook spidev and point it to my module.
 
+Install the Comedi software via the Debian apt or dselect command:
+libcomedi-dev
+libcomedi0
+python-comedilib
+
  * git clone https://github.com/raspberrypi/linux.git in /usr/src for the latest
  * linux kernel source tree
  * 
@@ -18,18 +23,12 @@ I unhook spidev and point it to my module.
  * 
  *  make -j4 for a RPi 2
  *  make modules_install
- *  to recompile the Linux kernel with the SPI inline instead of a module
- *  and to make the needed daq_gert module
+ *  to recompile the Linux kernel and to make the needed daq_gert module 
  *  then copy the Image file to the /boot directory with a new kernel image name
  *  and modify the boot file to use that image
  *  after the reboot: modprobe daq_gert if needed then setup the comedi device: comedi_config /dev/comedi0 daq_gert
  *  dmesg should the the kernel module messages
  *  run the test program: bmc_test_program to see if it's working
-
-Install the Comedi software via the Debian apt or dselect command:
-libcomedi-dev
-libcomedi0
-python-comedilib
 
 Install the github daq_gert branch:
 git clone https://github.com/nsaspook/daq_gert.git
@@ -37,18 +36,11 @@ cd daq_gert
 
 Read the instructions in the daq_gert.c source file for system setup instructions
 
-Copy the comedi.conf file to /etc/modprobe.d/: cp comedi.conf /etc/modprobe.d/
-This will create the /dev/comedi[0..3] device files when the comedi module is loaded
-when daq_gert.ko is installed via modprobe: 
-modprobe daq_gert
-
 Run the dmesg command: You should see a similar message at the end.
 [278631.474122] comedi: module is from the staging directory, the quality is unknown, you have been warned.
 [278631.480882] comedi: version 0.7.76 - http://www.comedi.org
 [278631.484498] daq_gert: module is from the staging directory, the quality is unknown, you have been warned.
 
-Run the comedi_conf command:  
-comedi_config /dev/comedi0 daq_gert
 This will attach the daq_gert module to the /dev/comedi0 device file.
 
 dmesg should show something like this.
