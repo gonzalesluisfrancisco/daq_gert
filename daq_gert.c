@@ -32,7 +32,8 @@ Driver: "experimental" daq_gert in progress ... for 4.+ kernels
  * 
  * cd to the linux kernel source directory: /usr/src/linux etc...
  * copy the daq_gert.diff patch file from the daq_gert directory to here
- * copy RPI2.config or RPi.confg the from the daq_gert directory to .config in the Linux source directory
+ * copy RPI2.config, RPi.confg or RPI2.config_4.0.y the from the daq_gert directory to .config 
+ * in the Linux source directory
  * 
  * patch the kernel source with the daq_gert.diff patch file
  * patch -p1 <daq_gert.diff
@@ -70,8 +71,8 @@ WiringPI
  * 
 
 Devices: [] GERTBOARD (daq_gert)
-Status: inprogress (DIO 95%) (AI 90%) AO (90%) (My code cleanup 85%)
-Updated: Apr 2015 12:07:20 +0000
+Status: inprogress (DIO 95%) (AI 90%) AO (95%) (My code cleanup 90%)
+Updated: May 2015 12:07:20 +0000
 
 The DAQ-GERT appears in Comedi as a  digital I/O subdevice (0) with
 17 or 21 or 30 channels, 
