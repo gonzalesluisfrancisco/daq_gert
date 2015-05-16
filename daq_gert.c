@@ -280,8 +280,10 @@ struct spi_param_type {
 /* SPI devices for COMEDI to use */
 static struct spi_param_type spi_adc = {
 	.device_type = MCP3002,
+	.spi = 0,
 }, spi_dac = {
 	.device_type = MCP4802,
+	.spi = 0,
 };
 
 struct daqgert_private {
@@ -1917,7 +1919,11 @@ static int __init daqgert_init(void)
 	ret = comedi_driver_register(&daqgert_driver);
 	if (ret < 0)
 		return ret;
-	if (gert_autoload) return comedi_auto_config(&spi_adc.spi->master->dev, &daqgert_driver, 0);
+	if (!spi_adc.spi || !spi_dac.spi) return -ENODEV;
+	if (gert_autoload)
+		ret = comedi_auto_config(&spi_adc.spi->master->dev, &daqgert_driver, 0);
+	if (ret < 0)
+		return ret;
 	return 0;
 }
 module_init(daqgert_init);
