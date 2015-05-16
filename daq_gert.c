@@ -804,6 +804,9 @@ static int piBoardRev(struct comedi_device *dev)
 
 static int wiringPiSetup(struct comedi_device *dev)
 {
+	struct daqgert_private *devpriv = dev->private;
+	int *pinToGpio = devpriv->pinToGpio;
+	int *physToGpio = devpriv->physToGpio;
 	int boardRev;
 
 	pinMode = pinModeWPi;
