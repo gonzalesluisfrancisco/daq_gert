@@ -1,7 +1,7 @@
 I: Comedi version: 0.7.76
 I: Comedilib version: unknown =)
 I: driver name: daq_gert
-I: device name: daq_gert
+I: device name: Gertboard
 I:
 I: subdevice 0
 I: testing info...
@@ -59,7 +59,7 @@ comedi_do_insn returned 0, good
 I: testing insn_read_time...
 rev 1
 comedi_do_insn: 3
-read time: 102 us
+read time: 172 us
 I: testing cmd_no_cmd...
 not applicable
 I: testing cmd_probe_src_mask...
@@ -74,7 +74,7 @@ I: testing cmd_probe_fast_1chan...
 command fast 1chan:
   start: now 0
   scan_begin: follow 0
-  convert: timer 0
+  convert: timer 50000
   scan_end: count 1
   stop: none 0
 I: testing cmd_read_fast_1chan...
@@ -97,20 +97,20 @@ I: testing cmd_fifo_depth_check...
 I: testing cmd_start_inttrig...
   not supported
 I: testing mmap...
-0x76fa7000 ok
-0x76fa8000 ok
-0x76fa9000 ok
-0x76faa000 ok
-0x76fab000 ok
+0x76f7f000 ok
+0x76f80000 ok
+0x76f81000 ok
+0x76f82000 ok
+0x76f83000 ok
 compare ok
-0x76fa7000 segfaulted (ok)
-0x76fa8000 segfaulted (ok)
-0x76fa9000 segfaulted (ok)
-0x76faa000 segfaulted (ok)
-0x76fab000 segfaulted (ok)
+0x76f7f000 segfaulted (ok)
+0x76f80000 segfaulted (ok)
+0x76f81000 segfaulted (ok)
+0x76f82000 segfaulted (ok)
+0x76f83000 segfaulted (ok)
 I: testing read_select...
 I: testing bufconfig...
-buffer size 2097152
+buffer size 20971520
 max buffer size 20971520
 setting buffer size to 4096
 buffer size set to 4096
@@ -136,7 +136,7 @@ comedi_do_insn returned 0, good
 I: testing insn_read_time...
 rev 1
 comedi_do_insn: 3
-read time: 3 us
+read time: 4 us
 I: testing cmd_no_cmd...
 got EIO, good
 I: testing cmd_probe_src_mask...
