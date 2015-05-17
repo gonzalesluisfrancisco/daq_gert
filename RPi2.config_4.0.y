@@ -2035,7 +2035,7 @@ CONFIG_SPI_MASTER=y
 # SPI Master Controller Drivers
 #
 # CONFIG_SPI_ALTERA is not set
-# CONFIG_SPI_BCM2835 is not set
+CONFIG_SPI_BCM2835=m
 CONFIG_SPI_BCM2708=m
 # CONFIG_SPI_BITBANG is not set
 # CONFIG_SPI_CADENCE is not set

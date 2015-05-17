@@ -1,7 +1,7 @@
 daq_gert
 ========
 Comedi driver for RPi ai, ao gpio for the  gertboard daq_gert.c
-Driver: "experimental" daq_gert in progress ... for 4.0+ kernels
+Driver: "experimental" daq_gert in progress ... for 4.+ kernels
 
 The DAQ-GERT appears in Comedi as a  digital I/O subdevice (0) with
 17 or 21 or 30 channels, 
@@ -32,12 +32,12 @@ I unhook spidev and point it to my module.
  * 
  *  make -j4 for a RPi 2
  *  make modules_install
- *  to recompile the Linux kernel with the SPI inline instead of a module
- *  and to make the needed daq_gert module
+ *  to recompile the Linux kernel to make the needed daq_gert module
  *  then copy the Image file to the /boot directory with a new kernel image name
  *  and modify the boot file to use that image
- *  after the reboot: modprobe daq_gert if needed then setup the comedi device: comedi_config /dev/comedi0 daq_gert
- *  dmesg should the the kernel module messages
+ *  after the reboot: daq_gert should auto-load to device /dev/comedi0
+ *  if the legacy option is set in /etc/modprobe.d/comedi.conf the new device will be created after those
+ *  dmesg should see the kernel module messages from daq_gert
  *  run the test program: bmc_test_program to see if it's working
  * 
  * Module parameters are found in the /sys/modules/daq_gert/parameters directory
@@ -49,12 +49,18 @@ The output range is 0 to 4095 for 0.0 to 2.048 onboard devices (output resolutio
 
 Analog: The type and resolution of the onboard ADC/DAC chips are set
 by the module option variable daqgert_conf in the /etc/modprobe.d directory
- * options daq_gert daqgert_conf=1
+
+ * options daq_gert daqgert_conf=1 gert_autoload=1
  * 
+daqgert_conf options:
 0 = Factory Gertboard configuratin of MCP3002 ADC and MCP4802 ADC: 10bit in/8bit out
 1 = MCP3202 ADC and MCP4822 DAC: 12bit in/12bit out 
 2 = MCP3002 ADC and MCP4822 DAC: 10bit in/12bit out
 3 = MCP3202 ADC and MCP4802 DAC: 12bit in/8bit out
+
+gert_autolocal options:
+0 = don't autoload (mainly for testing)
+1 = load and configure daq_gert on boot (default)
 
 
 Comments:
