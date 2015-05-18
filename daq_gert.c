@@ -1214,21 +1214,21 @@ static int32_t daqgert_ai_cmd(struct comedi_device *dev, struct comedi_subdevice
 		dev_info(dev->class_dev, "ai_cmd busy\n");
 		goto ai_cmd_exit;
 	}
-
-	if (cmd->start_src != TRIG_NOW)
-		ret = -EINVAL;
-	if (cmd->scan_begin_src != TRIG_FOLLOW)
-		ret = -EINVAL;
-	if (cmd->convert_src != TRIG_TIMER)
-		ret = -EINVAL;
-	if (cmd->scan_end_src != TRIG_COUNT)
-		ret = -EINVAL;
-	if (cmd->scan_end_arg != cmd->chanlist_len)
-		ret = -EINVAL;
-	if (cmd->chanlist_len > MAX_CHANLIST_LEN)
-		ret = -EINVAL;
-	if (ret == -EINVAL) goto ai_cmd_exit;
-
+	/*
+		if (cmd->start_src != TRIG_NOW)
+			ret = -EINVAL;
+		if (cmd->scan_begin_src != TRIG_FOLLOW)
+			ret = -EINVAL;
+		if (cmd->convert_src != TRIG_TIMER)
+			ret = -EINVAL;
+		if (cmd->scan_end_src != TRIG_COUNT)
+			ret = -EINVAL;
+		if (cmd->scan_end_arg != cmd->chanlist_len)
+			ret = -EINVAL;
+		if (cmd->chanlist_len > MAX_CHANLIST_LEN)
+			ret = -EINVAL;
+		if (ret == -EINVAL) goto ai_cmd_exit;
+	 */
 	if (cmd->stop_src == TRIG_COUNT) {
 		devpriv->ai_scans = cmd->stop_arg;
 		devpriv->ai_neverending = false;
@@ -1367,7 +1367,7 @@ static int32_t daqgert_ai_cmdtest(struct comedi_device *dev,
 		/* find a power of 2 for the number of channels */
 		while (i < (cmd->chanlist_len))
 			i = i * 2;
-		err |= cfc_check_trigger_arg_min(&cmd->scan_begin_arg, 350000 / 2 * i); /* 2 is num of channels */
+		err |= cfc_check_trigger_arg_min(&cmd->scan_begin_arg, 35000 / 2 * i); /* 2 is num of channels */
 		/* now calc the real sampling rate with all the
 		 * rounding errors */
 		tmp_timer = ((uint32_t) (cmd->scan_begin_arg / board->ai_ns_min)) * board->ai_ns_min;
