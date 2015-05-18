@@ -310,6 +310,10 @@ struct daqgert_private {
 	uint32_t ai_poll_ptr;
 	struct spi_param_type *ai_spi;
 	struct spi_param_type *ao_spi;
+	void (*pinMode) (struct comedi_device *dev, int32_t pin, int32_t mode);
+	void (*digitalWrite) (struct comedi_device *dev, int32_t pin, int32_t value);
+	void(*setPadDrive) (struct comedi_device *dev, int32_t group, int32_t value);
+	int32_t(*digitalRead) (struct comedi_device *dev, int32_t pin);
 };
 
 #define CSnA    0       /* GPIO 8  Gertboard ADC */
@@ -1210,21 +1214,21 @@ static int32_t daqgert_ai_cmd(struct comedi_device *dev, struct comedi_subdevice
 		dev_info(dev->class_dev, "ai_cmd busy\n");
 		goto ai_cmd_exit;
 	}
-
-	if (cmd->start_src != TRIG_NOW)
-		ret = -EINVAL;
-	if (cmd->scan_begin_src != TRIG_FOLLOW)
-		ret = -EINVAL;
-	if (cmd->convert_src != TRIG_TIMER)
-		ret = -EINVAL;
-	if (cmd->scan_end_src != TRIG_COUNT)
-		ret = -EINVAL;
-	if (cmd->scan_end_arg != cmd->chanlist_len)
-		ret = -EINVAL;
-	if (cmd->chanlist_len > MAX_CHANLIST_LEN)
-		ret = -EINVAL;
-	if (ret == -EINVAL) goto ai_cmd_exit;
-
+	/*
+		if (cmd->start_src != TRIG_NOW)
+			ret = -EINVAL;
+		if (cmd->scan_begin_src != TRIG_FOLLOW)
+			ret = -EINVAL;
+		if (cmd->convert_src != TRIG_TIMER)
+			ret = -EINVAL;
+		if (cmd->scan_end_src != TRIG_COUNT)
+			ret = -EINVAL;
+		if (cmd->scan_end_arg != cmd->chanlist_len)
+			ret = -EINVAL;
+		if (cmd->chanlist_len > MAX_CHANLIST_LEN)
+			ret = -EINVAL;
+		if (ret == -EINVAL) goto ai_cmd_exit;
+	 */
 	if (cmd->stop_src == TRIG_COUNT) {
 		devpriv->ai_scans = cmd->stop_arg;
 		devpriv->ai_neverending = false;
@@ -1325,19 +1329,16 @@ static int32_t daqgert_ai_cmdtest(struct comedi_device *dev,
 	struct spi_device *spi = spi_data->spi;
 	struct comedi_control *pdata = spi->dev.platform_data;
 
-	int32_t err = 0;
-	uint32_t flags, divisor1 = 0, divisor2 = 0;
+	int32_t i, err = 0;
+	uint32_t divisor1 = 0, divisor2 = 0;
 	uint32_t arg;
+	uint32_t tmp_timer;
 
 	/* Step 1 : check if triggers are trivially valid */
 
 	err |= cfc_check_trigger_src(&cmd->start_src, TRIG_NOW);
-	flags = TRIG_FOLLOW;
-	err |= cfc_check_trigger_src(&cmd->scan_begin_src, flags);
-
-	flags = TRIG_TIMER;
-	err |= cfc_check_trigger_src(&cmd->convert_src, flags);
-
+	err |= cfc_check_trigger_src(&cmd->scan_begin_src, TRIG_FOLLOW | TRIG_TIMER);
+	err |= cfc_check_trigger_src(&cmd->convert_src, TRIG_TIMER | TRIG_NOW);
 	err |= cfc_check_trigger_src(&cmd->scan_end_src, TRIG_COUNT);
 	err |= cfc_check_trigger_src(&cmd->stop_src, TRIG_NONE);
 
@@ -1346,6 +1347,7 @@ static int32_t daqgert_ai_cmdtest(struct comedi_device *dev,
 
 	/* Step 2a : make sure trigger sources are unique */
 
+	err |= cfc_check_trigger_is_unique(cmd->start_src);
 	err |= cfc_check_trigger_is_unique(cmd->stop_src);
 
 	/* Step 2b : and mutually compatible */
@@ -1356,16 +1358,29 @@ static int32_t daqgert_ai_cmdtest(struct comedi_device *dev,
 	/* Step 3: check if arguments are trivially valid */
 
 	err |= cfc_check_trigger_arg_is(&cmd->start_arg, 0);
-	err |= cfc_check_trigger_arg_is(&cmd->scan_begin_arg, 0);
+
+	if (cmd->scan_begin_src == TRIG_FOLLOW) /* internal trigger */
+		err |= cfc_check_trigger_arg_is(&cmd->scan_begin_arg, 0);
+
+	if (cmd->scan_begin_src == TRIG_TIMER) {
+		i = 1;
+		/* find a power of 2 for the number of channels */
+		while (i < (cmd->chanlist_len))
+			i = i * 2;
+		err |= cfc_check_trigger_arg_min(&cmd->scan_begin_arg, 35000 / 2 * i); /* 2 is num of channels */
+		/* now calc the real sampling rate with all the
+		 * rounding errors */
+		tmp_timer = ((uint32_t) (cmd->scan_begin_arg / board->ai_ns_min)) * board->ai_ns_min;
+		err |= cfc_check_trigger_arg_is(&cmd->scan_begin_arg, tmp_timer);
+	}
 
 	if (cmd->convert_src == TRIG_TIMER)
 		err |= cfc_check_trigger_arg_min(&cmd->convert_arg,
 		board->ai_ns_min);
-	else /* TRIG_EXT */
-		err |= cfc_check_trigger_arg_is(&cmd->convert_arg, 0);
 
 	err |= cfc_check_trigger_arg_min(&cmd->chanlist_len, 1);
 	err |= cfc_check_trigger_arg_is(&cmd->scan_end_arg, cmd->chanlist_len);
+
 
 	if (cmd->stop_src == TRIG_COUNT)
 		err |= cfc_check_trigger_arg_min(&cmd->stop_arg, 1);
@@ -1376,6 +1391,11 @@ static int32_t daqgert_ai_cmdtest(struct comedi_device *dev,
 		return 3;
 
 	/* step 4: fix up any arguments */
+	if (cmd->convert_src == TRIG_NOW) {
+		pdata->delay_usecs = 0;
+		pdata->mix_delay_usecs = pdata->delay_usecs < 2; /* double delay with zero for the first scan chan */
+	}
+
 	if (cmd->convert_src == TRIG_TIMER) {
 		arg = cmd->convert_arg;
 		i8253_cascade_ns_to_timer(devpriv->conv_delay_10nsecs,
