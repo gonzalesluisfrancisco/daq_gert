@@ -173,13 +173,6 @@ The output range is 0 to 4095 for 0.0 to 2.048 onboard devices (output resolutio
 #include <linux/timer.h>
 #include "8253.h"
 
-/* Function stubs 
-static void (*pinMode) (struct comedi_device *dev, int32_t pin, int32_t mode);
-static void (*digitalWrite) (struct comedi_device *dev, int32_t pin, int32_t value);
-static void(*setPadDrive) (struct comedi_device *dev, int32_t group, int32_t value);
-static int32_t(*digitalRead) (struct comedi_device *dev, int32_t pin);
- */
-
 static int32_t daqgert_spi_probe(struct comedi_device *);
 static void daqgert_ai_clear_eoc(struct comedi_device *);
 static int32_t daqgert_ai_cancel(struct comedi_device *,
@@ -232,6 +225,8 @@ static int32_t gert_type = 0;
 module_param(gert_type, int, S_IRUGO);
 static int32_t speed_test = 0;
 module_param(speed_test, int, S_IRUGO);
+static int32_t wiringpi = 1;
+module_param(wiringpi, int, S_IRUGO);
 
 struct daqgert_board {
 	const char *name;
@@ -649,20 +644,6 @@ static void pinModeWPi(struct comedi_device *dev, int pin, int mode)
 	pinModeGpio(dev, pinToGpio [pin & 63], mode);
 }
 
-/* physPinToGpio:
- *      Translate a physical Pin number to native GPIO pin number.
- *      Provided for external support.
- *********************************************************************************
- */
-
-static int physPinToGpio(struct comedi_device *dev, int physPin)
-{
-	struct daqgert_private *devpriv = dev->private;
-	int *physToGpio = devpriv->physToGpio;
-
-	return physToGpio [physPin & 63];
-}
-
 /*
  * digitalWrite:
  *      Set an output bit
@@ -814,11 +795,9 @@ static int wiringPiSetup(struct comedi_device *dev)
 	struct daqgert_private *devpriv = dev->private;
 	int boardRev;
 
-	/*
-	devpriv-> = pinModeWPi;
+	devpriv->pinMode = pinModeWPi;
 	devpriv->digitalWrite = digitalWriteWPi;
 	devpriv->digitalRead = digitalReadWPi;
-	 */
 
 	if ((boardRev = piBoardRev(dev)) < 0)
 		return -1;
@@ -851,11 +830,9 @@ static int wiringPiSetupGpio(struct comedi_device *dev)
 	if ((x = wiringPiSetup(dev)) < 0)
 		return x;
 
-	/*
-		pinMode = pinModeGpio;
-		digitalWrite = digitalWriteGpio;
-		digitalRead = digitalReadGpio;
-	 */
+	devpriv->pinMode = pinModeGpio;
+	devpriv->digitalWrite = digitalWriteGpio;
+	devpriv->digitalRead = digitalReadGpio;
 
 	return 0;
 }
@@ -1481,6 +1458,7 @@ static int daqgert_dio_insn_bits(struct comedi_device *dev,
 	struct comedi_subdevice *s,
 	struct comedi_insn *insn, unsigned int *data)
 {
+	struct daqgert_private *devpriv = dev->private;
 	int pinWPi;
 	unsigned int val = 0, mask = 0;
 
@@ -1495,11 +1473,11 @@ static int daqgert_dio_insn_bits(struct comedi_device *dev,
 			/* Do nothing on SPI AUX pins */
 			if (mask) {
 				if (mask & 0xffffffff)
-					digitalWriteWPi(dev, pinWPi,
+					devpriv->digitalWrite(dev, pinWPi,
 					(s->state & (0x01 << pinWPi)) >> pinWPi); /* output writes */
 			}
 			val = s->state & 0xffffffff;
-			val |= (digitalReadWPi(dev, pinWPi) << pinWPi); /* input reads shift */
+			val |= (devpriv->digitalRead(dev, pinWPi) << pinWPi); /* input reads shift */
 		}
 		data[1] = val;
 	}
@@ -1512,19 +1490,20 @@ static int daqgert_dio_insn_config(struct comedi_device *dev,
 	struct comedi_subdevice *s,
 	struct comedi_insn *insn, unsigned int *data)
 {
+	struct daqgert_private *devpriv = dev->private;
 	unsigned int wpi_pin = CR_CHAN(insn->chanspec), chan = 1 << wpi_pin;
 
 	switch (data[0]) {
 	case INSN_CONFIG_DIO_OUTPUT:
 		if (wpi_pin_safe(wpi_pin)) {
 			s->io_bits |= chan;
-			pinModeWPi(dev, wpi_pin, OUTPUT);
+			devpriv->pinMode(dev, wpi_pin, OUTPUT);
 		}
 		break;
 	case INSN_CONFIG_DIO_INPUT:
 		if (wpi_pin_safe(wpi_pin)) {
 			s->io_bits &= (~chan);
-			pinModeWPi(dev, wpi_pin, INPUT);
+			devpriv->pinMode(dev, wpi_pin, INPUT);
 			pullUpDnControl(dev, wpi_pin, pullups);
 		}
 		break;
@@ -1653,10 +1632,18 @@ static int daqgert_auto_attach(struct comedi_device *dev, unsigned long context)
 
 	/* setup the pins in a static matter for now */
 	/* PIN mode for all */
-	dev_info(dev->class_dev, "%s WiringPiSetup\n", thisboard->name);
-	if (wiringPiSetup(dev) < 0) {
-		dev_err(dev->class_dev, "board gpio detection failed!\n");
-		return -EINVAL;
+	if (wiringpi) {
+		dev_info(dev->class_dev, "%s WiringPiSetup\n", thisboard->name);
+		if (wiringPiSetup(dev) < 0) {
+			dev_err(dev->class_dev, "board gpio detection failed!\n");
+			return -EINVAL;
+		}
+	} else {
+		dev_info(dev->class_dev, "%s GpioPiSetup\n", thisboard->name);
+		if (wiringPiSetupGpio(dev) < 0) {
+			dev_err(dev->class_dev, "board gpio detection failed!\n");
+			return -EINVAL;
+		}
 	}
 
 	devpriv->board_rev = piBoardRev(dev);
@@ -1672,7 +1659,7 @@ static int daqgert_auto_attach(struct comedi_device *dev, unsigned long context)
 	}
 
 	for (i = 0; i < NUM_DIO_OUTPUTS; i++) { /* [0..7] OUTPUTS */
-		pinModeWPi(dev, i, OUTPUT);
+		devpriv->pinMode(dev, i, OUTPUT);
 	}
 	dev_info(dev->class_dev, "%s WPi pins set [0..7] to outputs\n", thisboard->name);
 
@@ -1999,6 +1986,6 @@ module_exit(daqgert_exit);
 
 MODULE_AUTHOR("Fred Brooks <spam@sma2.rain.com>");
 MODULE_DESCRIPTION("RPi DIO/AI/AO Driver");
-MODULE_VERSION("0.0.22");
+MODULE_VERSION("0.0.23");
 MODULE_LICENSE("GPL");
 MODULE_ALIAS("spi:spigert");
