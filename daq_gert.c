@@ -173,11 +173,12 @@ The output range is 0 to 4095 for 0.0 to 2.048 onboard devices (output resolutio
 #include <linux/timer.h>
 #include "8253.h"
 
-/* Function stubs */
+/* Function stubs 
 static void (*pinMode) (struct comedi_device *dev, int32_t pin, int32_t mode);
 static void (*digitalWrite) (struct comedi_device *dev, int32_t pin, int32_t value);
 static void(*setPadDrive) (struct comedi_device *dev, int32_t group, int32_t value);
 static int32_t(*digitalRead) (struct comedi_device *dev, int32_t pin);
+ */
 
 static int32_t daqgert_spi_probe(struct comedi_device *);
 static void daqgert_ai_clear_eoc(struct comedi_device *);
@@ -813,9 +814,11 @@ static int wiringPiSetup(struct comedi_device *dev)
 	struct daqgert_private *devpriv = dev->private;
 	int boardRev;
 
-	pinMode = pinModeWPi;
-	digitalWrite = digitalWriteWPi;
-	digitalRead = digitalReadWPi;
+	/*
+	devpriv-> = pinModeWPi;
+	devpriv->digitalWrite = digitalWriteWPi;
+	devpriv->digitalRead = digitalReadWPi;
+	 */
 
 	if ((boardRev = piBoardRev(dev)) < 0)
 		return -1;
@@ -842,14 +845,17 @@ static int wiringPiSetup(struct comedi_device *dev)
 
 static int wiringPiSetupGpio(struct comedi_device *dev)
 {
+	struct daqgert_private *devpriv = dev->private;
 	int x;
 
 	if ((x = wiringPiSetup(dev)) < 0)
 		return x;
 
-	pinMode = pinModeGpio;
-	digitalWrite = digitalWriteGpio;
-	digitalRead = digitalReadGpio;
+	/*
+		pinMode = pinModeGpio;
+		digitalWrite = digitalWriteGpio;
+		digitalRead = digitalReadGpio;
+	 */
 
 	return 0;
 }
