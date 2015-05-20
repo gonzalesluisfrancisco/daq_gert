@@ -54,19 +54,10 @@ Author: Fred Brooks <spam@sma2.rain.com>
 Most of the actual GPIO setup code was copied from
  * 
 WiringPI 
-
- ***********************************************************************
- * This file is part of wiringPi:
  *      https://projects.drogon.net/raspberry-pi/wiringpi/
  *
- * 
- Also 
- * 
  * Driver for Broadcom BCM2708 SPI Controllers
  *
- * Copyright (C) 2012 Chris Boot
- *
- * 
  Also many other Comedi drivers
  * 
 
@@ -180,7 +171,6 @@ static int32_t daqgert_ai_cancel(struct comedi_device *,
 static void daqgert_handle_ai_eoc(struct comedi_device *,
 	struct comedi_subdevice *);
 static void my_timer_ai_callback(unsigned long);
-//static void my_timer_ao_callback(unsigned long);
 static void daqgert_ai_set_chan_range(struct comedi_device *,
 	uint32_t, char);
 static uint32_t daqgert_ai_get_sample(struct comedi_device *,
@@ -318,15 +308,15 @@ struct daqgert_private {
 /* PIC Slave commands */
 #define CMD_ZERO        0b00000000
 #define CMD_ADC_GO	0b10000000
-#define CMD_PORT_GO	0b10100000	// send data LO_NIBBLE to port buffer
-#define CMD_CHAR_GO	0b10110000	// send data LO_NIBBLE to TX buffer
+#define CMD_PORT_GO	0b10100000	/* send data LO_NIBBLE to port buffer */
+#define CMD_CHAR_GO	0b10110000	/* send data LO_NIBBLE to TX buffer */
 #define CMD_ADC_DATA	0b11000000
-#define CMD_PORT_DATA	0b11010000	// send data HI_NIBBLE to port buffer ->PORT and return input PORT data in received SPI data byte
-#define CMD_CHAR_DATA	0b11100000	// send data HI_NIBBLE to TX buffer and return RX buffer in received SPI data byte
-#define CMD_XXXX	0b11110000	//
-#define CMD_CHAR_RX	0b00010000	// Get RX buffer
-#define CMD_DUMMY_CFG	0b01000000	// stuff config data in SPI buffer
-#define CMD_DEAD        0b11111111      // This is usually a bad response
+#define CMD_PORT_DATA	0b11010000	/* send data HI_NIBBLE to port buffer ->PORT and return input PORT data in received SPI data byte */
+#define CMD_CHAR_DATA	0b11100000	/* send data HI_NIBBLE to TX buffer and return RX buffer in received SPI data byte */
+#define CMD_XXXX	0b11110000	/* ??? */
+#define CMD_CHAR_RX	0b00010000	/* Get RX buffer */
+#define CMD_DUMMY_CFG	0b01000000	/* stuff config data in SPI buffer */
+#define CMD_DEAD        0b11111111      /* This is usually a bad response */
 
 #define WPI_MODE_PINS            0
 #define WPI_MODE_GPIO            1
@@ -343,9 +333,9 @@ struct daqgert_private {
 
 #define LOW              0
 #define HIGH             1
-
-// GPPUD:
-//      GPIO Pin pull up/down register
+/* GPPUD:
+ * GPIO Pin pull up/down register
+ */
 
 #define GPPUD   37
 #define PUD_OFF          0
@@ -356,8 +346,7 @@ struct daqgert_private {
 #define TRUE    (1==1)
 #define FALSE   (1==2)
 #endif
-
-// Port function select bits
+/* Port function select bits */
 #define FSEL_INPT               0b000
 #define FSEL_OUTP               0b001
 #define FSEL_ALT0               0b100
@@ -375,8 +364,9 @@ struct daqgert_private {
 #define NUM_DIO_OUTPUTS 8
 #define DIO_PINS_DEFAULT        0xff
 
-// Timer
-//      Word offsets
+/* Timer
+ *     Word offsets
+ */
 
 #define TIMER_LOAD      (0x400 >> 2)
 #define TIMER_VALUE     (0x404 >> 2)
@@ -391,7 +381,7 @@ struct daqgert_private {
 /* Locals to hold pointers to the hardware */
 
 /* Global for the RPi board rev */
-extern uint32_t system_rev; // from the kernel symbol table exports */
+extern uint32_t system_rev; /* from the kernel symbol table exports */
 extern uint32_t system_serial_low;
 extern uint32_t system_serial_high;
 
@@ -439,46 +429,47 @@ static int32_t wpi_pin_safe(struct comedi_device *dev, int32_t pin)
  */
 
 static int32_t pinToGpioR1 [64] = {
-	17, 18, 21, 22, 23, 24, 25, 4, // From the Original Wiki - GPIO 0 through 7:   wpi  0 -  7
-	0, 1, // I2C  - SDA1, SCL1                            wpi  8 -  9
-	8, 7, // SPI  - CE1, CE0                              wpi 10 - 11
-	10, 9, 11, // SPI  - MOSI, MISO, SCLK                      wpi 12 - 14
-	14, 15, // UART - Tx, Rx                                wpi 15 - 16
+	17, 18, 21, 22, 23, 24, 25, 4, /* From the Original Wiki - GPIO 0 through 7:   wpi  0 -  7 */
+	0, 1, /* I2C  - SDA1, SCL1                            wpi  8 -  9 */
+	8, 7, /* SPI  - CE1, CE0                              wpi 10 - 11 */
+	10, 9, 11, /* SPI  - MOSI, MISO, SCLK                      wpi 12 - 14 */
+	14, 15, /* UART - Tx, Rx                                wpi 15 - 16 */
 
-	// Padding:
+	/* Padding: */
 
-	-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, // ... 31
-	-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, // ... 47
-	-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, // ... 63
+	-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, /* ... 31 */
+	-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, /* ... 47 */
+	-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, /* ... 63 */
 };
 
-// Revision 2:
+/* Revision 2: */
 
 static int32_t pinToGpioR2 [64] = {
-	17, 18, 27, 22, 23, 24, 25, 4, // From the Original Wiki - GPIO 0 through 7:   wpi  0 -  7
-	2, 3, // I2C  - SDA0, SCL0                            wpi  8 -  9
-	8, 7, // SPI  - CE1, CE0                              wpi 10 - 11
-	10, 9, 11, // SPI  - MOSI, MISO, SCLK                      wpi 12 - 14
-	14, 15, // UART - Tx, Rx                                wpi 15 - 16
-	28, 29, 30, 31, // Rev 2: New GPIOs 8 though 11                 wpi 17 - 20
-	5, 6, 13, 19, 26, // B+                                           wpi 21, 22, 23, 24, 25
-	12, 16, 20, 21, // B+                                           wpi 26, 27, 28, 29
-	0, 1, // B+                                           wpi 30, 31
+	17, 18, 27, 22, 23, 24, 25, 4, /* From the Original Wiki - GPIO 0 through 7:   wpi  0 -  7 */
+	2, 3, /* I2C  - SDA0, SCL0                            wpi  8 -  9 */
+	8, 7, /* SPI  - CE1, CE0                              wpi 10 - 11 */
+	10, 9, 11, /* SPI  - MOSI, MISO, SCLK                      wpi 12 - 14 */
+	14, 15, /* UART - Tx, Rx                                wpi 15 - 16 */
+	28, 29, 30, 31, /* Rev 2: New GPIOs 8 though 11                 wpi 17 - 20 */
+	5, 6, 13, 19, 26, /* B+                                           wpi 21, 22, 23, 24, 25 */
+	12, 16, 20, 21, /* B+                                           wpi 26, 27, 28, 29 */
+	0, 1, /* B+                                           wpi 30, 31 */
 
-	// Padding:
+	/* Padding: */
 
-	-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, // ... 47
-	-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, // ... 63
+	-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
+	-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
 };
 
-// physToGpio:
-//      Take a physical pin (1 through 26) and re-map it to the BCM_GPIO pin
-//      Cope for 2 different board revisions here.
-//      Also add in the P5 connector, so the P5 pins are 3,4,5,6, so 53,54,55,56
+/*	physToGpio:
+	Take a physical pin (1 through 26) and re-map it to the BCM_GPIO pin
+	Cope for 2 different board revisions here.
+	Also add in the P5 connector, so the P5 pins are 3,4,5,6, so 53,54,55,56
+ */
 
 static int32_t physToGpioR1 [64] = {
-	-1, // 0
-	-1, -1, // 1, 2
+	-1, /* 0 */
+	-1, -1, /* 1, 2 */
 	0, -1,
 	1, -1,
 	4, 14,
@@ -490,16 +481,16 @@ static int32_t physToGpioR1 [64] = {
 	10, -1,
 	9, 25,
 	11, 8,
-	-1, 7, // 25, 26
+	-1, 7, /* 25, 26 */
 
-	-1, -1, -1, -1, -1, // ... 31
-	-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, // ... 47
-	-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, // ... 63
+	-1, -1, -1, -1, -1, /* ... 31 */
+	-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
+	-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
 };
 
 static int32_t physToGpioR2 [64] = {
-	-1, // 0
-	-1, -1, // 1, 2
+	-1, /* 0 */
+	-1, -1, /* 1, 2 */
 	2, -1,
 	3, -1,
 	4, 14,
@@ -511,9 +502,9 @@ static int32_t physToGpioR2 [64] = {
 	10, -1,
 	9, 25,
 	11, 8,
-	-1, 7, // 25, 26
+	-1, 7, /* 25, 26 */
 
-	// B+
+	/* B+ */
 
 	0, 1,
 	5, -1,
@@ -523,7 +514,7 @@ static int32_t physToGpioR2 [64] = {
 	26, 20,
 	-1, 21,
 
-	// the P5 connector on the Rev 2 boards:
+	/* the P5 connector on the Rev 2 boards: */
 
 	-1, -1,
 	-1, -1,
@@ -538,10 +529,12 @@ static int32_t physToGpioR2 [64] = {
 	-1, -1,
 };
 
-// gpioToGPFSEL:
-//      Map a BCM_GPIO pin to it's Function Selection
-//      control port. (GPFSEL 0-5)
-//      Groups of 10 - 3 bits per Function - 30 bits per port
+/*
+	gpioToGPFSEL:
+	Map a BCM_GPIO pin to it's Function Selection
+	control port. (GPFSEL 0-5)
+	Groups of 10 - 3 bits per Function - 30 bits per port
+ */
 
 static uint8_t gpioToGPFSEL [] = {
 	0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
@@ -552,9 +545,10 @@ static uint8_t gpioToGPFSEL [] = {
 	5, 5, 5, 5, 5, 5, 5, 5, 5, 5,
 };
 
-
-// gpioToShift
-//      Define the shift up for the 3 bits per pin in each GPFSEL port
+/*
+	gpioToShift
+	Define the shift up for the 3 bits per pin in each GPFSEL port
+ */
 
 static uint8_t gpioToShift [] = {
 	0, 3, 6, 9, 12, 15, 18, 21, 24, 27,
@@ -564,34 +558,40 @@ static uint8_t gpioToShift [] = {
 	0, 3, 6, 9, 12, 15, 18, 21, 24, 27,
 };
 
-
-// gpioToGPSET:
-//      (Word) offset to the GPIO Set registers for each GPIO pin
+/*
+	gpioToGPSET:
+	(Word) offset to the GPIO Set registers for each GPIO pin
+ */
 
 static uint8_t gpioToGPSET [] = {
 	7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7,
 	8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8,
 };
 
-// gpioToGPCLR:
-//      (Word) offset to the GPIO Clear registers for each GPIO pin
+/*
+	gpioToGPCLR:
+	(Word) offset to the GPIO Clear registers for each GPIO pin
+ */
 
 static uint8_t gpioToGPCLR [] = {
 	10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10,
 	11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11,
 };
 
-
-// gpioToGPLEV:
-//      (Word) offset to the GPIO Input level registers for each GPIO pin
+/*
+	gpioToGPLEV:
+	(Word) offset to the GPIO Input level registers for each GPIO pin
+ */
 
 static uint8_t gpioToGPLEV [] = {
 	13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13,
 	14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14,
 };
 
-// gpioToPUDCLK
-//      (Word) offset to the Pull Up Down Clock regsiter
+/*
+	gpioToPUDCLK
+	(Word) offset to the Pull Up Down Clock regsiter
+ */
 
 static uint8_t gpioToPUDCLK [] = {
 	38, 38, 38, 38, 38, 38, 38, 38, 38, 38, 38, 38, 38, 38, 38, 38, 38, 38, 38, 38, 38, 38, 38, 38, 38, 38, 38, 38, 38, 38, 38, 38,
@@ -609,7 +609,6 @@ static uint8_t gpioToPUDCLK [] = {
 
 static void pullUpDnControl(struct comedi_device *dev, int32_t pin, int32_t pud)
 {
-
 	struct daqgert_private *devpriv = dev->private;
 	uint32_t __iomem *gpio = devpriv->gpio;
 	int32_t *pinToGpio = devpriv->pinToGpio;
@@ -632,7 +631,7 @@ static void pullUpDnControl(struct comedi_device *dev, int32_t pin, int32_t pud)
  ************************************************************
  */
 
-static void pinModeGpio(struct comedi_device *dev, int pin, int mode)
+static void pinModeGpio(struct comedi_device *dev, int32_t pin, int32_t mode)
 {
 	struct daqgert_private *devpriv = dev->private;
 	uint32_t __iomem *gpio = devpriv->gpio;
@@ -642,17 +641,15 @@ static void pinModeGpio(struct comedi_device *dev, int pin, int mode)
 	fSel = gpioToGPFSEL [pin];
 	shift = gpioToShift [pin];
 
-	/**/ if (mode == INPUT) /* Sets bits to zero = input */
-		iowrite32(ioread32(gpio + fSel) & ~(7 << shift), gpio + fSel); // *(gpio + fSel) = (*(gpio + fSel) & ~(7 << shift));
+	if (mode == INPUT) /* Sets bits to zero = input */
+		iowrite32(ioread32(gpio + fSel) & ~(7 << shift), gpio + fSel);
 	else
-
 		if (mode == OUTPUT)
-		iowrite32((ioread32(gpio + fSel) & ~(7 << shift)) | (1 << shift), gpio + fSel); // *(gpio + fSel) = (*(gpio + fSel) & ~(7 << shift)) | (1 << shift);
+		iowrite32((ioread32(gpio + fSel) & ~(7 << shift)) | (1 << shift), gpio + fSel);
 }
 
 static void pinModeWPi(struct comedi_device *dev, int32_t pin, int32_t mode)
 {
-
 	struct daqgert_private *devpriv = dev->private;
 	int32_t *pinToGpio = devpriv->pinToGpio;
 
@@ -687,7 +684,6 @@ static void digitalWriteGpio(struct comedi_device *dev, int32_t pin, int32_t val
 	pin &= 63;
 	if (value == LOW)
 		iowrite32(1 << (pin & 31), gpio + gpioToGPCLR [pin]);
-
 	else
 		iowrite32(1 << (pin & 31), gpio + gpioToGPSET [pin]);
 }
@@ -698,7 +694,7 @@ static void digitalWriteGpio(struct comedi_device *dev, int32_t pin, int32_t val
  *******************************************************************
  */
 
-static int digitalReadWPi(struct comedi_device *dev, int32_t pin)
+static int32_t digitalReadWPi(struct comedi_device *dev, int32_t pin)
 {
 	struct daqgert_private *devpriv = dev->private;
 	uint32_t __iomem *gpio = devpriv->gpio;
@@ -707,12 +703,11 @@ static int digitalReadWPi(struct comedi_device *dev, int32_t pin)
 	pin = pinToGpio [pin & 63];
 	if ((ioread32(gpio + gpioToGPLEV [pin]) & (1 << (pin & 31))) != 0)
 		return HIGH;
-
 	else
 		return LOW;
 }
 
-static int digitalReadGpio(struct comedi_device *dev, int32_t pin)
+static int32_t digitalReadGpio(struct comedi_device *dev, int32_t pin)
 {
 	struct daqgert_private *devpriv = dev->private;
 	uint32_t __iomem *gpio = devpriv->gpio;
@@ -720,7 +715,6 @@ static int digitalReadGpio(struct comedi_device *dev, int32_t pin)
 	pin &= 63;
 	if ((ioread32(gpio + gpioToGPLEV [pin]) & (1 << (pin & 31))) != 0)
 		return HIGH;
-
 	else
 		return LOW;
 }
@@ -889,7 +883,6 @@ static int32_t daqgert_ai_thread_function(void *data)
 				devpriv->count++;
 			}
 		} else {
-
 			msleep(1);
 		}
 		devpriv->spi_run = false;
@@ -922,7 +915,7 @@ static void daqgert_ai_set_chan_range(struct comedi_device *dev,
 	mutex_unlock(&devpriv->drvdata_lock);
 }
 
-static unsigned int daqgert_ai_get_sample(struct comedi_device *dev,
+static uint32_t daqgert_ai_get_sample(struct comedi_device *dev,
 	struct comedi_subdevice *s)
 {
 	int32_t chan;
@@ -954,32 +947,32 @@ static unsigned int daqgert_ai_get_sample(struct comedi_device *dev,
 		val += pdata->rx_buff[0] << 8;
 	} else { /* Gertboard onboard ADC device */
 		if (devpriv->ai_hunk) { /* for single channel command scans with pre-formatted tx_buffer & transfer array */
-			spi_message_init_with_transfers(&m, &pdata->t[0], HUNK_LEN); // make the proper message with the transfers
+			spi_message_init_with_transfers(&m, &pdata->t[0], HUNK_LEN); /* make the proper message with the transfers */
 		} else {
-			memset(&pdata->t, 0, sizeof(pdata->t)); // clear the transfer array
-			pdata->tx_buff[2] = 0; // format the ADC data as a single transmission into the buffer
+			memset(&pdata->t, 0, sizeof(pdata->t)); /* clear the transfer array */
+			pdata->tx_buff[2] = 0; /* format the ADC data as a single transmission into the buffer */
 			pdata->tx_buff[1] = 0;
 			pdata->tx_buff[0] = 0b11010000 | ((chan & 0x01) << 5);
 
 			pdata->t[0].tx_buf = pdata->tx_buff;
-			if (spi_data->device_type == MCP3002) { // 10 bit adc data
+			if (spi_data->device_type == MCP3002) { /* 10 bit adc data */
 				pdata->t[0].len = 2;
 			} else {
 				pdata->t[0].len = 3;
 			}
 			pdata->t[0].rx_buf = pdata->rx_buff;
-			spi_message_init_with_transfers(&m, &pdata->t[0], 1); // make the proper message with the transfer
+			spi_message_init_with_transfers(&m, &pdata->t[0], 1); /* make the proper message with the transfer */
 		}
 		spi_bus_lock(spi_data->spi->master);
-		spi_sync_locked(spi_data->spi, &m); // exchange SPI data
+		spi_sync_locked(spi_data->spi, &m); /* exchange SPI data */
 		spi_bus_unlock(spi_data->spi->master);
 		/* ADC type code result munging */
 		if (devpriv->ai_hunk) { /* for single channel command scans */
 			val = 0; /* data in the buffers will be sent to comedi buffers later */
 		} else {
-			if (spi_data->device_type == MCP3002) { // 10 bit adc data
+			if (spi_data->device_type == MCP3002) {
 				val = ((pdata->rx_buff[0] << 7) | (pdata->rx_buff[1] >> 1)) & 0x3FF;
-			} else { // 12 bit adc data
+			} else {
 				val = (pdata->rx_buff[2]&0x80) >> 7;
 				val += pdata->rx_buff[1] << 1;
 				val += (pdata->rx_buff[0]&0x0f) << 9;
@@ -987,7 +980,6 @@ static unsigned int daqgert_ai_get_sample(struct comedi_device *dev,
 		}
 	}
 	mutex_unlock(&devpriv->drvdata_lock);
-
 	return val & s->maxdata;
 }
 
@@ -1016,7 +1008,6 @@ static bool daqgert_ai_next_chan(struct comedi_device *dev,
 		}
 	}
 	comedi_handle_events(dev, s);
-
 	return true;
 }
 
@@ -1050,7 +1041,7 @@ static void daqgert_ai_soft_trig(struct comedi_device *dev)
 	daqgert_ai_start_pacer(dev, true);
 }
 
-static int daqgert_ai_eoc(struct comedi_device *dev,
+static int32_t daqgert_ai_eoc(struct comedi_device *dev,
 	struct comedi_subdevice *s,
 	struct comedi_insn *insn,
 	unsigned long context)
@@ -1074,9 +1065,9 @@ static void transfer_from_hunk_buf(struct comedi_device *dev,
 	uint32_t val;
 
 	for (i = 0; i < len; i++) {
-		if (spi_data->device_type == MCP3002) { // 10 bit adc data
+		if (spi_data->device_type == MCP3002) {
 			val = ((ptr[0 + bufptr] << 7) | (ptr[1 + bufptr] >> 1)) & 0x3FF;
-		} else { // 12 bit adc data
+		} else {
 			val = (ptr[2 + bufptr]&0x80) >> 7;
 			val += ptr[1 + bufptr] << 1;
 			val += (ptr[0 + bufptr]&0x0f) << 9;
@@ -1119,8 +1110,8 @@ static void transfer_to_hunk_buf(struct comedi_device *dev,
 	uint8_t *tx_buff, *rx_buff;
 
 	chan = devpriv->chan;
-	memset(&pdata->t, 0, sizeof(pdata->t)); // clear the transfer array
-	if (spi_data->device_type == MCP3002) { // 10 bit adc data
+	memset(&pdata->t, 0, sizeof(pdata->t));
+	if (spi_data->device_type == MCP3002) {
 		len = 2;
 	} else {
 		len = 3;
@@ -1134,7 +1125,6 @@ static void transfer_to_hunk_buf(struct comedi_device *dev,
 				chan = devpriv->mix_chan;
 				delay_usecs = pdata->mix_delay_usecs;
 			} else {
-
 				chan = devpriv->chan;
 				delay_usecs = 0;
 			}
@@ -1166,7 +1156,7 @@ static void daqgert_handle_ai_hunk(struct comedi_device *dev,
 	ptr = (uint8_t *) pdata->rx_buff;
 	bufptr = 0;
 	len = HUNK_LEN;
-	if (spi_data->device_type == MCP3002) { // 10 bit adc data
+	if (spi_data->device_type == MCP3002) {
 		offset = 2;
 	} else {
 		offset = 3;
@@ -1203,10 +1193,9 @@ static void daqgert_ai_setup_hunk(struct comedi_device *dev,
 	ptr = (uint8_t *) pdata->tx_buff;
 	bufptr = 0;
 	len = HUNK_LEN;
-	if (spi_data->device_type == MCP3002) { // 10 bit adc data
+	if (spi_data->device_type == MCP3002) {
 		offset = 2;
 	} else {
-
 		offset = 3;
 	}
 	/* load the message for the ADC conversions in to the tx buffer */
@@ -1279,7 +1268,6 @@ static int32_t daqgert_ai_cmd(struct comedi_device *dev, struct comedi_subdevice
 	ret = 0;
 ai_cmd_exit:
 	mutex_unlock(&devpriv->cmd_lock);
-
 	return ret;
 }
 
@@ -1295,7 +1283,6 @@ static int32_t daqgert_ai_poll(struct comedi_device *dev, struct comedi_subdevic
 
 	num_bytes = comedi_buf_n_bytes_ready(s);
 	mutex_unlock(&devpriv->cmd_lock);
-
 	return num_bytes;
 }
 
@@ -1316,7 +1303,6 @@ static uint32_t daqgert_ai_delay_rate(struct comedi_device *dev, int32_t rate, i
 	spacing_usecs += CONV_SPEED_FIX;
 	if (device_type == MCP3002) spacing_usecs += CONV_SPEED_FIX_FAST;
 	dev_info(dev->class_dev, "rate %i, max_rate %i, spacing usecs %i\n", rate, devpriv->max_rate, spacing_usecs);
-
 	return spacing_usecs;
 }
 
@@ -1409,10 +1395,8 @@ static int32_t daqgert_ai_cmdtest(struct comedi_device *dev,
 	}
 
 	if (err)
-
 		return 4;
 
-	//	dev_info(dev->class_dev, "ai_cmdtest PASS\n");
 	return 0;
 }
 
@@ -1444,15 +1428,15 @@ static void daqgert_ai_clear_eoc(struct comedi_device * dev)
 	setup_timer(&devpriv->ai_spi->my_timer, my_timer_ai_callback, (unsigned long) dev);
 	devpriv->run = false;
 	devpriv->timer = false;
-	do { // wait if needed to SPI to clear or timeout
+	do { /* wait if needed to SPI to clear or timeout */
 		msleep(1);
 	} while (devpriv->spi_run || (count++ < 100));
 
-	devpriv->run = false; // just to be sure
+	devpriv->run = false;
 	devpriv->timer = false;
 }
 
-static int daqgert_ai_cancel(struct comedi_device *dev,
+static int32_t daqgert_ai_cancel(struct comedi_device *dev,
 	struct comedi_subdevice * s)
 {
 	struct daqgert_private *devpriv = dev->private;
@@ -1468,14 +1452,13 @@ static int daqgert_ai_cancel(struct comedi_device *dev,
 	devpriv->cmd_canceled = false;
 	devpriv->cmd_running = false;
 	mutex_unlock(&devpriv->cmd_lock);
-
 	return 0;
 }
 
 /* FIXME Slow brute forced IO bits, 5us reads from userland */
 
 /* need to use (fix) state to optimize changes */
-static int daqgert_dio_insn_bits(struct comedi_device *dev,
+static int32_t daqgert_dio_insn_bits(struct comedi_device *dev,
 	struct comedi_subdevice *s,
 	struct comedi_insn *insn, uint32_t *data)
 {
@@ -1493,7 +1476,6 @@ static int daqgert_dio_insn_bits(struct comedi_device *dev,
 		if (wpi_pin_safe(dev, pinWPi)) {
 			/* Do nothing on SPI AUX pins */
 			if (mask) {
-
 				if (mask & 0xffffffff)
 					devpriv->digitalWrite(dev, pinWPi,
 					(s->state & (0x01 << pinWPi)) >> pinWPi); /* output writes */
@@ -1567,7 +1549,6 @@ static int32_t daqgert_ai_rinsn(struct comedi_device *dev,
 	ret = 0;
 ai_read_exit:
 	mutex_unlock(&devpriv->cmd_lock);
-
 	return ret ? ret : insn->n;
 }
 
@@ -1590,7 +1571,6 @@ static int32_t daqgert_ao_winsn(struct comedi_device *dev,
 		spi_write_then_read(spi_data->spi, pdata->tx_buff, 2, pdata->rx_buff, 2); /* Load DAC channel, send two bytes */
 	}
 	s->readback[chan] = val;
-
 	return insn->n;
 }
 
@@ -1650,7 +1630,6 @@ static int32_t daqgert_auto_attach(struct comedi_device *dev, unsigned long cont
 	}
 
 	dev->iobase = GPIO_BASE; /* bcm iobase */
-
 	devpriv->gpio = ioremap(dev->iobase, SZ_16K); /* lets get access to the GPIO base */
 	if (!devpriv->gpio) {
 		dev_err(dev->class_dev, "invalid gpio io base address!\n");
@@ -1696,7 +1675,7 @@ static int32_t daqgert_auto_attach(struct comedi_device *dev, unsigned long cont
 	dev_info(dev->class_dev, "%s detection started\n", thisboard->name);
 	devpriv->num_subdev = 1;
 	if (daqgert_spi_probe(dev)) devpriv->num_subdev += 2;
-	// add AI and AO channels */
+	/* add AI and AO channels */
 	dev_info(dev->class_dev, "%s detection completed\n", thisboard->name);
 	ret = comedi_alloc_subdevices(dev, devpriv->num_subdev);
 	if (ret) {
@@ -1715,7 +1694,6 @@ static int32_t daqgert_auto_attach(struct comedi_device *dev, unsigned long cont
 	s->insn_bits = daqgert_dio_insn_bits;
 	s->insn_config = daqgert_dio_insn_config;
 	s->state = 0;
-	//	s->io_bits = DIO_PINS_DEFAULT; /* set output bits */
 
 	if (devpriv->num_subdev > 1) { /* we have the SPI ADC DAC on board */
 		/* daq_gert ai */
@@ -1784,7 +1762,6 @@ static void daqgert_detach(struct comedi_device * dev)
 	devpriv->ai_spi->daqgert_task = NULL;
 
 	if (1) {
-
 		/* remove kernel timer when unloading module */
 		del_timer_sync(&devpriv->ai_spi->my_timer);
 	}
@@ -1945,9 +1922,9 @@ static int32_t daqgert_spi_probe(struct comedi_device * dev)
 	dev_info(dev->class_dev,
 		"%s adc board pre detect code %i, daqgert_conf option value %i\n",
 		thisboard->name, ret, daqgert_conf);
-	if ((ret != 76) && (ret != 110)) { // PIC slave adc codes
+	if ((ret != 76) && (ret != 110)) { /* PIC slave adc codes */
 		ret = spi_w8r8(spi_adc.spi, 0b01100000); /* check for channel 0 SE */
-		if (1) { //FIXME need to add another probe test
+		if (1) { /* FIXME need to add another probe test */
 			spi_adc.pic18 = 0; /* MCP3X02 mode */
 			spi_adc.chan = thisboard->n_aichan;
 			spi_adc.range = 0; /* range 2.048 */
@@ -2017,6 +1994,6 @@ module_exit(daqgert_exit);
 
 MODULE_AUTHOR("Fred Brooks <spam@sma2.rain.com>");
 MODULE_DESCRIPTION("RPi DIO/AI/AO Driver");
-MODULE_VERSION("0.0.23");
+MODULE_VERSION("0.0.24");
 MODULE_LICENSE("GPL");
 MODULE_ALIAS("spi:spigert");
