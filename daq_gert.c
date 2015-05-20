@@ -228,6 +228,7 @@ struct daqgert_board {
 	int32_t n_aichan;
 	int32_t n_aochan;
 	uint32_t ai_ns_min;
+	uint32_t ai_ns_min_calc;
 };
 
 static const struct daqgert_board daqgert_boards[] = {
@@ -237,6 +238,7 @@ static const struct daqgert_board daqgert_boards[] = {
 		.n_aichan = 2,
 		.n_aochan = 2,
 		.ai_ns_min = 50000,
+		.ai_ns_min_calc = 35000,
 	},
 	{
 		.name = "Fredboard",
@@ -244,6 +246,7 @@ static const struct daqgert_board daqgert_boards[] = {
 		.n_aichan = 8,
 		.n_aochan = 8,
 		.ai_ns_min = 50000,
+		.ai_ns_min_calc = 35000,
 	},
 };
 
@@ -878,12 +881,12 @@ static int32_t daqgert_ai_thread_function(void *data)
 		if (devpriv->cmd_running) {
 			if (devpriv->ai_hunk) {
 				daqgert_handle_ai_hunk(dev, s);
-				usleep_range(50, 250);
+				usleep_range(50, 60);
 				devpriv->hunk_count++;
 				hunk_count = devpriv->hunk_count;
 			} else {
 				daqgert_handle_ai_eoc(dev, s);
-				usleep_range(50, 250);
+				usleep_range(50, 60);
 				devpriv->count++;
 			}
 		} else {
@@ -1358,7 +1361,7 @@ static int32_t daqgert_ai_cmdtest(struct comedi_device *dev,
 		/* find a power of 2 for the number of channels */
 		while (i < (cmd->chanlist_len))
 			i = i * 2;
-		err |= cfc_check_trigger_arg_min(&cmd->scan_begin_arg, 35000 / 2 * i); /* 2 is num of channels */
+		err |= cfc_check_trigger_arg_min(&cmd->scan_begin_arg, board->ai_ns_min_calc / 2 * i); /* 2 is num of channels */
 		/* now calc the real sampling rate with all the
 		 * rounding errors */
 		tmp_timer = ((uint32_t) (cmd->scan_begin_arg / board->ai_ns_min)) * board->ai_ns_min;
