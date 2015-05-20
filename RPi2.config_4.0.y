@@ -1,6 +1,6 @@
 #
 # Automatically generated file; DO NOT EDIT.
-# Linux/arm 4.0.2 Kernel Configuration
+# Linux/arm 4.0.4 Kernel Configuration
 #
 CONFIG_ARM=y
 CONFIG_SYS_SUPPORTS_APM_EMULATION=y
@@ -2053,7 +2053,8 @@ CONFIG_SPI_BCM2708=m
 #
 # SPI Protocol Masters
 #
-CONFIG_SPI_SPIDEV=y
+# CONFIG_SPI_SPIDEV is not set
+CONFIG_SPI_COMEDI=y
 # CONFIG_SPI_TLE62X0 is not set
 # CONFIG_SPMI is not set
 # CONFIG_HSI is not set
