@@ -1,24 +1,12 @@
 diff --git a/arch/arm/mach-bcm2708/bcm2708.c b/arch/arm/mach-bcm2708/bcm2708.c
-index 762e17c..329f978 100644
+index 81cc988..dc6551c 100644
 --- a/arch/arm/mach-bcm2708/bcm2708.c
 +++ b/arch/arm/mach-bcm2708/bcm2708.c
-@@ -563,16 +563,29 @@ static struct spi_board_info bcm2708_spi_devices[] = {
- 	{
- 		.modalias = "spidev",
- 		.max_speed_hz = 500000,
--		.bus_num = 0,
-+		.bus_num = 1,
- 		.chip_select = 0,
+@@ -655,6 +655,21 @@ static struct spi_board_info bcm2708_spi_devices[] = {
  		.mode = SPI_MODE_0,
- 	}, {
- 		.modalias = "spidev",
- 		.max_speed_hz = 500000,
--		.bus_num = 0,
-+		.bus_num = 1,
- 		.chip_select = 1,
- 		.mode = SPI_MODE_0,
--	}
-+	},
+ 	}
+ #endif
++#ifdef CONFIG_SPI_COMEDI
 +        {
 +                .modalias = "spigert",
 +                .max_speed_hz = 500000,
@@ -32,30 +20,19 @@ index 762e17c..329f978 100644
 +                .chip_select = 1,
 +                .mode = SPI_MODE_0,
 +        }
- #endif
++#endif
  };
  #endif
+ 
 diff --git a/arch/arm/mach-bcm2709/bcm2709.c b/arch/arm/mach-bcm2709/bcm2709.c
-index 7e3affd..9125592 100644
+index 528bf6e..af077a3 100644
 --- a/arch/arm/mach-bcm2709/bcm2709.c
 +++ b/arch/arm/mach-bcm2709/bcm2709.c
-@@ -585,16 +585,29 @@ static struct spi_board_info bcm2708_spi_devices[] = {
- 	{
- 		.modalias = "spidev",
- 		.max_speed_hz = 500000,
--		.bus_num = 0,
-+		.bus_num = 1,
- 		.chip_select = 0,
+@@ -676,6 +676,21 @@ static struct spi_board_info bcm2708_spi_devices[] = {
  		.mode = SPI_MODE_0,
- 	}, {
- 		.modalias = "spidev",
- 		.max_speed_hz = 500000,
--		.bus_num = 0,
-+		.bus_num = 1,
- 		.chip_select = 1,
- 		.mode = SPI_MODE_0,
--	}
-+	},
+ 	}
+ #endif
++#ifdef CONFIG_SPI_COMEDI
 +        {
 +                .modalias = "spigert",
 +                .max_speed_hz = 500000,
@@ -69,11 +46,32 @@ index 7e3affd..9125592 100644
 +                .chip_select = 1,
 +                .mode = SPI_MODE_0,
 +        }
- #endif
++#endif
  };
  #endif
+ 
+diff --git a/drivers/spi/Kconfig b/drivers/spi/Kconfig
+index 113bf64..7b2e7ba 100644
+--- a/drivers/spi/Kconfig
++++ b/drivers/spi/Kconfig
+@@ -660,6 +660,15 @@ config SPI_SPIDEV
+ 	  Note that this application programming interface is EXPERIMENTAL
+ 	  and hence SUBJECT TO CHANGE WITHOUT NOTICE while it stabilizes.
+ 
++config SPI_COMEDI
++        tristate "Comedi mode SPI device driver support for daq_gert"
++	depends on !SPI_SPIDEV
++        help
++          This supports the daq_gert Comedi mode SPI protocol driver.
++
++          Note that this application programming interface is EXPERIMENTAL
++          and hence SUBJECT TO CHANGE WITHOUT NOTICE while it stabilizes.
++
+ config SPI_TLE62X0
+ 	tristate "Infineon TLE62X0 (for power switching)"
+ 	depends on SYSFS
 diff --git a/drivers/staging/comedi/Kconfig b/drivers/staging/comedi/Kconfig
-index 152f4c1..c749980 100644
+index 593fcb1..703eba4 100644
 --- a/drivers/staging/comedi/Kconfig
 +++ b/drivers/staging/comedi/Kconfig
 @@ -84,6 +84,14 @@ config COMEDI_SERIAL2002
@@ -81,9 +79,9 @@ index 152f4c1..c749980 100644
  	  called serial2002.
  
 +config COMEDI_DAQ_GERT
-+        tristate "Driver for RPi connected hardware"
++        tristate "Driver for RPi GPIO and SPI connected hardware"
 +        ---help---
-+          Enable support for RPi connected hardware
++          Enable support for RPi GPIO and SPI connected hardware
 +
 +          To compile this driver as a module, choose M here: the module will be
 +          called daq_gert.
@@ -92,10 +90,10 @@ index 152f4c1..c749980 100644
  	tristate "SSV Embedded Systems DIL/Net-PC support"
  	depends on X86_32 || COMPILE_TEST
 diff --git a/drivers/staging/comedi/drivers/Makefile b/drivers/staging/comedi/drivers/Makefile
-index 6bc9ef3..3ead1ea 100644
+index 7d1fbd5..2bf504f 100644
 --- a/drivers/staging/comedi/drivers/Makefile
 +++ b/drivers/staging/comedi/drivers/Makefile
-@@ -9,6 +9,7 @@ obj-$(CONFIG_COMEDI_BOND)		+= comedi_bond.o
+@@ -10,6 +10,7 @@ obj-$(CONFIG_COMEDI_BOND)		+= comedi_bond.o
  obj-$(CONFIG_COMEDI_TEST)		+= comedi_test.o
  obj-$(CONFIG_COMEDI_PARPORT)		+= comedi_parport.o
  obj-$(CONFIG_COMEDI_SERIAL2002)		+= serial2002.o
