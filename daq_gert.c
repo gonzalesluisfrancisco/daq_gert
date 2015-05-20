@@ -23,6 +23,8 @@
 /*
 Driver: "experimental" daq_gert in progress ... for 4.+ kernels
  * 
+ * This driver requires a kernel patch to gain direct SPI access at the kernel.
+ * 
  * git clone https://github.com/nsaspook/daq_gert.git
  * 
  * Test program executable: bmc_test_program
@@ -39,8 +41,10 @@ Driver: "experimental" daq_gert in progress ... for 4.+ kernels
  * patch -p1 <daq_gert.diff
  * 
  *  make -j4 for a RPi 2
+ *  select SPI_COMEDI=y in SPI MASTERS to enable the SPI side of the driver (SPI_SPIDEV must be deselected )
+ *  select DAQ_GERT=m to select the Comedi protocol part of the driver
  *  make modules_install
- *  to recompile the Linux kernel with the SPI inline instead of a module
+ *  to recompile the Linux kernel with the Comedi SPI module link
  *  and to make the needed daq_gert module
  *  then copy the Image file to the /boot directory with a new kernel image name
  *  and modify the boot file to use that image
