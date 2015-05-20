@@ -899,6 +899,19 @@ static int32_t daqgert_ai_thread_function(void *data)
 
 }
 
+/* A client must be connected with a valid comedi cmd for this not to segfault */
+static int32_t daqgert_ao_thread_function(void *data)
+{
+	struct comedi_device *dev = (void*) data;
+
+	while (!kthread_should_stop()) {
+		msleep(1);
+	}
+	/*do_exit(1);*/
+	return 0;
+
+}
+
 static void daqgert_ai_start_pacer(struct comedi_device *dev, bool load_timers)
 {
 	struct daqgert_private *devpriv = dev->private;
@@ -1744,13 +1757,15 @@ static int32_t daqgert_auto_attach(struct comedi_device *dev, unsigned long cont
 		s->insn_read = comedi_readback_insn_read;
 		comedi_alloc_subdev_readback(s);
 	}
-	/* setup kthread */
+	/* setup kthreads */
 	if (devpriv->hunk) {
-		devpriv->ai_spi->daqgert_task = kthread_run(&daqgert_ai_thread_function, (void *) dev, "daqgert_hunk");
+		devpriv->ai_spi->daqgert_task = kthread_run(&daqgert_ai_thread_function, (void *) dev, "daqgert_h_a");
+		devpriv->ao_spi->daqgert_task = kthread_run(&daqgert_ao_thread_function, (void *) dev, "daqgert_h_d");
 	} else {
-		devpriv->ai_spi->daqgert_task = kthread_run(&daqgert_ai_thread_function, (void *) dev, "daqgert");
+		devpriv->ai_spi->daqgert_task = kthread_run(&daqgert_ai_thread_function, (void *) dev, "daqgert_a");
+		devpriv->ao_spi->daqgert_task = kthread_run(&daqgert_ao_thread_function, (void *) dev, "daqgert_d");
 	}
-	dev_info(dev->class_dev, "daq_gert SPI ADC i/o thread started\n");
+	dev_info(dev->class_dev, "daq_gert SPI i/o threads started\n");
 
 	dev_info(dev->class_dev, "%s attached: gpio iobase 0x%lx, ioremap 0x%lx, io pins 0x%x\n",
 		dev->driver->driver_name,
@@ -1764,6 +1779,9 @@ static int32_t daqgert_auto_attach(struct comedi_device *dev, unsigned long cont
 static void daqgert_detach(struct comedi_device * dev)
 {
 	struct daqgert_private *devpriv = dev->private;
+
+	if (devpriv->ao_spi->daqgert_task) kthread_stop(devpriv->ao_spi->daqgert_task);
+	devpriv->ao_spi->daqgert_task = NULL;
 
 	if (devpriv->ai_spi->daqgert_task) kthread_stop(devpriv->ai_spi->daqgert_task);
 	devpriv->ai_spi->daqgert_task = NULL;
