@@ -182,6 +182,8 @@ static uint32_t daqgert_ai_get_sample(struct comedi_device *,
 static void daqgert_handle_ai_hunk(struct comedi_device *,
 	struct comedi_subdevice *);
 
+#define AO_TESTING	true
+
 /* analog chip types (type - 12 bits) */
 #define MCP3002 2 /* 10 bit ADC */
 #define MCP3202 0
@@ -924,7 +926,7 @@ static int32_t daqgert_ao_thread_function(void *data)
 			pdata->tx_buff[0] = (0b00110000 | ((chan & 0x01) << 7) | (junk >> 8));
 			spi_write_then_read(spi_data->spi, pdata->tx_buff, 2, pdata->rx_buff, 2); /* Load DAC channel, send two bytes */
 			s->readback[chan] = val;
-			usleep_range(500, 600);
+			usleep_range(50, 60);
 		} else {
 			msleep(1);
 		}
@@ -1347,7 +1349,7 @@ static int32_t daqgert_ai_cmd(struct comedi_device *dev, struct comedi_subdevice
 	devpriv->timer = true;
 	daqgert_ai_start_pacer(dev, true);
 	devpriv->ai_cmd_running = true;
-	devpriv->ao_cmd_running = true;
+	devpriv->ao_cmd_running = AO_TESTING;
 	devpriv->ai_cmd_canceled = false;
 	ret = 0;
 ai_cmd_exit:
