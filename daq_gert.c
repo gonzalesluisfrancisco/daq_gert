@@ -284,6 +284,7 @@ static struct spi_param_type spi_adc = {
 struct daqgert_private {
 	uint32_t RPisys_rev;
 	uint32_t __iomem *gpio;
+	uint32_t __iomem *timer_1mhz;
 	int32_t *pinToGpio;
 	int32_t *physToGpio;
 	int32_t board_rev;
@@ -374,7 +375,7 @@ struct daqgert_private {
 #define NUM_DIO_OUTPUTS 8
 #define DIO_PINS_DEFAULT        0xff
 
-/* Timer
+/* GPIO Timer
  *     Word offsets
  */
 
@@ -1812,6 +1813,12 @@ static int32_t daqgert_auto_attach(struct comedi_device *dev, unsigned long cont
 		return -EINVAL;
 	}
 
+	devpriv->timer_1mhz = ioremap(ST_BASE, 8); /* lets get access to the timer base */
+	if (!devpriv->timer_1mhz) {
+		dev_err(dev->class_dev, "invalid 1mhz timer base address!\n");
+		return -EINVAL;
+	}
+
 	/* setup the pins in a static matter for now */
 	/* PIN mode for all */
 	if (wiringpi) {
@@ -1926,11 +1933,14 @@ static int32_t daqgert_auto_attach(struct comedi_device *dev, unsigned long cont
 	}
 	dev_info(dev->class_dev, "daq_gert SPI i/o threads started\n");
 
-	dev_info(dev->class_dev, "%s attached: gpio iobase 0x%lx, ioremap 0x%lx, io pins 0x%x\n",
+	dev_info(dev->class_dev, "%s attached: gpio iobase 0x%lx, ioremaps 0x%lx  0x%lx, io pins 0x%x, 1Mhz timer value 0x%x:0x%x\n",
 		dev->driver->driver_name,
 		dev->iobase,
 		(long unsigned int) devpriv->gpio,
-		(uint32_t) s->io_bits);
+		(long unsigned int) devpriv->timer_1mhz,
+		(uint32_t) s->io_bits,
+		(uint32_t) ioread32(devpriv->timer_1mhz + 2),
+		(uint32_t) ioread32(devpriv->timer_1mhz + 1));
 
 	return 0;
 }
@@ -1950,6 +1960,7 @@ static void daqgert_detach(struct comedi_device * dev)
 		del_timer_sync(&devpriv->ai_spi->my_timer);
 	}
 
+	iounmap(devpriv->timer_1mhz);
 	iounmap(devpriv->gpio);
 	dev_info(dev->class_dev, "daq_gert detached\n");
 }
