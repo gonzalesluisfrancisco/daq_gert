@@ -286,9 +286,10 @@ struct daqgert_private {
 	int32_t *physToGpio;
 	int32_t board_rev;
 	int32_t num_subdev;
-	int32_t max_rate;
+	int32_t max_rate, ao_timer, ao_counter;
 	uint32_t conv_delay_usecs, conv_delay_10nsecs, cmd_delay_usecs, ai_neverending;
-	int32_t chan, timer, run, spi_run, count, hunk_count, cmd_running, cmd_canceled;
+	int32_t chan, timer, run, spi_run, count, hunk_count, ai_cmd_running, ai_cmd_canceled,
+	ao_cmd_running, ao_cmd_canceled;
 	struct mutex drvdata_lock, cmd_lock;
 	uint32_t val;
 	uint16_t hunk : 1;
@@ -878,7 +879,7 @@ static int32_t daqgert_ai_thread_function(void *data)
 			}
 			if (kthread_should_stop()) return 0;
 		}
-		if (devpriv->cmd_running) {
+		if (devpriv->ai_cmd_running) {
 			if (devpriv->ai_hunk) {
 				daqgert_handle_ai_hunk(dev, s);
 				usleep_range(50, 60);
@@ -903,9 +904,30 @@ static int32_t daqgert_ai_thread_function(void *data)
 static int32_t daqgert_ao_thread_function(void *data)
 {
 	struct comedi_device *dev = (void*) data;
+	struct comedi_subdevice *s = &dev->subdevices[2];
+	struct daqgert_private *devpriv = dev->private;
+
+	struct spi_param_type *spi_data = s->private;
+	struct spi_device *spi = spi_data->spi;
+	struct comedi_control *pdata = spi->dev.platform_data;
+	uint32_t chan = CR_CHAN(0);
+	uint32_t n = 0, junk, val = s->readback[chan];
 
 	while (!kthread_should_stop()) {
-		msleep(1);
+		if (devpriv->ao_cmd_running) { /* signal generation code testing */
+			if ((n++ % 2) == 0)
+				val = 2048;
+			else
+				val = 128;
+			junk = val & 0xfff; /* strip to 12 bits */
+			pdata->tx_buff[1] = junk & 0xff; /* load lsb SPI data into transfer buffer */
+			pdata->tx_buff[0] = (0b00110000 | ((chan & 0x01) << 7) | (junk >> 8));
+			spi_write_then_read(spi_data->spi, pdata->tx_buff, 2, pdata->rx_buff, 2); /* Load DAC channel, send two bytes */
+			s->readback[chan] = val;
+			usleep_range(500, 600);
+		} else {
+			msleep(1);
+		}
 	}
 	/*do_exit(1);*/
 	return 0;
@@ -1222,6 +1244,47 @@ static void daqgert_ai_setup_hunk(struct comedi_device *dev,
 	transfer_to_hunk_buf(dev, s, ptr, bufptr, len, offset, mix_mode);
 }
 
+static int32_t daqgert_ao_cmd(struct comedi_device *dev, struct comedi_subdevice *s)
+{
+	struct comedi_cmd *cmd = &s->async->cmd;
+	struct daqgert_private *devpriv = dev->private;
+	int ret = -EBUSY;
+
+	mutex_lock(&devpriv->cmd_lock);
+	if (devpriv->ao_cmd_running)
+		goto ao_cmd_exit;
+
+	/* 1ms */
+	/* timing of the scan: we get all channels at once */
+	devpriv->ao_timer = cmd->scan_begin_arg / 1000000;
+	if (devpriv->ao_timer < 1) {
+		ret = -EINVAL;
+		goto ao_cmd_exit;
+	}
+	devpriv->ao_counter = devpriv->ao_timer;
+
+	if (cmd->start_src == TRIG_NOW) {
+		/* enable this acquisition operation */
+		devpriv->ao_cmd_running = 1;
+		/*		ret = usbdux_submit_urbs(dev, devpriv->ao_urbs,
+					devpriv->n_ao_urbs, 0); */
+		if (ret < 0) {
+			devpriv->ao_cmd_running = 0;
+			goto ao_cmd_exit;
+		}
+		s->async->inttrig = NULL;
+	} else {
+		/* TRIG_INT */
+		/* submit the urbs later */
+		/* wait for an internal signal */
+		/*		s->async->inttrig = usbdux_ao_inttrig; */
+	}
+
+ao_cmd_exit:
+	mutex_unlock(&devpriv->cmd_lock);
+	return ret;
+}
+
 static int32_t daqgert_ai_cmd(struct comedi_device *dev, struct comedi_subdevice * s)
 {
 	struct comedi_cmd *cmd = &s->async->cmd;
@@ -1231,7 +1294,7 @@ static int32_t daqgert_ai_cmd(struct comedi_device *dev, struct comedi_subdevice
 
 	mutex_lock(&devpriv->cmd_lock);
 	dev_info(dev->class_dev, "ai_cmd\n");
-	if (devpriv->cmd_running) {
+	if (devpriv->ai_cmd_running) {
 		dev_info(dev->class_dev, "ai_cmd busy\n");
 		goto ai_cmd_exit;
 	}
@@ -1283,12 +1346,80 @@ static int32_t daqgert_ai_cmd(struct comedi_device *dev, struct comedi_subdevice
 	devpriv->run = false;
 	devpriv->timer = true;
 	daqgert_ai_start_pacer(dev, true);
-	devpriv->cmd_running = true;
-	devpriv->cmd_canceled = false;
+	devpriv->ai_cmd_running = true;
+	devpriv->ao_cmd_running = true;
+	devpriv->ai_cmd_canceled = false;
 	ret = 0;
 ai_cmd_exit:
 	mutex_unlock(&devpriv->cmd_lock);
 	return ret;
+}
+
+static int32_t daqgert_ao_cmdtest(struct comedi_device *dev,
+	struct comedi_subdevice *s, struct comedi_cmd *cmd)
+{
+	struct daqgert_private *this_daqgert = dev->private;
+	int32_t err = 0;
+	uint32_t flags;
+
+	if (!this_daqgert)
+		return -EFAULT;
+
+	/* Step 1 : check if triggers are trivially valid */
+
+	err |= cfc_check_trigger_src(&cmd->start_src, TRIG_NOW | TRIG_INT);
+
+	/* start a new scan (output at once) with a timer */
+	flags = TRIG_TIMER;
+
+	err |= cfc_check_trigger_src(&cmd->scan_begin_src, flags);
+
+	/*
+	 * all conversion events happen simultaneously with
+	 * a rate of 1kHz/n
+	 */
+	flags = TRIG_NOW;
+
+	err |= cfc_check_trigger_src(&cmd->convert_src, flags);
+
+	err |= cfc_check_trigger_src(&cmd->scan_end_src, TRIG_COUNT);
+	err |= cfc_check_trigger_src(&cmd->stop_src, TRIG_COUNT | TRIG_NONE);
+
+	if (err)
+		return 1;
+
+	/* Step 2a : make sure trigger sources are unique */
+
+	err |= cfc_check_trigger_is_unique(cmd->start_src);
+	err |= cfc_check_trigger_is_unique(cmd->stop_src);
+
+	/* Step 2b : and mutually compatible */
+
+	if (err)
+		return 2;
+
+	/* Step 3: check if arguments are trivially valid */
+
+	err |= cfc_check_trigger_arg_is(&cmd->start_arg, 0);
+
+	if (cmd->scan_begin_src == TRIG_FOLLOW) /* internal trigger */
+		err |= cfc_check_trigger_arg_is(&cmd->scan_begin_arg, 0);
+
+	if (cmd->scan_begin_src == TRIG_TIMER)
+		err |= cfc_check_trigger_arg_min(&cmd->scan_begin_arg,
+		1000000);
+
+	err |= cfc_check_trigger_arg_is(&cmd->scan_end_arg, cmd->chanlist_len);
+
+	if (cmd->stop_src == TRIG_COUNT)
+		err |= cfc_check_trigger_arg_min(&cmd->stop_arg, 1);
+	else /* TRIG_NONE */
+		err |= cfc_check_trigger_arg_is(&cmd->stop_arg, 0);
+
+	if (err)
+		return 3;
+
+	return 0;
 }
 
 static int32_t daqgert_ai_poll(struct comedi_device *dev, struct comedi_subdevice * s)
@@ -1469,8 +1600,31 @@ static int32_t daqgert_ai_cancel(struct comedi_device *dev,
 	devpriv->ai_hunk = false;
 	s->async->cur_chan = 0;
 	s->async->inttrig = NULL;
-	devpriv->cmd_canceled = false;
-	devpriv->cmd_running = false;
+	devpriv->ai_cmd_canceled = false;
+	devpriv->ai_cmd_running = false;
+	devpriv->ao_cmd_running = false;
+	mutex_unlock(&devpriv->cmd_lock);
+	return 0;
+}
+
+static void daqgert_ao_stop(struct comedi_device *dev, int32_t do_unlink)
+{
+	struct daqgert_private *devpriv = dev->private;
+
+	if (do_unlink)
+		;
+	devpriv->ao_cmd_running = 0;
+}
+
+static int32_t daqgert_ao_cancel(struct comedi_device *dev,
+	struct comedi_subdevice *s)
+{
+	struct daqgert_private *devpriv = dev->private;
+
+	/* prevent other CPUs from submitting a command just now */
+	mutex_lock(&devpriv->cmd_lock);
+	/* unlink only if it is really running */
+	daqgert_ao_stop(dev, devpriv->ao_cmd_running);
 	mutex_unlock(&devpriv->cmd_lock);
 	return 0;
 }
@@ -1555,7 +1709,7 @@ static int32_t daqgert_ai_rinsn(struct comedi_device *dev,
 	struct daqgert_private *devpriv = dev->private;
 
 	mutex_lock(&devpriv->cmd_lock);
-	if (devpriv->cmd_running)
+	if (devpriv->ai_cmd_running)
 		goto ai_read_exit;
 
 	mutex_lock(&devpriv->drvdata_lock);
@@ -1748,13 +1902,16 @@ static int32_t daqgert_auto_attach(struct comedi_device *dev, unsigned long cont
 		num_ao_chan = daqgert_ao_config(dev, s); /* config SPI ports for ao use */
 		s->type = COMEDI_SUBD_AO;
 		/* we support single-ended (ground)  */
-		s->subdev_flags = SDF_WRITABLE | SDF_GROUND;
+		s->subdev_flags = SDF_WRITABLE | SDF_GROUND | SDF_CMD_WRITE;
 		s->n_chan = num_ao_chan;
 		s->len_chanlist = num_ao_chan;
 		s->maxdata = (1 << 12) - 1; /* the actual analog resolution depends on the DAC chip 8,10,12 */
 		s->range_table = &daqgert_ao_range;
 		s->insn_write = daqgert_ao_winsn;
 		s->insn_read = comedi_readback_insn_read;
+		s->do_cmdtest = daqgert_ao_cmdtest;
+		s->do_cmd = daqgert_ao_cmd;
+		s->cancel = daqgert_ao_cancel;
 		comedi_alloc_subdev_readback(s);
 	}
 	/* setup kthreads */
