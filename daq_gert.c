@@ -853,7 +853,10 @@ static int32_t wiringPiSetupGpio(struct comedi_device *dev)
 	return 0;
 }
 
-/* A client must be connected with a valid comedi cmd for this not to segfault */
+/* A client must be connected with a valid comedi cmd 
+ * and *data a pointer to that comedi structure
+ * for this not to segfault 
+ */
 static int32_t daqgert_ai_thread_function(void *data)
 {
 	struct comedi_device *dev = (void*) data;
@@ -893,16 +896,16 @@ static int32_t daqgert_ai_thread_function(void *data)
 
 }
 
-/* A client must be connected with a valid comedi cmd for this not to segfault */
 static int32_t daqgert_ao_thread_function(void *data)
 {
 	struct comedi_device *dev = (void*) data;
 	struct comedi_subdevice *s = &dev->subdevices[2];
 	struct daqgert_private *devpriv = dev->private;
-
 	struct spi_param_type *spi_data = s->private;
 	struct spi_device *spi = spi_data->spi;
 	struct comedi_control *pdata = spi->dev.platform_data;
+	struct comedi_cmd *cmd = &s->async->cmd;
+
 	uint32_t chan = CR_CHAN(0);
 	uint32_t n = 0, junk, val = s->readback[chan];
 
@@ -918,6 +921,12 @@ static int32_t daqgert_ao_thread_function(void *data)
 			spi_write_then_read(spi_data->spi, pdata->tx_buff, 2, pdata->rx_buff, 2); /* Load DAC channel, send two bytes */
 			s->readback[chan] = val;
 			usleep_range(50, 60);
+			if (cmd->stop_src == TRIG_COUNT &&
+				s->async->scans_done >= cmd->stop_arg) {
+				s->async->events |= COMEDI_CB_EOA;
+				comedi_event(dev, s);
+				devpriv->ao_cmd_running = false;
+			}
 		} else {
 			msleep(1);
 		}
@@ -1095,6 +1104,7 @@ static void transfer_from_hunk_buf(struct comedi_device *dev,
 	uint32_t bufptr, uint32_t len, uint32_t offset,
 	bool mix_mode)
 {
+	struct comedi_cmd *cmd = &s->async->cmd;
 	struct spi_param_type *spi_data = s->private;
 	uint32_t i;
 	uint32_t val;
@@ -1125,6 +1135,10 @@ static void transfer_from_hunk_buf(struct comedi_device *dev,
 			comedi_buf_write_samples(s, &val, 1);
 			s->async->events |= COMEDI_CB_EOS;
 		}
+
+		if (cmd->stop_src == TRIG_COUNT &&
+			s->async->scans_done >= cmd->stop_arg)
+			s->async->events |= COMEDI_CB_EOA;
 		comedi_handle_events(dev, s);
 	}
 
@@ -1237,6 +1251,59 @@ static void daqgert_ai_setup_hunk(struct comedi_device *dev,
 	transfer_to_hunk_buf(dev, s, ptr, bufptr, len, offset, mix_mode);
 }
 
+static int32_t daqgert_ai_inttrig(struct comedi_device *dev,
+	struct comedi_subdevice *s,
+	uint32_t trig_num)
+{
+	struct daqgert_private *devpriv = dev->private;
+	struct comedi_cmd *cmd = &s->async->cmd;
+	int32_t ret = 0;
+
+	if (trig_num != cmd->start_arg)
+		return -EINVAL;
+
+	mutex_lock(&devpriv->cmd_lock);
+
+	if (!devpriv->ai_cmd_running) {
+		devpriv->run = false;
+		devpriv->timer = true;
+		daqgert_ai_start_pacer(dev, true);
+		devpriv->ai_cmd_running = true;
+		devpriv->ao_cmd_running = AO_TESTING;
+		devpriv->ai_cmd_canceled = false;
+		s->async->inttrig = NULL;
+	} else {
+		ret = -EBUSY;
+	}
+
+	mutex_unlock(&devpriv->cmd_lock);
+	return ret;
+}
+
+static int32_t daqgert_ao_inttrig(struct comedi_device *dev,
+	struct comedi_subdevice *s,
+	uint32_t trig_num)
+{
+	struct daqgert_private *devpriv = dev->private;
+	struct comedi_cmd *cmd = &s->async->cmd;
+	int32_t ret = 0;
+
+	if (trig_num != cmd->start_arg)
+		return -EINVAL;
+
+	mutex_lock(&devpriv->cmd_lock);
+
+	if (!devpriv->ao_cmd_running) {
+		devpriv->ao_cmd_running = true;
+		s->async->inttrig = NULL;
+	} else {
+		ret = -EBUSY;
+	}
+
+	mutex_unlock(&devpriv->cmd_lock);
+	return ret;
+}
+
 static int32_t daqgert_ao_cmd(struct comedi_device *dev, struct comedi_subdevice *s)
 {
 	struct comedi_cmd *cmd = &s->async->cmd;
@@ -1259,18 +1326,11 @@ static int32_t daqgert_ao_cmd(struct comedi_device *dev, struct comedi_subdevice
 	if (cmd->start_src == TRIG_NOW) {
 		/* enable this acquisition operation */
 		devpriv->ao_cmd_running = 1;
-		/*		ret = usbdux_submit_urbs(dev, devpriv->ao_urbs,
-					devpriv->n_ao_urbs, 0); */
-		if (ret < 0) {
-			devpriv->ao_cmd_running = 0;
-			goto ao_cmd_exit;
-		}
 		s->async->inttrig = NULL;
 	} else {
 		/* TRIG_INT */
-		/* submit the urbs later */
 		/* wait for an internal signal */
-		/*		s->async->inttrig = usbdux_ao_inttrig; */
+		s->async->inttrig = daqgert_ao_inttrig;
 	}
 
 ao_cmd_exit:
@@ -1336,12 +1396,22 @@ static int32_t daqgert_ai_cmd(struct comedi_device *dev, struct comedi_subdevice
 	if (devpriv->ai_hunk) /* run batch conversions in background */
 		daqgert_ai_setup_hunk(dev, s, true);
 
-	devpriv->run = false;
-	devpriv->timer = true;
-	daqgert_ai_start_pacer(dev, true);
-	devpriv->ai_cmd_running = true;
-	devpriv->ao_cmd_running = AO_TESTING;
-	devpriv->ai_cmd_canceled = false;
+	if (cmd->start_src == TRIG_NOW) {
+		/* enable this acquisition operation */
+		devpriv->run = false;
+		devpriv->timer = true;
+		daqgert_ai_start_pacer(dev, true);
+		devpriv->ai_cmd_running = true;
+		devpriv->ao_cmd_running = AO_TESTING;
+		devpriv->ai_cmd_canceled = false;
+		s->async->inttrig = NULL;
+	} else {
+		/* TRIG_INT */
+		/* don't enable the acquisition operation */
+		/* wait for an internal signal */
+		s->async->inttrig = daqgert_ai_inttrig;
+	}
+
 	ret = 0;
 ai_cmd_exit:
 	mutex_unlock(&devpriv->cmd_lock);
@@ -1466,11 +1536,11 @@ static int32_t daqgert_ai_cmdtest(struct comedi_device *dev,
 
 	/* Step 1 : check if triggers are trivially valid */
 
-	err |= cfc_check_trigger_src(&cmd->start_src, TRIG_NOW);
+	err |= cfc_check_trigger_src(&cmd->start_src, TRIG_NOW | TRIG_INT);
 	err |= cfc_check_trigger_src(&cmd->scan_begin_src, TRIG_FOLLOW | TRIG_TIMER);
 	err |= cfc_check_trigger_src(&cmd->convert_src, TRIG_TIMER | TRIG_NOW);
 	err |= cfc_check_trigger_src(&cmd->scan_end_src, TRIG_COUNT);
-	err |= cfc_check_trigger_src(&cmd->stop_src, TRIG_NONE);
+	err |= cfc_check_trigger_src(&cmd->stop_src, TRIG_NONE | TRIG_COUNT);
 
 	if (err)
 		return 1;
@@ -1796,6 +1866,10 @@ static int32_t daqgert_auto_attach(struct comedi_device *dev, unsigned long cont
 	}
 
 	dev->iobase = GPIO_BASE; /* bcm iobase */
+	/* dev->mmio is a void pointer with 8bit pointer indexing, 
+	 * we need 32bit indexing so mmio is casted to a (__iomem uint32_t*) 
+	 * pointer for GPIO R/W operations 
+	 */
 	dev->mmio = ioremap(dev->iobase, SZ_16K); /* lets get access to the GPIO base */
 	if (!dev->mmio) {
 		dev_err(dev->class_dev, "invalid gpio io base address!\n");
