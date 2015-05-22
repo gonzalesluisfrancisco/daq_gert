@@ -623,14 +623,14 @@ static void pullUpDnControl(struct comedi_device *dev, int32_t pin, int32_t pud)
 	int32_t *pinToGpio = devpriv->pinToGpio;
 
 	pin = pinToGpio [pin];
-	iowrite32(pud & 3, dev->mmio + GPPUD);
+	iowrite32(pud & 3, (__iomem uint32_t*) dev->mmio + GPPUD);
 	udelay(5);
-	iowrite32(1 << (pin & 31), dev->mmio + gpioToPUDCLK [pin]);
+	iowrite32(1 << (pin & 31), (__iomem uint32_t*) dev->mmio + gpioToPUDCLK [pin]);
 	udelay(5);
 
-	iowrite32(0, dev->mmio + GPPUD);
+	iowrite32(0, (__iomem uint32_t*) dev->mmio + GPPUD);
 	udelay(5);
-	iowrite32(0, dev->mmio + gpioToPUDCLK [pin]);
+	iowrite32(0, (__iomem uint32_t*) dev->mmio + gpioToPUDCLK [pin]);
 	udelay(5);
 }
 
@@ -649,10 +649,10 @@ static void pinModeGpio(struct comedi_device *dev, int32_t pin, int32_t mode)
 	shift = gpioToShift [pin];
 
 	if (mode == INPUT) /* Sets bits to zero = input */
-		iowrite32(ioread32(dev->mmio + fSel) & ~(7 << shift), dev->mmio + fSel);
+		iowrite32(ioread32((__iomem uint32_t*) dev->mmio + fSel) & ~(7 << shift), (__iomem uint32_t*) dev->mmio + fSel);
 	else
 		if (mode == OUTPUT)
-		iowrite32((ioread32(dev->mmio + fSel) & ~(7 << shift)) | (1 << shift), dev->mmio + fSel);
+		iowrite32((ioread32((__iomem uint32_t*) dev->mmio + fSel) & ~(7 << shift)) | (1 << shift), (__iomem uint32_t*) dev->mmio + fSel);
 }
 
 static void pinModeWPi(struct comedi_device *dev, int32_t pin, int32_t mode)
@@ -676,10 +676,10 @@ static void digitalWriteWPi(struct comedi_device *dev, int32_t pin, int32_t valu
 
 	pin = pinToGpio [pin & 63];
 	if (value == LOW)
-		iowrite32(1 << (pin & 31), dev->mmio + gpioToGPCLR [pin]);
+		iowrite32(1 << (pin & 31), (__iomem uint32_t*) dev->mmio + gpioToGPCLR [pin]);
 
 	else
-		iowrite32(1 << (pin & 31), dev->mmio + gpioToGPSET [pin]);
+		iowrite32(1 << (pin & 31), (__iomem uint32_t*) dev->mmio + gpioToGPSET [pin]);
 }
 
 static void digitalWriteGpio(struct comedi_device *dev, int32_t pin, int32_t value)
@@ -687,9 +687,9 @@ static void digitalWriteGpio(struct comedi_device *dev, int32_t pin, int32_t val
 
 	pin &= 63;
 	if (value == LOW)
-		iowrite32(1 << (pin & 31), dev->mmio + gpioToGPCLR [pin]);
+		iowrite32(1 << (pin & 31), (__iomem uint32_t*) dev->mmio + gpioToGPCLR [pin]);
 	else
-		iowrite32(1 << (pin & 31), dev->mmio + gpioToGPSET [pin]);
+		iowrite32(1 << (pin & 31), (__iomem uint32_t*) dev->mmio + gpioToGPSET [pin]);
 }
 
 /*
@@ -704,7 +704,7 @@ static int32_t digitalReadWPi(struct comedi_device *dev, int32_t pin)
 	int32_t *pinToGpio = devpriv->pinToGpio;
 
 	pin = pinToGpio [pin & 63];
-	if ((ioread32(dev->mmio + gpioToGPLEV [pin]) & (1 << (pin & 31))) != 0)
+	if ((ioread32((__iomem uint32_t*) dev->mmio + gpioToGPLEV [pin]) & (1 << (pin & 31))) != 0)
 		return HIGH;
 	else
 		return LOW;
@@ -714,7 +714,7 @@ static int32_t digitalReadGpio(struct comedi_device *dev, int32_t pin)
 {
 
 	pin &= 63;
-	if ((ioread32(dev->mmio + gpioToGPLEV [pin]) & (1 << (pin & 31))) != 0)
+	if ((ioread32((__iomem uint32_t*) dev->mmio + gpioToGPLEV [pin]) & (1 << (pin & 31))) != 0)
 		return HIGH;
 	else
 		return LOW;
@@ -1360,7 +1360,7 @@ static int32_t daqgert_ao_cmdtest(struct comedi_device *dev,
 
 	/* Step 1 : check if triggers are trivially valid */
 
-	err |= cfc_check_trigger_src(&cmd->start_src, TRIG_NOW);
+	err |= cfc_check_trigger_src(&cmd->start_src, TRIG_NOW | TRIG_INT);
 
 	/*
 	 * all conversion events happen simultaneously with
@@ -1375,7 +1375,7 @@ static int32_t daqgert_ao_cmdtest(struct comedi_device *dev,
 
 
 	err |= cfc_check_trigger_src(&cmd->scan_end_src, TRIG_COUNT);
-	err |= cfc_check_trigger_src(&cmd->stop_src, TRIG_NONE);
+	err |= cfc_check_trigger_src(&cmd->stop_src, TRIG_COUNT | TRIG_NONE);
 
 	if (err)
 		return 1;
@@ -1404,7 +1404,7 @@ static int32_t daqgert_ao_cmdtest(struct comedi_device *dev,
 	err |= cfc_check_trigger_arg_is(&cmd->scan_end_arg, cmd->chanlist_len);
 
 	if (cmd->stop_src == TRIG_COUNT)
-		err |= cfc_check_trigger_arg_min(&cmd->stop_arg, 2);
+		err |= cfc_check_trigger_arg_min(&cmd->stop_arg, 1);
 	else /* TRIG_NONE */
 		err |= cfc_check_trigger_arg_is(&cmd->stop_arg, 0);
 
@@ -1513,7 +1513,7 @@ static int32_t daqgert_ai_cmdtest(struct comedi_device *dev,
 
 
 	if (cmd->stop_src == TRIG_COUNT)
-		err |= cfc_check_trigger_arg_min(&cmd->stop_arg, 2);
+		err |= cfc_check_trigger_arg_min(&cmd->stop_arg, 1);
 	else /* TRIG_NONE */
 		err |= cfc_check_trigger_arg_is(&cmd->stop_arg, 0);
 
