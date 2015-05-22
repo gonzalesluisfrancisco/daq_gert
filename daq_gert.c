@@ -283,7 +283,6 @@ static struct spi_param_type spi_adc = {
 
 struct daqgert_private {
 	uint32_t RPisys_rev;
-	uint32_t __iomem *gpio;
 	uint32_t __iomem *timer_1mhz;
 	int32_t *pinToGpio;
 	int32_t *physToGpio;
@@ -621,18 +620,17 @@ static uint8_t gpioToPUDCLK [] = {
 static void pullUpDnControl(struct comedi_device *dev, int32_t pin, int32_t pud)
 {
 	struct daqgert_private *devpriv = dev->private;
-	uint32_t __iomem *gpio = devpriv->gpio;
 	int32_t *pinToGpio = devpriv->pinToGpio;
 
 	pin = pinToGpio [pin];
-	iowrite32(pud & 3, gpio + GPPUD);
+	iowrite32(pud & 3, dev->mmio + GPPUD);
 	udelay(5);
-	iowrite32(1 << (pin & 31), gpio + gpioToPUDCLK [pin]);
+	iowrite32(1 << (pin & 31), dev->mmio + gpioToPUDCLK [pin]);
 	udelay(5);
 
-	iowrite32(0, gpio + GPPUD);
+	iowrite32(0, dev->mmio + GPPUD);
 	udelay(5);
-	iowrite32(0, gpio + gpioToPUDCLK [pin]);
+	iowrite32(0, dev->mmio + gpioToPUDCLK [pin]);
 	udelay(5);
 }
 
@@ -644,8 +642,6 @@ static void pullUpDnControl(struct comedi_device *dev, int32_t pin, int32_t pud)
 
 static void pinModeGpio(struct comedi_device *dev, int32_t pin, int32_t mode)
 {
-	struct daqgert_private *devpriv = dev->private;
-	uint32_t __iomem *gpio = devpriv->gpio;
 	int32_t fSel, shift;
 
 	pin &= 63;
@@ -653,10 +649,10 @@ static void pinModeGpio(struct comedi_device *dev, int32_t pin, int32_t mode)
 	shift = gpioToShift [pin];
 
 	if (mode == INPUT) /* Sets bits to zero = input */
-		iowrite32(ioread32(gpio + fSel) & ~(7 << shift), gpio + fSel);
+		iowrite32(ioread32(dev->mmio + fSel) & ~(7 << shift), dev->mmio + fSel);
 	else
 		if (mode == OUTPUT)
-		iowrite32((ioread32(gpio + fSel) & ~(7 << shift)) | (1 << shift), gpio + fSel);
+		iowrite32((ioread32(dev->mmio + fSel) & ~(7 << shift)) | (1 << shift), dev->mmio + fSel);
 }
 
 static void pinModeWPi(struct comedi_device *dev, int32_t pin, int32_t mode)
@@ -676,27 +672,24 @@ static void pinModeWPi(struct comedi_device *dev, int32_t pin, int32_t mode)
 static void digitalWriteWPi(struct comedi_device *dev, int32_t pin, int32_t value)
 {
 	struct daqgert_private *devpriv = dev->private;
-	uint32_t __iomem *gpio = devpriv->gpio;
 	int32_t *pinToGpio = devpriv->pinToGpio;
 
 	pin = pinToGpio [pin & 63];
 	if (value == LOW)
-		iowrite32(1 << (pin & 31), gpio + gpioToGPCLR [pin]);
+		iowrite32(1 << (pin & 31), dev->mmio + gpioToGPCLR [pin]);
 
 	else
-		iowrite32(1 << (pin & 31), gpio + gpioToGPSET [pin]);
+		iowrite32(1 << (pin & 31), dev->mmio + gpioToGPSET [pin]);
 }
 
 static void digitalWriteGpio(struct comedi_device *dev, int32_t pin, int32_t value)
 {
-	struct daqgert_private *devpriv = dev->private;
-	uint32_t __iomem *gpio = devpriv->gpio;
 
 	pin &= 63;
 	if (value == LOW)
-		iowrite32(1 << (pin & 31), gpio + gpioToGPCLR [pin]);
+		iowrite32(1 << (pin & 31), dev->mmio + gpioToGPCLR [pin]);
 	else
-		iowrite32(1 << (pin & 31), gpio + gpioToGPSET [pin]);
+		iowrite32(1 << (pin & 31), dev->mmio + gpioToGPSET [pin]);
 }
 
 /*
@@ -708,11 +701,10 @@ static void digitalWriteGpio(struct comedi_device *dev, int32_t pin, int32_t val
 static int32_t digitalReadWPi(struct comedi_device *dev, int32_t pin)
 {
 	struct daqgert_private *devpriv = dev->private;
-	uint32_t __iomem *gpio = devpriv->gpio;
 	int32_t *pinToGpio = devpriv->pinToGpio;
 
 	pin = pinToGpio [pin & 63];
-	if ((ioread32(gpio + gpioToGPLEV [pin]) & (1 << (pin & 31))) != 0)
+	if ((ioread32(dev->mmio + gpioToGPLEV [pin]) & (1 << (pin & 31))) != 0)
 		return HIGH;
 	else
 		return LOW;
@@ -720,11 +712,9 @@ static int32_t digitalReadWPi(struct comedi_device *dev, int32_t pin)
 
 static int32_t digitalReadGpio(struct comedi_device *dev, int32_t pin)
 {
-	struct daqgert_private *devpriv = dev->private;
-	uint32_t __iomem *gpio = devpriv->gpio;
 
 	pin &= 63;
-	if ((ioread32(gpio + gpioToGPLEV [pin]) & (1 << (pin & 31))) != 0)
+	if ((ioread32(dev->mmio + gpioToGPLEV [pin]) & (1 << (pin & 31))) != 0)
 		return HIGH;
 	else
 		return LOW;
@@ -1370,23 +1360,22 @@ static int32_t daqgert_ao_cmdtest(struct comedi_device *dev,
 
 	/* Step 1 : check if triggers are trivially valid */
 
-	err |= cfc_check_trigger_src(&cmd->start_src, TRIG_NOW | TRIG_INT);
-
-	/* start a new scan (output at once) with a timer */
-	flags = TRIG_TIMER;
-
-	err |= cfc_check_trigger_src(&cmd->scan_begin_src, flags);
+	err |= cfc_check_trigger_src(&cmd->start_src, TRIG_NOW);
 
 	/*
 	 * all conversion events happen simultaneously with
 	 * a rate of 1kHz/n
 	 */
 	flags = TRIG_NOW;
-
 	err |= cfc_check_trigger_src(&cmd->convert_src, flags);
 
+	/* start a new scan (output at once) with a timer */
+	flags = TRIG_TIMER;
+	err |= cfc_check_trigger_src(&cmd->scan_begin_src, flags);
+
+
 	err |= cfc_check_trigger_src(&cmd->scan_end_src, TRIG_COUNT);
-	err |= cfc_check_trigger_src(&cmd->stop_src, TRIG_COUNT | TRIG_NONE);
+	err |= cfc_check_trigger_src(&cmd->stop_src, TRIG_NONE);
 
 	if (err)
 		return 1;
@@ -1415,7 +1404,7 @@ static int32_t daqgert_ao_cmdtest(struct comedi_device *dev,
 	err |= cfc_check_trigger_arg_is(&cmd->scan_end_arg, cmd->chanlist_len);
 
 	if (cmd->stop_src == TRIG_COUNT)
-		err |= cfc_check_trigger_arg_min(&cmd->stop_arg, 1);
+		err |= cfc_check_trigger_arg_min(&cmd->stop_arg, 2);
 	else /* TRIG_NONE */
 		err |= cfc_check_trigger_arg_is(&cmd->stop_arg, 0);
 
@@ -1524,7 +1513,7 @@ static int32_t daqgert_ai_cmdtest(struct comedi_device *dev,
 
 
 	if (cmd->stop_src == TRIG_COUNT)
-		err |= cfc_check_trigger_arg_min(&cmd->stop_arg, 1);
+		err |= cfc_check_trigger_arg_min(&cmd->stop_arg, 2);
 	else /* TRIG_NONE */
 		err |= cfc_check_trigger_arg_is(&cmd->stop_arg, 0);
 
@@ -1807,8 +1796,8 @@ static int32_t daqgert_auto_attach(struct comedi_device *dev, unsigned long cont
 	}
 
 	dev->iobase = GPIO_BASE; /* bcm iobase */
-	devpriv->gpio = ioremap(dev->iobase, SZ_16K); /* lets get access to the GPIO base */
-	if (!devpriv->gpio) {
+	dev->mmio = ioremap(dev->iobase, SZ_16K); /* lets get access to the GPIO base */
+	if (!dev->mmio) {
 		dev_err(dev->class_dev, "invalid gpio io base address!\n");
 		return -EINVAL;
 	}
@@ -1865,7 +1854,7 @@ static int32_t daqgert_auto_attach(struct comedi_device *dev, unsigned long cont
 		dev_err(dev->class_dev, "alloc subdevice(s) failed!\n");
 		return ret;
 	}
-	dev_info(dev->class_dev, "%i subdevices\n", devpriv->num_subdev);
+	dev_info(dev->class_dev, "%i subdevices\n", dev->n_subdevices);
 	/* daq_gert dio */
 	s = &dev->subdevices[0];
 	s->type = COMEDI_SUBD_DIO;
@@ -1936,7 +1925,7 @@ static int32_t daqgert_auto_attach(struct comedi_device *dev, unsigned long cont
 	dev_info(dev->class_dev, "%s attached: gpio iobase 0x%lx, ioremaps 0x%lx  0x%lx, io pins 0x%x, 1Mhz timer value 0x%x:0x%x\n",
 		dev->driver->driver_name,
 		dev->iobase,
-		(long unsigned int) devpriv->gpio,
+		(long unsigned int) dev->mmio,
 		(long unsigned int) devpriv->timer_1mhz,
 		(uint32_t) s->io_bits,
 		(uint32_t) ioread32(devpriv->timer_1mhz + 2),
@@ -1961,7 +1950,7 @@ static void daqgert_detach(struct comedi_device * dev)
 	}
 
 	iounmap(devpriv->timer_1mhz);
-	iounmap(devpriv->gpio);
+	iounmap(dev->mmio);
 	dev_info(dev->class_dev, "daq_gert detached\n");
 }
 
