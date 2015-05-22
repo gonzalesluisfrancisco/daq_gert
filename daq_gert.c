@@ -182,7 +182,7 @@ static uint32_t daqgert_ai_get_sample(struct comedi_device *,
 static void daqgert_handle_ai_hunk(struct comedi_device *,
 	struct comedi_subdevice *);
 
-#define AO_TESTING	true
+#define AO_TESTING	false
 
 /* analog chip types (type - 12 bits) */
 #define MCP3002 2 /* 10 bit ADC */
@@ -921,11 +921,13 @@ static int32_t daqgert_ao_thread_function(void *data)
 			spi_write_then_read(spi_data->spi, pdata->tx_buff, 2, pdata->rx_buff, 2); /* Load DAC channel, send two bytes */
 			s->readback[chan] = val;
 			usleep_range(50, 60);
-			if (cmd->stop_src == TRIG_COUNT &&
-				s->async->scans_done >= cmd->stop_arg) {
-				s->async->events |= COMEDI_CB_EOA;
-				comedi_event(dev, s);
-				devpriv->ao_cmd_running = false;
+			if (!AO_TESTING) {
+				if (cmd->stop_src == TRIG_COUNT &&
+					s->async->scans_done >= cmd->stop_arg) {
+					s->async->events |= COMEDI_CB_EOA;
+					comedi_event(dev, s);
+					devpriv->ao_cmd_running = false;
+				}
 			}
 		} else {
 			msleep(1);
@@ -1137,8 +1139,10 @@ static void transfer_from_hunk_buf(struct comedi_device *dev,
 		}
 
 		if (cmd->stop_src == TRIG_COUNT &&
-			s->async->scans_done >= cmd->stop_arg)
+			s->async->scans_done >= cmd->stop_arg) {
+			daqgert_ai_cancel(dev, s);
 			s->async->events |= COMEDI_CB_EOA;
+		}
 		comedi_handle_events(dev, s);
 	}
 
