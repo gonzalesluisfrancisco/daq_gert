@@ -172,6 +172,8 @@ static int32_t daqgert_spi_probe(struct comedi_device *);
 static void daqgert_ai_clear_eoc(struct comedi_device *);
 static int32_t daqgert_ai_cancel(struct comedi_device *,
 	struct comedi_subdevice *);
+static int32_t daqgert_ao_cancel(struct comedi_device *,
+	struct comedi_subdevice *);
 static void daqgert_handle_ai_eoc(struct comedi_device *,
 	struct comedi_subdevice *);
 static void daqgert_handle_ao_eoc(struct comedi_device *,
@@ -181,12 +183,12 @@ static void daqgert_ai_set_chan_range(struct comedi_device *,
 	uint32_t, char);
 static uint32_t daqgert_ai_get_sample(struct comedi_device *,
 	struct comedi_subdevice *);
-static uint32_t daqgert_ao_put_sample(struct comedi_device *,
+static void daqgert_ao_put_sample(struct comedi_device *,
 	struct comedi_subdevice *, uint32_t);
 static void daqgert_handle_ai_hunk(struct comedi_device *,
 	struct comedi_subdevice *);
 
-#define AO_TESTING	true
+#define AO_TESTING	false
 
 /* analog chip types (type - 12 bits) */
 #define MCP3002 2 /* 10 bit ADC */
@@ -910,23 +912,17 @@ static int32_t daqgert_ao_thread_function(void *data)
 	struct comedi_device *dev = (void*) data;
 	struct comedi_subdevice *s = &dev->subdevices[2];
 	struct daqgert_private *devpriv = dev->private;
-	struct spi_param_type *spi_data = s->private;
-	struct spi_device *spi = spi_data->spi;
-	struct comedi_control *pdata = spi->dev.platform_data;
 	struct comedi_cmd *cmd = &s->async->cmd;
-
-	uint32_t chan = CR_CHAN(0);
-	uint32_t n = 0, junk, val = s->readback[chan];
 
 	while (!kthread_should_stop()) {
 		if (devpriv->ao_cmd_running) { /* signal generation code testing */
-			daqgert_ao_put_sample(dev, s, 255);
+			daqgert_handle_ao_eoc(dev, s);
+			usleep_range(50, 60);
 
 			if (!AO_TESTING) {
 				if (cmd->stop_src == TRIG_COUNT &&
 					s->async->scans_done >= cmd->stop_arg) {
 					s->async->scans_done = cmd->stop_arg;
-					devpriv->ao_cmd_running = false;
 					daqgert_ao_cancel(dev, s);
 				}
 			}
@@ -974,7 +970,7 @@ static void daqgert_ao_set_chan_range(struct comedi_device *dev,
 	mutex_unlock(&devpriv->drvdata_lock);
 }
 
-static uint32_t daqgert_ao_put_sample(struct comedi_device *dev,
+static void daqgert_ao_put_sample(struct comedi_device *dev,
 	struct comedi_subdevice *s, uint32_t val)
 {
 	struct daqgert_private *devpriv = dev->private;
@@ -1076,7 +1072,7 @@ static void daqgert_ai_next_chan(struct comedi_device *dev,
 	struct comedi_cmd *cmd = &s->async->cmd;
 
 	s->async->cur_chan++;
-	if (s->async->cur_chan >= cmd->ai_chanlist_len) {
+	if (s->async->cur_chan >= cmd->chanlist_len) {
 		s->async->cur_chan = 0;
 		s->async->events |= COMEDI_CB_EOS;
 	}
@@ -1147,8 +1143,12 @@ static void daqgert_handle_ao_eoc(struct comedi_device *dev,
 	struct comedi_cmd *cmd = &s->async->cmd;
 	uint32_t next_chan, val;
 
-	//	val = daqgert_ai_get_sample(dev, s);
-	//	comedi_buf_write_samples(s, &val, 1);
+	if (!comedi_buf_read_samples(s, &val, 1)) {
+		dev_err(dev->class_dev, "buffer underflow\n");
+		s->async->events |= COMEDI_CB_OVERFLOW;
+		return;
+	}
+	daqgert_ao_put_sample(dev, s, val);
 
 	next_chan = s->async->cur_chan + 1;
 	if (next_chan >= cmd->chanlist_len)
@@ -1247,7 +1247,7 @@ static void transfer_to_hunk_buf(struct comedi_device *dev,
 	uint32_t chan;
 	uint8_t *tx_buff, *rx_buff;
 
-	chan = devpriv->chan;
+	chan = devpriv->ai_chan;
 	memset(&pdata->t, 0, sizeof(pdata->t));
 	if (spi_data->device_type == MCP3002) {
 		len = 2;
@@ -1263,7 +1263,7 @@ static void transfer_to_hunk_buf(struct comedi_device *dev,
 				chan = devpriv->mix_chan;
 				delay_usecs = pdata->mix_delay_usecs;
 			} else {
-				chan = devpriv->chan;
+				chan = devpriv->ai_chan;
 				delay_usecs = 0;
 			}
 		}
@@ -1420,6 +1420,15 @@ static int32_t daqgert_ao_cmd(struct comedi_device *dev, struct comedi_subdevice
 	mutex_lock(&devpriv->cmd_lock);
 	if (devpriv->ao_cmd_running)
 		goto ao_cmd_exit;
+
+	/* for possible hunking of AO */
+	if (cmd->stop_src == TRIG_COUNT) {
+		devpriv->ao_scans = cmd->chanlist_len * cmd->stop_arg;
+		devpriv->ao_neverending = false;
+	} else {
+		devpriv->ao_scans = HUNK_LEN;
+		devpriv->ao_neverending = true;
+	}
 
 	/* 1ms */
 	/* timing of the scan: we set all channels at once */
@@ -1883,7 +1892,7 @@ static int32_t daqgert_ai_rinsn(struct comedi_device *dev,
 
 	mutex_lock(&devpriv->drvdata_lock);
 	devpriv->ai_hunk = false;
-	devpriv->chan = CR_CHAN(insn->chanspec);
+	devpriv->ai_chan = CR_CHAN(insn->chanspec);
 	mutex_unlock(&devpriv->drvdata_lock);
 	/* convert n samples */
 	for (n = 0; n < insn->n; n++) {
