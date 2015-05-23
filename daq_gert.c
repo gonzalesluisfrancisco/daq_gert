@@ -297,8 +297,9 @@ struct daqgert_private {
 	int32_t max_rate, ao_timer, ao_counter;
 	uint32_t conv_delay_usecs, conv_delay_10nsecs, cmd_delay_usecs,
 	ai_neverending, ao_neverending;
-	int32_t ai_chan, ao_chan, timer, run, spi_ai_run, count, hunk_count,
-	ai_cmd_running, ai_cmd_canceled, ao_cmd_running, ao_cmd_canceled;
+	int32_t ai_chan, ao_chan, timer, run, spi_ai_run, spi_ao_run, count,
+	hunk_count, ai_cmd_running, ai_cmd_canceled, ao_cmd_running,
+	ao_cmd_canceled;
 	struct mutex drvdata_lock, cmd_lock;
 	uint32_t val;
 	uint16_t hunk : 1;
@@ -912,21 +913,14 @@ static int32_t daqgert_ao_thread_function(void *data)
 	struct comedi_device *dev = (void*) data;
 	struct comedi_subdevice *s = &dev->subdevices[2];
 	struct daqgert_private *devpriv = dev->private;
-	struct comedi_cmd *cmd = &s->async->cmd;
 
 	while (!kthread_should_stop()) {
 		if (devpriv->ao_cmd_running) { /* signal generation code testing */
+			devpriv->spi_ao_run = true;
 			daqgert_handle_ao_eoc(dev, s);
 			usleep_range(50, 60);
-
-			if (!AO_TESTING) {
-				if (cmd->stop_src == TRIG_COUNT &&
-					s->async->scans_done >= cmd->stop_arg) {
-					s->async->scans_done = cmd->stop_arg;
-					daqgert_ao_cancel(dev, s);
-				}
-			}
 		} else {
+			devpriv->spi_ao_run = false;
 			msleep(1);
 		}
 	}
@@ -1146,6 +1140,7 @@ static void daqgert_handle_ao_eoc(struct comedi_device *dev,
 	if (!comedi_buf_read_samples(s, &val, 1)) {
 		dev_err(dev->class_dev, "buffer underflow\n");
 		s->async->events |= COMEDI_CB_OVERFLOW;
+		daqgert_ao_cancel(dev, s);
 		return;
 	}
 	daqgert_ao_put_sample(dev, s, val);
@@ -1418,8 +1413,11 @@ static int32_t daqgert_ao_cmd(struct comedi_device *dev, struct comedi_subdevice
 	int ret = -EBUSY;
 
 	mutex_lock(&devpriv->cmd_lock);
-	if (devpriv->ao_cmd_running)
+	dev_info(dev->class_dev, "ao_cmd\n");
+	if (devpriv->ao_cmd_running) {
+		dev_info(dev->class_dev, "ao_cmd busy\n");
 		goto ao_cmd_exit;
+	}
 
 	/* for possible hunking of AO */
 	if (cmd->stop_src == TRIG_COUNT) {
@@ -1452,6 +1450,7 @@ static int32_t daqgert_ao_cmd(struct comedi_device *dev, struct comedi_subdevice
 		/* wait for an internal signal */
 		s->async->inttrig = daqgert_ao_inttrig;
 	}
+	ret = 0;
 
 ao_cmd_exit:
 	mutex_unlock(&devpriv->cmd_lock);
@@ -1794,6 +1793,7 @@ static int32_t daqgert_ao_cancel(struct comedi_device *dev,
 	struct comedi_subdevice *s)
 {
 	struct daqgert_private *devpriv = dev->private;
+	int32_t count = 100;
 
 	if (!devpriv->ao_cmd_running)
 		return 0;
@@ -1801,6 +1801,10 @@ static int32_t daqgert_ao_cancel(struct comedi_device *dev,
 	dev_info(dev->class_dev, "ao cancel\n");
 	s->async->cur_chan = 0;
 	s->async->inttrig = NULL;
+	do { /* wait if needed to SPI to clear or timeout */
+		msleep(1);
+	} while (devpriv->spi_ao_run && (count--));
+
 	devpriv->ao_cmd_canceled = true;
 	devpriv->ao_cmd_running = false;
 
