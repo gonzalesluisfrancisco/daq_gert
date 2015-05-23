@@ -290,7 +290,7 @@ struct daqgert_private {
 	int32_t num_subdev;
 	int32_t max_rate, ao_timer, ao_counter;
 	uint32_t conv_delay_usecs, conv_delay_10nsecs, cmd_delay_usecs, ai_neverending;
-	int32_t chan, timer, run, spi_run, count, hunk_count, ai_cmd_running, ai_cmd_canceled,
+	int32_t chan, timer, run, spi_ai_run, count, hunk_count, ai_cmd_running, ai_cmd_canceled,
 	ao_cmd_running, ao_cmd_canceled;
 	struct mutex drvdata_lock, cmd_lock;
 	uint32_t val;
@@ -872,7 +872,7 @@ static int32_t daqgert_ai_thread_function(void *data)
 				msleep(1);
 			}
 			if (devpriv->timer && devpriv->run) {
-				devpriv->spi_run = true;
+				devpriv->spi_ai_run = true;
 			}
 			if (kthread_should_stop()) return 0;
 		}
@@ -888,9 +888,9 @@ static int32_t daqgert_ai_thread_function(void *data)
 				devpriv->count++;
 			}
 		} else {
+			devpriv->spi_ai_run = false;
 			msleep(1);
 		}
-		devpriv->spi_run = false;
 	}
 	/*do_exit(1);*/
 	return 0;
@@ -1027,6 +1027,7 @@ static uint32_t daqgert_ai_get_sample(struct comedi_device *dev,
 			}
 		}
 	}
+	devpriv->spi_ai_run = false;
 	mutex_unlock(&devpriv->drvdata_lock);
 	return val & s->maxdata;
 }
@@ -1096,7 +1097,7 @@ static int32_t daqgert_ai_eoc(struct comedi_device *dev,
 	unsigned long context)
 {
 	struct daqgert_private *devpriv = dev->private;
-	if (devpriv->spi_run) return -EBUSY;
+	if (devpriv->spi_ai_run) return -EBUSY;
 
 	return 0;
 
@@ -1136,22 +1137,17 @@ static void transfer_from_hunk_buf(struct comedi_device *dev,
 				comedi_buf_write_samples(s, &val, 1);
 			}
 		} else {
-
 			s->async->cur_chan = 0;
 			comedi_buf_write_samples(s, &val, 1);
 			s->async->events |= COMEDI_CB_EOS;
 		}
 		comedi_handle_events(dev, s);
-		dev_info(dev->class_dev, "Handle events %i %i\n", s->async->scans_done, cmd->stop_arg);
 	}
 	if (cmd->stop_src == TRIG_COUNT &&
 		s->async->scans_done >= cmd->stop_arg) {
-		dev_info(dev->class_dev, "CD_EOA 1\n");
 		daqgert_ai_cancel(dev, s);
-		dev_info(dev->class_dev, "CD_EOA 2\n");
 		s->async->scans_done = cmd->stop_arg;
 		s->async->events |= COMEDI_CB_EOA;
-		dev_info(dev->class_dev, "CD_EOA 3\n");
 		comedi_handle_events(dev, s);
 	}
 
@@ -1659,7 +1655,7 @@ static void my_timer_ai_callback(unsigned long data)
 static void daqgert_ai_clear_eoc(struct comedi_device * dev)
 {
 	struct daqgert_private *devpriv = dev->private;
-	int32_t count = 0;
+	int32_t count = 100;
 
 	del_timer_sync(&devpriv->ai_spi->my_timer);
 	setup_timer(&devpriv->ai_spi->my_timer, my_timer_ai_callback, (unsigned long) dev);
@@ -1667,7 +1663,7 @@ static void daqgert_ai_clear_eoc(struct comedi_device * dev)
 	devpriv->timer = false;
 	do { /* wait if needed to SPI to clear or timeout */
 		msleep(1);
-	} while (devpriv->spi_run || (count++ < 100));
+	} while (devpriv->spi_ai_run && (count--));
 
 	devpriv->run = false;
 	devpriv->timer = false;
@@ -1680,7 +1676,7 @@ static int32_t daqgert_ai_cancel(struct comedi_device *dev,
 
 	if (!devpriv->ai_cmd_running)
 		return 0;
-	//	mutex_lock(&devpriv->cmd_lock);
+
 	daqgert_ai_clear_eoc(dev);
 	dev_info(dev->class_dev, "ai cancel\n");
 	count = devpriv->count;
@@ -1691,7 +1687,6 @@ static int32_t daqgert_ai_cancel(struct comedi_device *dev,
 	devpriv->ai_cmd_canceled = false;
 	devpriv->ai_cmd_running = false;
 	devpriv->ao_cmd_running = false;
-	//	mutex_unlock(&devpriv->cmd_lock);
 	return 0;
 }
 
