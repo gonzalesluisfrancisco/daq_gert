@@ -182,7 +182,7 @@ static uint32_t daqgert_ai_get_sample(struct comedi_device *,
 static void daqgert_handle_ai_hunk(struct comedi_device *,
 	struct comedi_subdevice *);
 
-#define AO_TESTING	false
+#define AO_TESTING	true
 
 /* analog chip types (type - 12 bits) */
 #define MCP3002 2 /* 10 bit ADC */
@@ -302,6 +302,7 @@ struct daqgert_private {
 	int32_t next_hunk_buf;
 	uint32_t runs_to_end; /* how many times we must switch buffers */
 	uint32_t ai_scans; /*  length of scanlist */
+	int32_t ai_scans_left; /*  number left to finish */
 	uint32_t ai_act_scan; /*  how many scans we finished */
 	uint32_t ai_poll_ptr;
 	struct spi_param_type *ai_spi;
@@ -924,6 +925,7 @@ static int32_t daqgert_ao_thread_function(void *data)
 			if (!AO_TESTING) {
 				if (cmd->stop_src == TRIG_COUNT &&
 					s->async->scans_done >= cmd->stop_arg) {
+					s->async->scans_done = cmd->stop_arg;
 					s->async->events |= COMEDI_CB_EOA;
 					comedi_event(dev, s);
 					devpriv->ao_cmd_running = false;
@@ -1046,8 +1048,9 @@ static bool daqgert_ai_next_chan(struct comedi_device *dev,
 			devpriv->ai_act_scan++;
 			if (!devpriv->ai_neverending) {
 				/* all data sampled */
-				if (devpriv->ai_act_scan >= devpriv->ai_scans) {
+				if (s->async->scans_done >= cmd->stop_arg) {
 					daqgert_ai_cancel(dev, s);
+					s->async->scans_done = cmd->stop_arg;
 					s->async->events |= COMEDI_CB_EOA;
 				}
 			}
@@ -1111,7 +1114,8 @@ static void transfer_from_hunk_buf(struct comedi_device *dev,
 	uint32_t i;
 	uint32_t val;
 
-	for (i = 0; i < len; i++) {
+
+	for (i = 0; i < len; i++) { /* count up from zero to access the buffer */
 		if (spi_data->device_type == MCP3002) {
 			val = ((ptr[0 + bufptr] << 7) | (ptr[1 + bufptr] >> 1)) & 0x3FF;
 		} else {
@@ -1137,12 +1141,17 @@ static void transfer_from_hunk_buf(struct comedi_device *dev,
 			comedi_buf_write_samples(s, &val, 1);
 			s->async->events |= COMEDI_CB_EOS;
 		}
-
-		if (cmd->stop_src == TRIG_COUNT &&
-			s->async->scans_done >= cmd->stop_arg) {
-			daqgert_ai_cancel(dev, s);
-			s->async->events |= COMEDI_CB_EOA;
-		}
+		comedi_handle_events(dev, s);
+		dev_info(dev->class_dev, "Handle events %i %i\n", s->async->scans_done, cmd->stop_arg);
+	}
+	if (cmd->stop_src == TRIG_COUNT &&
+		s->async->scans_done >= cmd->stop_arg) {
+		dev_info(dev->class_dev, "CD_EOA 1\n");
+		daqgert_ai_cancel(dev, s);
+		dev_info(dev->class_dev, "CD_EOA 2\n");
+		s->async->scans_done = cmd->stop_arg;
+		s->async->events |= COMEDI_CB_EOA;
+		dev_info(dev->class_dev, "CD_EOA 3\n");
 		comedi_handle_events(dev, s);
 	}
 
@@ -1199,16 +1208,28 @@ static void daqgert_handle_ai_hunk(struct comedi_device *dev,
 	struct comedi_subdevice *s)
 {
 	struct daqgert_private *devpriv = dev->private;
+	struct comedi_cmd *cmd = &s->async->cmd;
 	struct spi_param_type *spi_data = s->private;
 	struct spi_device *spi = spi_data->spi;
 	struct comedi_control *pdata = spi->dev.platform_data;
 	int32_t len, offset, bufptr;
 	uint8_t *ptr;
 
-	daqgert_ai_get_sample(dev, s);
+	daqgert_ai_get_sample(dev, s); /* get the data from the ADC via SPI */
 	ptr = (uint8_t *) pdata->rx_buff;
 	bufptr = 0;
-	len = HUNK_LEN;
+	len = devpriv->ai_scans;
+
+	if (cmd->stop_src == TRIG_COUNT) {
+		if (devpriv->ai_scans_left > HUNK_LEN) {
+			devpriv->ai_scans_left -= HUNK_LEN;
+			len = HUNK_LEN;
+		} else {
+			len = devpriv->ai_scans_left;
+			devpriv->ai_scans_left = 0;
+		}
+	}
+
 	if (spi_data->device_type == MCP3002) {
 		offset = 2;
 	} else {
@@ -1357,12 +1378,13 @@ static int32_t daqgert_ai_cmd(struct comedi_device *dev, struct comedi_subdevice
 	}
 
 	if (cmd->stop_src == TRIG_COUNT) {
-		devpriv->ai_scans = cmd->stop_arg;
+		devpriv->ai_scans = cmd->chanlist_len * cmd->stop_arg;
 		devpriv->ai_neverending = false;
 	} else {
-		devpriv->ai_scans = 0;
+		devpriv->ai_scans = HUNK_LEN;
 		devpriv->ai_neverending = true;
 	}
+	devpriv->ai_scans_left = devpriv->ai_scans; /* a count down */
 
 	if (devpriv->hunk && !spi_data->pic18) { /* check if we can use HUNK transfer */
 		devpriv->ai_hunk = true;
@@ -1495,11 +1517,9 @@ static int32_t daqgert_ai_poll(struct comedi_device *dev, struct comedi_subdevic
 
 	if (!devpriv->ai_hunk)
 		return 0; /* poll is valid only for HUNK transfer */
-	mutex_lock(&devpriv->cmd_lock);
-	dev_info(dev->class_dev, "ai_poll\n");
 
+	dev_info(dev->class_dev, "ai_poll\n");
 	num_bytes = comedi_buf_n_bytes_ready(s);
-	mutex_unlock(&devpriv->cmd_lock);
 	return num_bytes;
 }
 
@@ -1658,7 +1678,9 @@ static int32_t daqgert_ai_cancel(struct comedi_device *dev,
 {
 	struct daqgert_private *devpriv = dev->private;
 
-	mutex_lock(&devpriv->cmd_lock);
+	if (!devpriv->ai_cmd_running)
+		return 0;
+	//	mutex_lock(&devpriv->cmd_lock);
 	daqgert_ai_clear_eoc(dev);
 	dev_info(dev->class_dev, "ai cancel\n");
 	count = devpriv->count;
@@ -1669,7 +1691,7 @@ static int32_t daqgert_ai_cancel(struct comedi_device *dev,
 	devpriv->ai_cmd_canceled = false;
 	devpriv->ai_cmd_running = false;
 	devpriv->ao_cmd_running = false;
-	mutex_unlock(&devpriv->cmd_lock);
+	//	mutex_unlock(&devpriv->cmd_lock);
 	return 0;
 }
 
@@ -1679,7 +1701,7 @@ static void daqgert_ao_stop(struct comedi_device *dev, int32_t do_unlink)
 
 	if (do_unlink)
 		;
-	devpriv->ao_cmd_running = 0;
+	devpriv->ao_cmd_running = false;
 }
 
 static int32_t daqgert_ao_cancel(struct comedi_device *dev,
@@ -1687,11 +1709,11 @@ static int32_t daqgert_ao_cancel(struct comedi_device *dev,
 {
 	struct daqgert_private *devpriv = dev->private;
 
-	/* prevent other CPUs from submitting a command just now */
-	mutex_lock(&devpriv->cmd_lock);
+	if (!devpriv->ao_cmd_running)
+		return 0;
 	/* unlink only if it is really running */
 	daqgert_ao_stop(dev, devpriv->ao_cmd_running);
-	mutex_unlock(&devpriv->cmd_lock);
+
 	return 0;
 }
 
