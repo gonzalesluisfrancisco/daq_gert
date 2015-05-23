@@ -1214,8 +1214,8 @@ static void daqgert_handle_ai_hunk(struct comedi_device *dev,
 	daqgert_ai_get_sample(dev, s); /* get the data from the ADC via SPI */
 	ptr = (uint8_t *) pdata->rx_buff;
 	bufptr = 0;
-	len = devpriv->ai_scans;
 
+	len = devpriv->ai_scans;
 	if (cmd->stop_src == TRIG_COUNT) {
 		if (devpriv->ai_scans_left > HUNK_LEN) {
 			devpriv->ai_scans_left -= HUNK_LEN;
@@ -1232,6 +1232,7 @@ static void daqgert_handle_ai_hunk(struct comedi_device *dev,
 		offset = 3;
 	}
 	transfer_from_hunk_buf(dev, s, ptr, bufptr, len, offset, true);
+	dev_info(dev->class_dev, "From hunk %i %i\n", s->async->scans_done, cmd->stop_arg);
 	devpriv->next_hunk_buf++;
 
 	if (devpriv->next_hunk_buf > 1) devpriv->next_hunk_buf = 0;
@@ -1245,24 +1246,27 @@ static void daqgert_ai_setup_hunk(struct comedi_device *dev,
 	struct spi_param_type *spi_data = s->private;
 	struct spi_device *spi = spi_data->spi;
 	struct comedi_control *pdata = spi->dev.platform_data;
-	uint32_t bytes;
 	uint32_t len, offset, bufptr;
 	uint8_t *ptr;
 
-	/* we use EOS, so adapt buffer to one scan */
-	devpriv->runs_to_end = 1;
-
-	if (cmd->stop_src == TRIG_NONE) {
-		devpriv->runs_to_end = 1;
-	} else {
-		/* how many samples we must transfer? */
-		bytes = cmd->stop_arg * comedi_bytes_per_scan(s);
-		devpriv->runs_to_end = 0;
+	len = devpriv->ai_scans;
+	if (cmd->stop_src == TRIG_COUNT) { /* optimize small samples */
+		if (devpriv->ai_scans > HUNK_LEN) {
+			len = HUNK_LEN;
+		} else {
+			len = devpriv->ai_scans;
+		}
 	}
+
+	if (cmd->stop_src == TRIG_NONE) { /* for future double buffer */
+		devpriv->runs_to_end = true;
+	} else {
+		devpriv->runs_to_end = false;
+	}
+
 	devpriv->next_hunk_buf = 0;
 	ptr = (uint8_t *) pdata->tx_buff;
 	bufptr = 0;
-	len = HUNK_LEN;
 	if (spi_data->device_type == MCP3002) {
 		offset = 2;
 	} else {
