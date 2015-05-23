@@ -174,11 +174,15 @@ static int32_t daqgert_ai_cancel(struct comedi_device *,
 	struct comedi_subdevice *);
 static void daqgert_handle_ai_eoc(struct comedi_device *,
 	struct comedi_subdevice *);
+static void daqgert_handle_ao_eoc(struct comedi_device *,
+	struct comedi_subdevice *);
 static void my_timer_ai_callback(unsigned long);
 static void daqgert_ai_set_chan_range(struct comedi_device *,
 	uint32_t, char);
 static uint32_t daqgert_ai_get_sample(struct comedi_device *,
 	struct comedi_subdevice *);
+static uint32_t daqgert_ao_put_sample(struct comedi_device *,
+	struct comedi_subdevice *, uint32_t);
 static void daqgert_handle_ai_hunk(struct comedi_device *,
 	struct comedi_subdevice *);
 
@@ -289,9 +293,10 @@ struct daqgert_private {
 	int32_t board_rev;
 	int32_t num_subdev;
 	int32_t max_rate, ao_timer, ao_counter;
-	uint32_t conv_delay_usecs, conv_delay_10nsecs, cmd_delay_usecs, ai_neverending;
-	int32_t chan, timer, run, spi_ai_run, count, hunk_count, ai_cmd_running, ai_cmd_canceled,
-	ao_cmd_running, ao_cmd_canceled;
+	uint32_t conv_delay_usecs, conv_delay_10nsecs, cmd_delay_usecs,
+	ai_neverending, ao_neverending;
+	int32_t ai_chan, ao_chan, timer, run, spi_ai_run, count, hunk_count,
+	ai_cmd_running, ai_cmd_canceled, ao_cmd_running, ao_cmd_canceled;
 	struct mutex drvdata_lock, cmd_lock;
 	uint32_t val;
 	uint16_t hunk : 1;
@@ -304,6 +309,9 @@ struct daqgert_private {
 	uint32_t ai_scans; /*  length of scanlist */
 	int32_t ai_scans_left; /*  number left to finish */
 	uint32_t ai_act_scan; /*  how many scans we finished */
+	uint32_t ao_scans; /*  length of scanlist */
+	int32_t ao_scans_left; /*  number left to finish */
+	uint32_t ao_act_scan; /*  how many scans we finished */
 	uint32_t ai_poll_ptr;
 	struct spi_param_type *ai_spi;
 	struct spi_param_type *ao_spi;
@@ -912,23 +920,14 @@ static int32_t daqgert_ao_thread_function(void *data)
 
 	while (!kthread_should_stop()) {
 		if (devpriv->ao_cmd_running) { /* signal generation code testing */
-			if ((n++ % 2) == 0)
-				val = 2048;
-			else
-				val = 128;
-			junk = val & 0xfff; /* strip to 12 bits */
-			pdata->tx_buff[1] = junk & 0xff; /* load lsb SPI data into transfer buffer */
-			pdata->tx_buff[0] = (0b00110000 | ((chan & 0x01) << 7) | (junk >> 8));
-			spi_write_then_read(spi_data->spi, pdata->tx_buff, 2, pdata->rx_buff, 2); /* Load DAC channel, send two bytes */
-			s->readback[chan] = val;
-			usleep_range(50, 60);
+			daqgert_ao_put_sample(dev, s, 255);
+
 			if (!AO_TESTING) {
 				if (cmd->stop_src == TRIG_COUNT &&
 					s->async->scans_done >= cmd->stop_arg) {
 					s->async->scans_done = cmd->stop_arg;
-					s->async->events |= COMEDI_CB_EOA;
-					comedi_event(dev, s);
 					devpriv->ao_cmd_running = false;
+					daqgert_ao_cancel(dev, s);
 				}
 			}
 		} else {
@@ -956,11 +955,49 @@ static void daqgert_ai_set_chan_range(struct comedi_device *dev,
 {
 	struct daqgert_private *devpriv = dev->private;
 	mutex_lock(&devpriv->drvdata_lock);
-	devpriv->chan = CR_CHAN(chanspec);
+	devpriv->ai_chan = CR_CHAN(chanspec);
 
 	if (wait)
 		udelay(5);
 	mutex_unlock(&devpriv->drvdata_lock);
+}
+
+static void daqgert_ao_set_chan_range(struct comedi_device *dev,
+	uint32_t chanspec, char wait)
+{
+	struct daqgert_private *devpriv = dev->private;
+	mutex_lock(&devpriv->drvdata_lock);
+	devpriv->ao_chan = CR_CHAN(chanspec);
+
+	if (wait)
+		udelay(5);
+	mutex_unlock(&devpriv->drvdata_lock);
+}
+
+static uint32_t daqgert_ao_put_sample(struct comedi_device *dev,
+	struct comedi_subdevice *s, uint32_t val)
+{
+	struct daqgert_private *devpriv = dev->private;
+	struct spi_param_type *spi_data = s->private;
+	struct spi_device *spi = spi_data->spi;
+	struct comedi_control *pdata = spi->dev.platform_data;
+	uint32_t junk, chan;
+	static uint32_t n = 0;
+
+	if (AO_TESTING) {
+		if ((n++ % 2) == 0)
+			val = 2048;
+		else
+			val = 128;
+	}
+
+	chan = CR_CHAN(devpriv->ao_chan);
+	junk = val & 0xfff; /* strip to 12 bits */
+	pdata->tx_buff[1] = junk & 0xff; /* load lsb SPI data into transfer buffer */
+	pdata->tx_buff[0] = (0b00110000 | ((chan & 0x01) << 7) | (junk >> 8));
+	spi_write_then_read(spi_data->spi, pdata->tx_buff, 2, pdata->rx_buff, 2); /* Load DAC channel, send two bytes */
+	s->readback[chan] = val;
+	usleep_range(50, 60);
 }
 
 static uint32_t daqgert_ai_get_sample(struct comedi_device *dev,
@@ -975,7 +1012,7 @@ static uint32_t daqgert_ai_get_sample(struct comedi_device *dev,
 	struct spi_message m;
 
 	mutex_lock(&devpriv->drvdata_lock);
-	chan = CR_CHAN(devpriv->chan);
+	chan = CR_CHAN(devpriv->ai_chan);
 	/* Make SPI messages for the type of ADC are we talking to */
 	/* The PIC Slave needs 8 bit transfers only */
 	if (spi_data->pic18) { /*  PIC18 SPI slave device. NO MULTI_MODE ever */
@@ -1032,14 +1069,14 @@ static uint32_t daqgert_ai_get_sample(struct comedi_device *dev,
 	return val & s->maxdata;
 }
 
-static bool daqgert_ai_next_chan(struct comedi_device *dev,
+static void daqgert_ai_next_chan(struct comedi_device *dev,
 	struct comedi_subdevice *s)
 {
 	struct daqgert_private *devpriv = dev->private;
 	struct comedi_cmd *cmd = &s->async->cmd;
 
 	s->async->cur_chan++;
-	if (s->async->cur_chan >= cmd->chanlist_len) {
+	if (s->async->cur_chan >= cmd->ai_chanlist_len) {
 		s->async->cur_chan = 0;
 		s->async->events |= COMEDI_CB_EOS;
 	}
@@ -1058,7 +1095,6 @@ static bool daqgert_ai_next_chan(struct comedi_device *dev,
 		}
 	}
 	comedi_handle_events(dev, s);
-	return true;
 }
 
 static void daqgert_handle_ai_eoc(struct comedi_device *dev,
@@ -1078,6 +1114,50 @@ static void daqgert_handle_ai_eoc(struct comedi_device *dev,
 		daqgert_ai_set_chan_range(dev, cmd->chanlist[next_chan], 1);
 
 	daqgert_ai_next_chan(dev, s);
+}
+
+static void daqgert_ao_next_chan(struct comedi_device *dev,
+	struct comedi_subdevice *s)
+{
+	struct daqgert_private *devpriv = dev->private;
+	struct comedi_cmd *cmd = &s->async->cmd;
+
+	s->async->cur_chan++;
+	if (s->async->cur_chan >= cmd->chanlist_len) {
+		s->async->cur_chan = 0;
+	}
+
+	if (cmd->stop_src == TRIG_COUNT) {
+		if (s->async->cur_chan == 0) {
+			devpriv->ao_act_scan++;
+			if (!devpriv->ao_neverending) {
+				/* all data sampled */
+				if (s->async->scans_done >= cmd->stop_arg) {
+					daqgert_ao_cancel(dev, s);
+					s->async->scans_done = cmd->stop_arg;
+				}
+			}
+		}
+	}
+}
+
+static void daqgert_handle_ao_eoc(struct comedi_device *dev,
+	struct comedi_subdevice *s)
+{
+	struct comedi_cmd *cmd = &s->async->cmd;
+	uint32_t next_chan, val;
+
+	//	val = daqgert_ai_get_sample(dev, s);
+	//	comedi_buf_write_samples(s, &val, 1);
+
+	next_chan = s->async->cur_chan + 1;
+	if (next_chan >= cmd->chanlist_len)
+		next_chan = 0;
+
+	if (cmd->chanlist[s->async->cur_chan] != cmd->chanlist[next_chan])
+		daqgert_ao_set_chan_range(dev, cmd->chanlist[next_chan], 1);
+
+	daqgert_ao_next_chan(dev, s);
 }
 
 #if 0
@@ -1321,6 +1401,7 @@ static int32_t daqgert_ao_inttrig(struct comedi_device *dev,
 
 	if (!devpriv->ao_cmd_running) {
 		devpriv->ao_cmd_running = true;
+		devpriv->ao_cmd_canceled = false;
 		s->async->inttrig = NULL;
 	} else {
 		ret = -EBUSY;
@@ -1341,18 +1422,22 @@ static int32_t daqgert_ao_cmd(struct comedi_device *dev, struct comedi_subdevice
 		goto ao_cmd_exit;
 
 	/* 1ms */
-	/* timing of the scan: we get all channels at once */
+	/* timing of the scan: we set all channels at once */
 	devpriv->ao_timer = cmd->scan_begin_arg / 1000000;
 	if (devpriv->ao_timer < 1) {
 		ret = -EINVAL;
 		goto ao_cmd_exit;
 	}
 	devpriv->ao_counter = devpriv->ao_timer;
+	devpriv->ao_act_scan = 0;
+	s->async->cur_chan = 0;
+	daqgert_ao_set_chan_range(dev, cmd->chanlist[s->async->cur_chan], 1);
 
 	if (cmd->start_src == TRIG_NOW) {
-		/* enable this acquisition operation */
-		devpriv->ao_cmd_running = 1;
 		s->async->inttrig = NULL;
+		/* enable this acquisition operation */
+		devpriv->ao_cmd_running = true;
+		devpriv->ao_cmd_canceled = false;
 	} else {
 		/* TRIG_INT */
 		/* wait for an internal signal */
@@ -1424,6 +1509,7 @@ static int32_t daqgert_ai_cmd(struct comedi_device *dev, struct comedi_subdevice
 		daqgert_ai_setup_hunk(dev, s, true);
 
 	if (cmd->start_src == TRIG_NOW) {
+		s->async->inttrig = NULL;
 		/* enable this acquisition operation */
 		devpriv->run = false;
 		devpriv->timer = true;
@@ -1431,7 +1517,6 @@ static int32_t daqgert_ai_cmd(struct comedi_device *dev, struct comedi_subdevice
 		devpriv->ai_cmd_running = true;
 		devpriv->ao_cmd_running = AO_TESTING;
 		devpriv->ai_cmd_canceled = false;
-		s->async->inttrig = NULL;
 	} else {
 		/* TRIG_INT */
 		/* don't enable the acquisition operation */
@@ -1689,19 +1774,11 @@ static int32_t daqgert_ai_cancel(struct comedi_device *dev,
 	devpriv->ai_hunk = false;
 	s->async->cur_chan = 0;
 	s->async->inttrig = NULL;
-	devpriv->ai_cmd_canceled = false;
+	devpriv->ai_cmd_canceled = true;
 	devpriv->ai_cmd_running = false;
-	devpriv->ao_cmd_running = false;
+	if (AO_TESTING)
+		devpriv->ao_cmd_running = false;
 	return 0;
-}
-
-static void daqgert_ao_stop(struct comedi_device *dev, int32_t do_unlink)
-{
-	struct daqgert_private *devpriv = dev->private;
-
-	if (do_unlink)
-		;
-	devpriv->ao_cmd_running = false;
 }
 
 static int32_t daqgert_ao_cancel(struct comedi_device *dev,
@@ -1711,8 +1788,12 @@ static int32_t daqgert_ao_cancel(struct comedi_device *dev,
 
 	if (!devpriv->ao_cmd_running)
 		return 0;
-	/* unlink only if it is really running */
-	daqgert_ao_stop(dev, devpriv->ao_cmd_running);
+
+	dev_info(dev->class_dev, "ao cancel\n");
+	s->async->cur_chan = 0;
+	s->async->inttrig = NULL;
+	devpriv->ao_cmd_canceled = true;
+	devpriv->ao_cmd_running = false;
 
 	return 0;
 }
