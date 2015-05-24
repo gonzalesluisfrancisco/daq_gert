@@ -21,7 +21,8 @@
  */
 
 /*
- * TODO: refactor sample put get code to reduce the amount of build up/down time
+ * TODO:	Refactor sample put get code to reduce the amount of build up/down time
+ *		Fix cancel crashing bug
  * 
 Driver: "experimental" daq_gert in progress ... for 4.+ kernels
  * 
@@ -217,8 +218,10 @@ static int32_t gpiosafe = 1;
 module_param(gpiosafe, int, S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);
 static int32_t dio_conf = 0;
 module_param(dio_conf, int, S_IRUGO);
-static int32_t count = 0;
-module_param(count, int, S_IRUGO);
+static int32_t ai_count = 0;
+module_param(ai_count, int, S_IRUGO);
+static int32_t ao_count = 0;
+module_param(ao_count, int, S_IRUGO);
 static int32_t hunk_count = 0;
 module_param(hunk_count, int, S_IRUGO);
 static int32_t hunk_len = HUNK_LEN;
@@ -299,8 +302,8 @@ struct daqgert_private {
 	int32_t max_rate, ao_timer, ao_counter;
 	uint32_t conv_delay_usecs, conv_delay_10nsecs, cmd_delay_usecs,
 	ai_neverending, ao_neverending;
-	int32_t ai_chan, ao_chan, timer, run, spi_ai_run, spi_ao_run, count,
-	hunk_count, ai_cmd_running, ai_cmd_canceled, ao_cmd_running,
+	int32_t ai_chan, ao_chan, timer, run, spi_ai_run, spi_ao_run, ai_count,
+	ao_count, hunk_count, ai_cmd_running, ai_cmd_canceled, ao_cmd_running,
 	ao_cmd_canceled;
 	struct mutex drvdata_lock, cmd_lock;
 	uint32_t val;
@@ -891,14 +894,15 @@ static int32_t daqgert_ai_thread_function(void *data)
 		}
 		if (devpriv->ai_cmd_running) {
 			if (devpriv->ai_hunk) {
-				daqgert_handle_ai_hunk(dev, s);
 				usleep_range(5, 6);
+				daqgert_handle_ai_hunk(dev, s);
+
 				devpriv->hunk_count++;
 				hunk_count = devpriv->hunk_count;
 			} else {
-				daqgert_handle_ai_eoc(dev, s);
 				usleep_range(5, 6);
-				devpriv->count++;
+				daqgert_handle_ai_eoc(dev, s);
+				devpriv->ai_count++;
 			}
 		} else {
 			devpriv->spi_ai_run = false;
@@ -918,9 +922,10 @@ static int32_t daqgert_ao_thread_function(void *data)
 
 	while (!kthread_should_stop()) {
 		if (devpriv->ao_cmd_running) {
+			usleep_range(5, 6);
 			devpriv->spi_ao_run = true;
 			daqgert_handle_ao_eoc(dev, s);
-			usleep_range(5, 6);
+			devpriv->ao_count++;
 		} else {
 			devpriv->spi_ao_run = false;
 			msleep(1);
@@ -1124,6 +1129,7 @@ static void daqgert_ao_next_chan(struct comedi_device *dev,
 			if (!devpriv->ao_neverending) {
 				/* all data sampled */
 				if (s->async->scans_done >= cmd->stop_arg) {
+					dev_info(dev->class_dev, "ao_next_chan cancel\n");
 					daqgert_ao_cancel(dev, s);
 					s->async->scans_done = cmd->stop_arg;
 					s->async->events |= COMEDI_CB_EOA;
@@ -1757,14 +1763,14 @@ static void my_timer_ai_callback(unsigned long data)
 
 		if (!(time_marks++ % 1000))
 			dev_info(dev->class_dev, "speed testing %i: count %i, hunk %i, length %i\n",
-			time_marks, count, hunk_count, hunk_len);
+			time_marks, ai_count, hunk_count, hunk_len);
 	}
 }
 
 static void daqgert_ai_clear_eoc(struct comedi_device * dev)
 {
 	struct daqgert_private *devpriv = dev->private;
-	int32_t count = 100;
+	int32_t count = 500;
 
 	del_timer_sync(&devpriv->ai_spi->my_timer);
 	setup_timer(&devpriv->ai_spi->my_timer, my_timer_ai_callback, (unsigned long) dev);
@@ -1788,7 +1794,7 @@ static int32_t daqgert_ai_cancel(struct comedi_device *dev,
 
 	daqgert_ai_clear_eoc(dev);
 	dev_info(dev->class_dev, "ai cancel\n");
-	count = devpriv->count;
+	ai_count = devpriv->ai_count;
 	hunk_count = devpriv->hunk_count;
 	devpriv->ai_hunk = false;
 	s->async->cur_chan = 0;
@@ -1804,12 +1810,13 @@ static int32_t daqgert_ao_cancel(struct comedi_device *dev,
 	struct comedi_subdevice *s)
 {
 	struct daqgert_private *devpriv = dev->private;
-	int32_t count = 100;
+	int32_t count = 500;
 
 	if (!devpriv->ao_cmd_running)
 		return 0;
 
 	dev_info(dev->class_dev, "ao cancel\n");
+	ao_count = devpriv->ao_count;
 	s->async->cur_chan = 0;
 	do { /* wait if needed to SPI to clear or timeout */
 		msleep(1);
