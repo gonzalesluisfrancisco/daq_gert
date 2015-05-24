@@ -1770,7 +1770,7 @@ static void my_timer_ai_callback(unsigned long data)
 static void daqgert_ai_clear_eoc(struct comedi_device * dev)
 {
 	struct daqgert_private *devpriv = dev->private;
-	int32_t count = 500;
+	int32_t count = 100;
 
 	del_timer_sync(&devpriv->ai_spi->my_timer);
 	setup_timer(&devpriv->ai_spi->my_timer, my_timer_ai_callback, (unsigned long) dev);
@@ -1810,7 +1810,7 @@ static int32_t daqgert_ao_cancel(struct comedi_device *dev,
 	struct comedi_subdevice *s)
 {
 	struct daqgert_private *devpriv = dev->private;
-	int32_t count = 500;
+	int32_t count = 100;
 
 	if (!devpriv->ao_cmd_running)
 		return 0;
