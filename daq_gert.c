@@ -159,7 +159,6 @@ The output range is 0 to 4095 for 0.0 to 2.048 onboard devices (output resolutio
 
 #include "../comedidev.h"
 #include "comedi_fc.h"
-#include "../comedidev.h"
 #include <linux/interrupt.h>
 #include <linux/kernel.h>
 #include <linux/module.h>
@@ -988,12 +987,15 @@ static void daqgert_ao_put_sample(struct comedi_device *dev,
 			val = 128;
 	}
 
+	mutex_lock(&devpriv->drvdata_lock);
 	chan = CR_CHAN(devpriv->ao_chan);
 	val_tmp = val & 0xfff; /* strip to 12 bits */
 	pdata->tx_buff[1] = val_tmp & 0xff; /* load lsb SPI data into transfer buffer */
 	pdata->tx_buff[0] = (0b00110000 | ((chan & 0x01) << 7) | (val_tmp >> 8));
 	spi_write_then_read(spi_data->spi, pdata->tx_buff, 2, pdata->rx_buff, 2); /* Load DAC channel, send two bytes */
 	s->readback[chan] = val;
+	devpriv->spi_ao_run = false;
+	mutex_unlock(&devpriv->drvdata_lock);
 }
 
 static uint32_t daqgert_ai_get_sample(struct comedi_device *dev,
@@ -1819,6 +1821,7 @@ static int32_t daqgert_ao_cancel(struct comedi_device *dev,
 	ao_count = devpriv->ao_count;
 	s->async->cur_chan = 0;
 	do { /* wait if needed to SPI to clear or timeout */
+		schedule();
 		msleep(1);
 	} while (devpriv->spi_ao_run && (count--));
 
