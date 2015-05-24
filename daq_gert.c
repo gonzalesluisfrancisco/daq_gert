@@ -21,6 +21,8 @@
  */
 
 /*
+ * TODO: refactor sample put get code to reduce the amount of build up/down time
+ * 
 Driver: "experimental" daq_gert in progress ... for 4.+ kernels
  * 
  * This driver requires a kernel patch to gain direct SPI access at the kernel.
@@ -1250,6 +1252,13 @@ static void transfer_to_hunk_buf(struct comedi_device *dev,
 	}
 	tx_buff = pdata->tx_buff;
 	rx_buff = pdata->rx_buff;
+
+	if (hunk_len > HUNK_LEN) {
+		dev_err(dev->class_dev, "scan transfer too large %i>%i\n",
+			hunk_len, HUNK_LEN);
+		hunk_len = HUNK_LEN;
+	}
+
 	for (i = 0; i < hunk_len; i++) {
 		/* format the tx_buffer */
 		if (mix_mode) {
@@ -1914,8 +1923,6 @@ static int32_t daqgert_ao_winsn(struct comedi_device *dev,
 	struct comedi_subdevice *s,
 	struct comedi_insn *insn, uint32_t *data)
 {
-	struct spi_param_type *spi_data = s->private;
-	struct spi_device *spi = spi_data->spi;
 	uint32_t chan = CR_CHAN(insn->chanspec);
 	uint32_t n, val = s->readback[chan];
 
@@ -2264,7 +2271,7 @@ static int32_t daqgert_spi_probe(struct comedi_device * dev)
 
 	dev_info(dev->class_dev, "spi probe\n");
 	if (!spi_adc.spi) {
-		dev_info(dev->class_dev, "no spi channel detected\n");
+		dev_err(dev->class_dev, "no spi channel detected\n");
 		spi_adc.chan = 0;
 		spi_dac.chan = 0;
 		return spi_adc.chan;
