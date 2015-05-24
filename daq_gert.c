@@ -948,7 +948,7 @@ static void daqgert_ai_set_chan_range(struct comedi_device *dev,
 	devpriv->ai_chan = CR_CHAN(chanspec);
 
 	if (wait)
-		udelay(5);
+		udelay(1);
 	mutex_unlock(&devpriv->drvdata_lock);
 }
 
@@ -960,7 +960,7 @@ static void daqgert_ao_set_chan_range(struct comedi_device *dev,
 	devpriv->ao_chan = CR_CHAN(chanspec);
 
 	if (wait)
-		udelay(5);
+		udelay(1);
 	mutex_unlock(&devpriv->drvdata_lock);
 }
 
@@ -971,7 +971,7 @@ static void daqgert_ao_put_sample(struct comedi_device *dev,
 	struct spi_param_type *spi_data = s->private;
 	struct spi_device *spi = spi_data->spi;
 	struct comedi_control *pdata = spi->dev.platform_data;
-	uint32_t junk, chan;
+	uint32_t val_tmp, chan;
 	static uint32_t n = 0;
 
 	if (AO_TESTING) {
@@ -982,12 +982,11 @@ static void daqgert_ao_put_sample(struct comedi_device *dev,
 	}
 
 	chan = CR_CHAN(devpriv->ao_chan);
-	junk = val & 0xfff; /* strip to 12 bits */
-	pdata->tx_buff[1] = junk & 0xff; /* load lsb SPI data into transfer buffer */
-	pdata->tx_buff[0] = (0b00110000 | ((chan & 0x01) << 7) | (junk >> 8));
+	val_tmp = val & 0xfff; /* strip to 12 bits */
+	pdata->tx_buff[1] = val_tmp & 0xff; /* load lsb SPI data into transfer buffer */
+	pdata->tx_buff[0] = (0b00110000 | ((chan & 0x01) << 7) | (val_tmp >> 8));
 	spi_write_then_read(spi_data->spi, pdata->tx_buff, 2, pdata->rx_buff, 2); /* Load DAC channel, send two bytes */
 	s->readback[chan] = val;
-	usleep_range(50, 60);
 }
 
 static uint32_t daqgert_ai_get_sample(struct comedi_device *dev,
@@ -1370,7 +1369,8 @@ static int32_t daqgert_ai_inttrig(struct comedi_device *dev,
 		devpriv->timer = true;
 		daqgert_ai_start_pacer(dev, true);
 		devpriv->ai_cmd_running = true;
-		devpriv->ao_cmd_running = AO_TESTING;
+		if (AO_TESTING)
+			devpriv->ao_cmd_running = true;
 		devpriv->ai_cmd_canceled = false;
 		s->async->inttrig = NULL;
 	} else {
@@ -1410,12 +1410,13 @@ static int32_t daqgert_ao_cmd(struct comedi_device *dev, struct comedi_subdevice
 {
 	struct comedi_cmd *cmd = &s->async->cmd;
 	struct daqgert_private *devpriv = dev->private;
-	int ret = -EBUSY;
+	int ret = 0;
 
 	mutex_lock(&devpriv->cmd_lock);
 	dev_info(dev->class_dev, "ao_cmd\n");
 	if (devpriv->ao_cmd_running) {
 		dev_info(dev->class_dev, "ao_cmd busy\n");
+		ret = -EBUSY;
 		goto ao_cmd_exit;
 	}
 
@@ -1450,7 +1451,6 @@ static int32_t daqgert_ao_cmd(struct comedi_device *dev, struct comedi_subdevice
 		/* wait for an internal signal */
 		s->async->inttrig = daqgert_ao_inttrig;
 	}
-	ret = 0;
 
 ao_cmd_exit:
 	mutex_unlock(&devpriv->cmd_lock);
@@ -1462,12 +1462,13 @@ static int32_t daqgert_ai_cmd(struct comedi_device *dev, struct comedi_subdevice
 	struct comedi_cmd *cmd = &s->async->cmd;
 	struct daqgert_private *devpriv = dev->private;
 	struct spi_param_type *spi_data = s->private;
-	int32_t ret = -EBUSY, i;
+	int32_t ret = 0, i;
 
 	mutex_lock(&devpriv->cmd_lock);
 	dev_info(dev->class_dev, "ai_cmd\n");
 	if (devpriv->ai_cmd_running) {
 		dev_info(dev->class_dev, "ai_cmd busy\n");
+		ret = -EBUSY;
 		goto ai_cmd_exit;
 	}
 
@@ -1523,7 +1524,8 @@ static int32_t daqgert_ai_cmd(struct comedi_device *dev, struct comedi_subdevice
 		devpriv->timer = true;
 		daqgert_ai_start_pacer(dev, true);
 		devpriv->ai_cmd_running = true;
-		devpriv->ao_cmd_running = AO_TESTING;
+		if (AO_TESTING)
+			devpriv->ao_cmd_running = true;
 		devpriv->ai_cmd_canceled = false;
 	} else {
 		/* TRIG_INT */
@@ -1532,7 +1534,6 @@ static int32_t daqgert_ai_cmd(struct comedi_device *dev, struct comedi_subdevice
 		s->async->inttrig = daqgert_ai_inttrig;
 	}
 
-	ret = 0;
 ai_cmd_exit:
 	mutex_unlock(&devpriv->cmd_lock);
 	return ret;
@@ -1877,7 +1878,7 @@ static int32_t daqgert_dio_insn_config(struct comedi_device *dev,
 		dev->board_name,
 		(uint32_t) s->io_bits);
 
-	return 1;
+	return insn->n;
 
 }
 
@@ -1915,18 +1916,13 @@ static int32_t daqgert_ao_winsn(struct comedi_device *dev,
 {
 	struct spi_param_type *spi_data = s->private;
 	struct spi_device *spi = spi_data->spi;
-	struct comedi_control *pdata = spi->dev.platform_data;
 	uint32_t chan = CR_CHAN(insn->chanspec);
-	uint32_t n, junk, val = s->readback[chan];
+	uint32_t n, val = s->readback[chan];
 
 	for (n = 0; n < insn->n; n++) {
 		val = data[n];
-		junk = val & 0xfff; /* strip to 12 bits */
-		pdata->tx_buff[1] = junk & 0xff; /* load lsb SPI data into transfer buffer */
-		pdata->tx_buff[0] = (0b00110000 | ((chan & 0x01) << 7) | (junk >> 8));
-		spi_write_then_read(spi_data->spi, pdata->tx_buff, 2, pdata->rx_buff, 2); /* Load DAC channel, send two bytes */
+		daqgert_ao_put_sample(dev, s, val);
 	}
-	s->readback[chan] = val;
 	return insn->n;
 }
 
