@@ -18,7 +18,6 @@ on ADC samples is limited to about 20,000 S/sec on a RPi2
 
 Notes:
 This driver requires a kernel patch to gain direct SPI access at the kernel. 
-I unhook spidev and point it to my module.
 
  * git clone https://github.com/raspberrypi/linux.git in /usr/src for the latest
  * linux kernel source tree
@@ -31,8 +30,10 @@ I unhook spidev and point it to my module.
  * patch -p1 <daq_gert.diff
  * 
  *  make -j4 for a RPi 2
+ *  select SPI_COMEDI=y in SPI MASTERS to enable the SPI side of the driver (SPI_SPIDEV must be deselected )
+ *  select DAQ_GERT=m to select the Comedi protocol part of the driver
  *  make modules_install
- *  to recompile the Linux kernel to make the needed daq_gert module
+ *  to recompile the Linux kernel with the Comedi SPI link and to make the needed daq_gert module
  *  then copy the Image file to the /boot directory with a new kernel image name
  *  and modify the boot file to use that image
  *  after the reboot: daq_gert should auto-load to device /dev/comedi0
