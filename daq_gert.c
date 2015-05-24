@@ -892,12 +892,12 @@ static int32_t daqgert_ai_thread_function(void *data)
 		if (devpriv->ai_cmd_running) {
 			if (devpriv->ai_hunk) {
 				daqgert_handle_ai_hunk(dev, s);
-				usleep_range(50, 60);
+				usleep_range(5, 6);
 				devpriv->hunk_count++;
 				hunk_count = devpriv->hunk_count;
 			} else {
 				daqgert_handle_ai_eoc(dev, s);
-				usleep_range(50, 60);
+				usleep_range(5, 6);
 				devpriv->count++;
 			}
 		} else {
@@ -917,10 +917,10 @@ static int32_t daqgert_ao_thread_function(void *data)
 	struct daqgert_private *devpriv = dev->private;
 
 	while (!kthread_should_stop()) {
-		if (devpriv->ao_cmd_running) { /* signal generation code testing */
+		if (devpriv->ao_cmd_running) {
 			devpriv->spi_ao_run = true;
 			daqgert_handle_ao_eoc(dev, s);
-			usleep_range(50, 60);
+			usleep_range(5, 6);
 		} else {
 			devpriv->spi_ao_run = false;
 			msleep(1);
@@ -1126,6 +1126,8 @@ static void daqgert_ao_next_chan(struct comedi_device *dev,
 				if (s->async->scans_done >= cmd->stop_arg) {
 					daqgert_ao_cancel(dev, s);
 					s->async->scans_done = cmd->stop_arg;
+					s->async->events |= COMEDI_CB_EOA;
+					comedi_handle_events(dev, s);
 				}
 			}
 		}
@@ -1141,7 +1143,6 @@ static void daqgert_handle_ao_eoc(struct comedi_device *dev,
 	if (!comedi_buf_read_samples(s, &val, 1)) {
 		dev_err(dev->class_dev, "buffer underflow\n");
 		s->async->events |= COMEDI_CB_OVERFLOW;
-		daqgert_ao_cancel(dev, s);
 		return;
 	}
 	daqgert_ao_put_sample(dev, s, val);
@@ -1810,11 +1811,11 @@ static int32_t daqgert_ao_cancel(struct comedi_device *dev,
 
 	dev_info(dev->class_dev, "ao cancel\n");
 	s->async->cur_chan = 0;
-	s->async->inttrig = NULL;
 	do { /* wait if needed to SPI to clear or timeout */
 		msleep(1);
 	} while (devpriv->spi_ao_run && (count--));
 
+	s->async->inttrig = NULL;
 	devpriv->ao_cmd_canceled = true;
 	devpriv->ao_cmd_running = false;
 
