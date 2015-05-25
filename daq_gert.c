@@ -1328,6 +1328,7 @@ static void daqgert_handle_ai_hunk(struct comedi_device *dev,
 	} else {
 		offset = 3;
 	}
+	devpriv->ai_count += len;
 	transfer_from_hunk_buf(dev, s, ptr, bufptr, len, offset, true);
 	if (cmd->stop_src == TRIG_COUNT)
 		dev_info(dev->class_dev, "From hunk %i %i\n", s->async->scans_done, cmd->stop_arg);
@@ -1943,7 +1944,7 @@ static int32_t daqgert_ao_winsn(struct comedi_device *dev,
 	uint32_t chan = CR_CHAN(insn->chanspec);
 	uint32_t n, val = s->readback[chan];
 
-	daqgert_ao_set_chan_range(dev, chan, 1);
+	daqgert_ao_set_chan_range(dev, insn->chanspec, 1);
 	for (n = 0; n < insn->n; n++) {
 		val = data[n];
 		daqgert_ao_put_sample(dev, s, val);
