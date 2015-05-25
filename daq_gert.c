@@ -1095,6 +1095,7 @@ static void daqgert_ai_next_chan(struct comedi_device *dev,
 	comedi_handle_events(dev, s);
 }
 
+/* start chan set in ai_cmd */
 static void daqgert_handle_ai_eoc(struct comedi_device *dev,
 	struct comedi_subdevice *s)
 {
@@ -1123,6 +1124,7 @@ static void daqgert_ao_next_chan(struct comedi_device *dev,
 	s->async->cur_chan++;
 	if (s->async->cur_chan >= cmd->chanlist_len) {
 		s->async->cur_chan = 0;
+		s->async->events |= COMEDI_CB_EOS;
 	}
 
 	if (cmd->stop_src == TRIG_COUNT) {
@@ -1140,8 +1142,10 @@ static void daqgert_ao_next_chan(struct comedi_device *dev,
 			}
 		}
 	}
+	comedi_handle_events(dev, s);
 }
 
+/* start chan set in ao_cmd */
 static void daqgert_handle_ao_eoc(struct comedi_device *dev,
 	struct comedi_subdevice *s)
 {
@@ -1153,6 +1157,7 @@ static void daqgert_handle_ao_eoc(struct comedi_device *dev,
 		s->async->events |= COMEDI_CB_OVERFLOW;
 		return;
 	}
+
 	daqgert_ao_put_sample(dev, s, val);
 
 	next_chan = s->async->cur_chan + 1;
@@ -1323,6 +1328,7 @@ static void daqgert_handle_ai_hunk(struct comedi_device *dev,
 	} else {
 		offset = 3;
 	}
+	devpriv->ai_count += len;
 	transfer_from_hunk_buf(dev, s, ptr, bufptr, len, offset, true);
 	if (cmd->stop_src == TRIG_COUNT)
 		dev_info(dev->class_dev, "From hunk %i %i\n", s->async->scans_done, cmd->stop_arg);
@@ -1772,13 +1778,14 @@ static void my_timer_ai_callback(unsigned long data)
 static void daqgert_ai_clear_eoc(struct comedi_device * dev)
 {
 	struct daqgert_private *devpriv = dev->private;
-	int32_t count = 100;
+	int32_t count = 500;
 
 	del_timer_sync(&devpriv->ai_spi->my_timer);
 	setup_timer(&devpriv->ai_spi->my_timer, my_timer_ai_callback, (unsigned long) dev);
 	devpriv->run = false;
 	devpriv->timer = false;
 	do { /* wait if needed to SPI to clear or timeout */
+		schedule(); /* force a context switch */
 		msleep(1);
 	} while (devpriv->spi_ai_run && (count--));
 
@@ -1812,7 +1819,7 @@ static int32_t daqgert_ao_cancel(struct comedi_device *dev,
 	struct comedi_subdevice *s)
 {
 	struct daqgert_private *devpriv = dev->private;
-	int32_t count = 100;
+	int32_t count = 500;
 
 	if (!devpriv->ao_cmd_running)
 		return 0;
@@ -1821,7 +1828,7 @@ static int32_t daqgert_ao_cancel(struct comedi_device *dev,
 	ao_count = devpriv->ao_count;
 	s->async->cur_chan = 0;
 	do { /* wait if needed to SPI to clear or timeout */
-		schedule();
+		schedule(); /* force a context switch to stop the AO thread */
 		msleep(1);
 	} while (devpriv->spi_ao_run && (count--));
 
@@ -1937,6 +1944,7 @@ static int32_t daqgert_ao_winsn(struct comedi_device *dev,
 	uint32_t chan = CR_CHAN(insn->chanspec);
 	uint32_t n, val = s->readback[chan];
 
+	daqgert_ao_set_chan_range(dev, insn->chanspec, 1);
 	for (n = 0; n < insn->n; n++) {
 		val = data[n];
 		daqgert_ao_put_sample(dev, s, val);
@@ -2386,6 +2394,6 @@ module_exit(daqgert_exit);
 
 MODULE_AUTHOR("Fred Brooks <spam@sma2.rain.com>");
 MODULE_DESCRIPTION("RPi DIO/AI/AO Driver");
-MODULE_VERSION("0.0.24");
+MODULE_VERSION("0.0.25");
 MODULE_LICENSE("GPL");
 MODULE_ALIAS("spi:spigert");
