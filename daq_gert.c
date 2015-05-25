@@ -1779,6 +1779,7 @@ static void daqgert_ai_clear_eoc(struct comedi_device * dev)
 	devpriv->run = false;
 	devpriv->timer = false;
 	do { /* wait if needed to SPI to clear or timeout */
+		schedule(); /* force a context switch */
 		msleep(1);
 	} while (devpriv->spi_ai_run && (count--));
 
@@ -1821,7 +1822,7 @@ static int32_t daqgert_ao_cancel(struct comedi_device *dev,
 	ao_count = devpriv->ao_count;
 	s->async->cur_chan = 0;
 	do { /* wait if needed to SPI to clear or timeout */
-		schedule();
+		schedule(); /* force a context switch to stop the AO thread */
 		msleep(1);
 	} while (devpriv->spi_ao_run && (count--));
 
