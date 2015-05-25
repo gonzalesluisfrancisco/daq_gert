@@ -1095,6 +1095,7 @@ static void daqgert_ai_next_chan(struct comedi_device *dev,
 	comedi_handle_events(dev, s);
 }
 
+/* start chan set in ai_cmd */
 static void daqgert_handle_ai_eoc(struct comedi_device *dev,
 	struct comedi_subdevice *s)
 {
@@ -1123,6 +1124,7 @@ static void daqgert_ao_next_chan(struct comedi_device *dev,
 	s->async->cur_chan++;
 	if (s->async->cur_chan >= cmd->chanlist_len) {
 		s->async->cur_chan = 0;
+		s->async->events |= COMEDI_CB_EOS;
 	}
 
 	if (cmd->stop_src == TRIG_COUNT) {
@@ -1140,8 +1142,10 @@ static void daqgert_ao_next_chan(struct comedi_device *dev,
 			}
 		}
 	}
+	comedi_handle_events(dev, s);
 }
 
+/* start chan set in ao_cmd */
 static void daqgert_handle_ao_eoc(struct comedi_device *dev,
 	struct comedi_subdevice *s)
 {
@@ -1153,6 +1157,7 @@ static void daqgert_handle_ao_eoc(struct comedi_device *dev,
 		s->async->events |= COMEDI_CB_OVERFLOW;
 		return;
 	}
+
 	daqgert_ao_put_sample(dev, s, val);
 
 	next_chan = s->async->cur_chan + 1;
@@ -1938,6 +1943,7 @@ static int32_t daqgert_ao_winsn(struct comedi_device *dev,
 	uint32_t chan = CR_CHAN(insn->chanspec);
 	uint32_t n, val = s->readback[chan];
 
+	daqgert_ao_set_chan_range(dev, chan, 1);
 	for (n = 0; n < insn->n; n++) {
 		val = data[n];
 		daqgert_ao_put_sample(dev, s, val);
