@@ -77,6 +77,9 @@ The DAQ-GERT appears in Comedi as a  digital I/O subdevice (0) with
 a analog input subdevice (1) with 2 single-ended channels with onboard adc, OR
 a analog input subdevice (1) with single-ended channels set by the SPI slave device
 a analog output subdevice(2) with 2 channels with onboard dac
+ * 
+ * Caveats:
+ * 
 
 Digital:  The comedi channel 0 corresponds to the GPIO WPi table order
 channel numbers [0..7] will be outputs, [8..16/20/29] will be inputs
@@ -1151,13 +1154,16 @@ static void daqgert_handle_ao_eoc(struct comedi_device *dev,
 {
 	struct comedi_cmd *cmd = &s->async->cmd;
 	uint32_t next_chan, val;
+	uint16_t sampl_val;
 
-	if (!comedi_buf_read_samples(s, &val, 1)) {
+	if (!comedi_buf_read_samples(s, &sampl_val, 1)) {
 		dev_err(dev->class_dev, "buffer underflow\n");
 		s->async->events |= COMEDI_CB_OVERFLOW;
 		return;
 	}
 
+	/* possible munge of data */
+	val = sampl_val;
 	daqgert_ao_put_sample(dev, s, val);
 
 	next_chan = s->async->cur_chan + 1;
@@ -1387,6 +1393,7 @@ static int32_t daqgert_ai_inttrig(struct comedi_device *dev,
 		return -EINVAL;
 
 	mutex_lock(&devpriv->cmd_lock);
+	dev_info(dev->class_dev, "ai inttrig\n");
 
 	if (!devpriv->ai_cmd_running) {
 		devpriv->run = false;
@@ -1417,6 +1424,7 @@ static int32_t daqgert_ao_inttrig(struct comedi_device *dev,
 		return -EINVAL;
 
 	mutex_lock(&devpriv->cmd_lock);
+	dev_info(dev->class_dev, "ao inttrig\n");
 
 	if (!devpriv->ao_cmd_running) {
 		devpriv->ao_cmd_running = true;
@@ -1662,7 +1670,7 @@ static uint32_t daqgert_ai_delay_rate(struct comedi_device *dev, int32_t rate, i
 	return spacing_usecs;
 }
 
-/* For a single channel scan we can do a quasi-DMA transfer that's much faster */
+/* For some scans we can do a quasi-DMA-like transfer that's much faster */
 static int32_t daqgert_ai_cmdtest(struct comedi_device *dev,
 	struct comedi_subdevice *s, struct comedi_cmd * cmd)
 {
