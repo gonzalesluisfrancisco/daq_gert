@@ -194,22 +194,65 @@ static void daqgert_handle_ai_hunk(struct comedi_device *,
 	struct comedi_subdevice *);
 
 #define AO_TESTING	false
+#define HUNK_LEN 1000
 
 /* analog chip types (type - 12 bits) */
-#define MCP3002 2 /* 10 bit ADC */
-#define MCP3202 0
-#define MCP4802 4 /* 8 bit DAC output from 12 bit input data */
-#define MCP4812 2
-#define MCP4822 0
-#define PICSL10 2
-#define PICSL12 0
+static const uint32_t MCP3002 = 2; /* 10 bit ADC */
+static const uint32_t MCP3202 = 0;
+static const uint32_t MCP4802 = 4; /* 8 bit DAC output from 12 bit input data */
+static const uint32_t MCP4812 = 2;
+static const uint32_t MCP4822 = 0;
+static const uint32_t PICSL10 = 2;
+static const uint32_t PICSL12 = 0;
 
-#define SPI_BUFF_SIZE 3072
-#define MAX_CHANLIST_LEN	256
-#define HUNK_LEN	1000
-#define CONV_SPEED	5000 /* 10s of nsecs: the true rate is ~4883 so we need a fixup,  two conversions per mix scan */
-#define CONV_SPEED_FIX	1 /* usecs: round it up to ~50usecs total with this */
-#define CONV_SPEED_FIX_FAST 16 /* used for the MCP3002 ADC */
+static const uint32_t SPI_BUFF_SIZE = 3072;
+static const uint32_t MAX_CHANLIST_LEN = 256;
+static const uint32_t CONV_SPEED = 5000; /* 10s of nsecs: the true rate is ~4883 so we need a fixup,  two conversions per mix scan */
+static const uint32_t CONV_SPEED_FIX = 1; /* usecs: round it up to ~50usecs total with this */
+static const uint32_t CONV_SPEED_FIX_FAST = 16; /* used for the MCP3002 ADC */
+
+static const uint8_t CSnA = 0; /* GPIO 8  Gertboard ADC */
+static const uint8_t CSnB = 1; /* GPIO 7  Gertboard DAC */
+
+/* PIC Slave commands */
+static const uint8_t CMD_ZERO = 0b00000000;
+static const uint8_t CMD_ADC_GO = 0b10000000;
+static const uint8_t CMD_PORT_GO = 0b10100000; /* send data LO_NIBBLE to port buffer */
+static const uint8_t CMD_CHAR_GO = 0b10110000; /* send data LO_NIBBLE to TX buffer */
+static const uint8_t CMD_ADC_DATA = 0b11000000;
+static const uint8_t CMD_PORT_DATA = 0b11010000; /* send data HI_NIBBLE to port buffer ->PORT and return input PORT data in received SPI data byte */
+static const uint8_t CMD_CHAR_DATA = 0b11100000; /* send data HI_NIBBLE to TX buffer and return RX buffer in received SPI data byte */
+static const uint8_t CMD_XXXX = 0b11110000; /* ??? */
+static const uint8_t CMD_CHAR_RX = 0b00010000; /* Get RX buffer */
+static const uint8_t CMD_DUMMY_CFG = 0b01000000; /* stuff config data in SPI buffer */
+static const uint8_t CMD_DEAD = 0b11111111; /* This is usually a bad response */
+
+static const uint32_t PIN_SAFE_MASK_WPI = 0b00000000000000000111111100000000;
+static const uint32_t PIN_SAFE_MASK_GPIO1 = 0b00000000000000000000111110000011;
+static const uint32_t PIN_SAFE_MASK_GPIO2 = 0b00000000000000000000111110001100;
+
+static const uint32_t INPUT = 0;
+static const uint32_t OUTPUT = 1;
+static const uint32_t PWM_OUTPUT = 2;
+
+static const uint32_t LOW = 0;
+static const uint32_t HIGH = 1;
+
+/* GPPUD:
+ * GPIO Pin pull up/down register
+ */
+static const uint32_t GPPUD = 37;
+static const uint32_t PUD_OFF = 0;
+static const uint32_t PUD_DOWN = 1;
+static const uint32_t PUD_UP = 2;
+
+/* driver hardware numbers */
+static const uint32_t NUM_DIO_CHAN = 17;
+static const uint32_t NUM_DIO_CHAN_REV2 = 17;
+static const uint32_t NUM_DIO_CHAN_REV3 = 17;
+static const uint32_t NUM_DIO_OUTPUTS = 8;
+static const uint32_t DIO_PINS_DEFAULT = 0xff;
+
 
 /* found at /sys/modules/daq_gert/parameters */
 static int32_t daqgert_conf = 0;
@@ -294,11 +337,7 @@ struct spi_param_type {
 };
 
 /* SPI devices for COMEDI to use in global scope */
-static struct spi_param_type spi_adc = {
-	.device_type = MCP3002,
-}, spi_dac = {
-	.device_type = MCP4802,
-};
+static struct spi_param_type spi_adc, spi_dac;
 
 struct daqgert_private {
 	uint32_t RPisys_rev;
@@ -336,82 +375,6 @@ struct daqgert_private {
 	void(*setPadDrive) (struct comedi_device *dev, int32_t group, int32_t value);
 	int32_t(*digitalRead) (struct comedi_device *dev, int32_t pin);
 };
-
-#define CSnA    0       /* GPIO 8  Gertboard ADC */
-#define CSnB    1       /* GPIO 7  Gertboard DAC */
-
-/* PIC Slave commands */
-#define CMD_ZERO        0b00000000
-#define CMD_ADC_GO	0b10000000
-#define CMD_PORT_GO	0b10100000	/* send data LO_NIBBLE to port buffer */
-#define CMD_CHAR_GO	0b10110000	/* send data LO_NIBBLE to TX buffer */
-#define CMD_ADC_DATA	0b11000000
-#define CMD_PORT_DATA	0b11010000	/* send data HI_NIBBLE to port buffer ->PORT and return input PORT data in received SPI data byte */
-#define CMD_CHAR_DATA	0b11100000	/* send data HI_NIBBLE to TX buffer and return RX buffer in received SPI data byte */
-#define CMD_XXXX	0b11110000	/* ??? */
-#define CMD_CHAR_RX	0b00010000	/* Get RX buffer */
-#define CMD_DUMMY_CFG	0b01000000	/* stuff config data in SPI buffer */
-#define CMD_DEAD        0b11111111      /* This is usually a bad response */
-
-#define WPI_MODE_PINS            0
-#define WPI_MODE_GPIO            1
-#define WPI_MODE_GPIO_SYS        2
-#define WPI_MODE_PIFACE          3
-
-#define PIN_SAFE_MASK_WPI   0b00000000000000000111111100000000
-#define PIN_SAFE_MASK_GPIO1 0b00000000000000000000111110000011
-#define PIN_SAFE_MASK_GPIO2 0b00000000000000000000111110001100
-
-#define INPUT            0
-#define OUTPUT           1
-#define PWM_OUTPUT       2
-
-#define LOW              0
-#define HIGH             1
-/* GPPUD:
- * GPIO Pin pull up/down register
- */
-
-#define GPPUD   37
-#define PUD_OFF          0
-#define PUD_DOWN         1
-#define PUD_UP           2
-
-#ifndef TRUE
-#define TRUE    (1==1)
-#define FALSE   (1==2)
-#endif
-/* Port function select bits */
-#define FSEL_INPT               0b000
-#define FSEL_OUTP               0b001
-#define FSEL_ALT0               0b100
-#define FSEL_ALT0               0b100
-#define FSEL_ALT1               0b101
-#define FSEL_ALT2               0b110
-#define FSEL_ALT3               0b111
-#define FSEL_ALT4               0b011
-#define FSEL_ALT5               0b010
-
-/* driver hardware numbers */
-#define NUM_DIO_CHAN  17
-#define NUM_DIO_CHAN_REV2       17
-#define NUM_DIO_CHAN_REV3       17
-#define NUM_DIO_OUTPUTS 8
-#define DIO_PINS_DEFAULT        0xff
-
-/* GPIO Timer
- *     Word offsets
- */
-
-#define TIMER_LOAD      (0x400 >> 2)
-#define TIMER_VALUE     (0x404 >> 2)
-#define TIMER_CONTROL   (0x408 >> 2)
-#define TIMER_IRQ_CLR   (0x40C >> 2)
-#define TIMER_IRQ_RAW   (0x410 >> 2)
-#define TIMER_IRQ_MASK  (0x414 >> 2)
-#define TIMER_RELOAD    (0x418 >> 2)
-#define TIMER_PRE_DIV   (0x41C >> 2)
-#define TIMER_COUNTER   (0x420 >> 2)
 
 /* Locals to hold pointers to the hardware */
 
