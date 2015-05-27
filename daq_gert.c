@@ -24,7 +24,7 @@
  * TODO:	Refactor sample put get code to reduce the amount of build up/down time
  *		Fix cancel crashing bug
  * 
-Driver: "experimental" daq_gert in progress ... for 4.+ kernels
+Driver: "experimental" daq_gert in progress ... for 4.+ kernels with DT
  * 
  * This driver requires a kernel patch to gain direct SPI access at the kernel.
  * 

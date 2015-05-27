@@ -1,7 +1,7 @@
 daq_gert
 ========
 Comedi driver for RPi ai, ao gpio for the  gertboard daq_gert.c
-Driver: "experimental" daq_gert in progress ... for 4.+ kernels
+Driver: "experimental" daq_gert in progress ... for 4.+ kernels with DT
 
 The DAQ-GERT appears in Comedi as a  digital I/O subdevice (0) with
 17 or 21 or 30 channels, 
