@@ -244,6 +244,8 @@ struct daqgert_board {
 	int32_t n_aochan;
 	uint32_t ai_ns_min;
 	uint32_t ai_ns_min_calc;
+	uint32_t ao_ns_min;
+	uint32_t ao_ns_min_calc;
 };
 
 static const struct daqgert_board daqgert_boards[] = {
@@ -254,6 +256,8 @@ static const struct daqgert_board daqgert_boards[] = {
 		.n_aochan = 2,
 		.ai_ns_min = 50000,
 		.ai_ns_min_calc = 35000,
+		.ao_ns_min = 5000,
+		.ao_ns_min_calc = 3500,
 	},
 	{
 		.name = "Fredboard",
@@ -262,6 +266,8 @@ static const struct daqgert_board daqgert_boards[] = {
 		.n_aochan = 8,
 		.ai_ns_min = 50000,
 		.ai_ns_min_calc = 35000,
+		.ao_ns_min = 5000,
+		.ao_ns_min_calc = 3500,
 	},
 };
 
@@ -301,8 +307,8 @@ struct daqgert_private {
 	int32_t *physToGpio;
 	int32_t board_rev;
 	int32_t num_subdev;
-	int32_t max_rate, ao_timer, ao_counter;
-	uint32_t conv_delay_usecs, conv_delay_10nsecs, cmd_delay_usecs,
+	int32_t ai_max_rate, ao_max_rate, ao_timer, ao_counter;
+	uint32_t ai_conv_delay_usecs, ai_conv_delay_10nsecs, ai_cmd_delay_usecs,
 	ai_neverending, ao_neverending;
 	int32_t ai_chan, ao_chan, timer, run, spi_ai_run, spi_ao_run, ai_count,
 	ao_count, hunk_count, ai_cmd_running, ai_cmd_canceled, ao_cmd_running,
@@ -1017,17 +1023,17 @@ static uint32_t daqgert_ai_get_sample(struct comedi_device *dev,
 	/* Make SPI messages for the type of ADC are we talking to */
 	/* The PIC Slave needs 8 bit transfers only */
 	if (spi_data->pic18) { /*  PIC18 SPI slave device. NO MULTI_MODE ever */
-		udelay(devpriv->cmd_delay_usecs); /* ADC conversion delay */
+		udelay(devpriv->ai_cmd_delay_usecs); /* ADC conversion delay */
 		pdata->tx_buff[0] = CMD_ADC_GO + chan;
 		spi_write_then_read(spi_data->spi, pdata->tx_buff, 1, pdata->rx_buff, 1); /* rx buffer has old data */
-		udelay(devpriv->conv_delay_usecs); /* ADC conversion delay */
+		udelay(devpriv->ai_conv_delay_usecs); /* ADC conversion delay */
 		pdata->tx_buff[0] = CMD_ZERO;
 		spi_write_then_read(spi_data->spi, pdata->tx_buff, 1, pdata->rx_buff, 1); /* rx buffer has old data */
-		udelay(devpriv->cmd_delay_usecs); /* ADC conversion delay */
+		udelay(devpriv->ai_cmd_delay_usecs); /* ADC conversion delay */
 		pdata->tx_buff[0] = CMD_ADC_DATA;
 		spi_write_then_read(spi_data->spi, pdata->tx_buff, 1, pdata->rx_buff, 1);
 		val = pdata->rx_buff[0];
-		udelay(devpriv->cmd_delay_usecs); /* ADC conversion delay */
+		udelay(devpriv->ai_cmd_delay_usecs); /* ADC conversion delay */
 		pdata->tx_buff[0] = CMD_ZERO;
 		spi_write_then_read(spi_data->spi, pdata->tx_buff, 1, pdata->rx_buff, 1);
 		val += pdata->rx_buff[0] << 8;
@@ -1571,14 +1577,37 @@ ai_cmd_exit:
 	return ret;
 }
 
+/* get close to a good sample spacing for one second, test_mode is to see what the max sample rate is */
+static uint32_t daqgert_ao_delay_rate(struct comedi_device *dev, int32_t rate, int32_t device_type, bool test_mode)
+{
+	struct daqgert_private *devpriv = dev->private;
+	int32_t spacing_usecs = 0;
+
+	if (test_mode) {
+		dev_info(dev->class_dev, "ao speed testing: rate %i, max_rate %i, spacing usecs %i\n", rate, devpriv->ao_max_rate, spacing_usecs);
+		return spacing_usecs;
+	}
+	spacing_usecs = rate - devpriv->ao_max_rate;
+	spacing_usecs /= (1 * 25);
+	if (spacing_usecs < 30) spacing_usecs = 0;
+	spacing_usecs += 2;
+	dev_info(dev->class_dev, "rate %i, max_rate %i, spacing usecs %i\n", rate, devpriv->ao_max_rate, spacing_usecs);
+	return spacing_usecs;
+}
+
 static int32_t daqgert_ao_cmdtest(struct comedi_device *dev,
 	struct comedi_subdevice *s, struct comedi_cmd *cmd)
 {
-	struct daqgert_private *this_daqgert = dev->private;
-	int32_t err = 0;
+	const struct daqgert_board *board = dev->board_ptr;
+	struct daqgert_private *devpriv = dev->private;
+	struct spi_param_type *spi_data = s->private;
+	struct spi_device *spi = spi_data->spi;
+	struct comedi_control *pdata = spi->dev.platform_data;
+	int32_t i, err = 0;
 	uint32_t flags;
+	uint32_t tmp_timer;
 
-	if (!this_daqgert)
+	if (!devpriv)
 		return -EFAULT;
 
 	/* Step 1 : check if triggers are trivially valid */
@@ -1620,9 +1649,19 @@ static int32_t daqgert_ao_cmdtest(struct comedi_device *dev,
 	if (cmd->scan_begin_src == TRIG_FOLLOW) /* internal trigger */
 		err |= cfc_check_trigger_arg_is(&cmd->scan_begin_arg, 0);
 
-	if (cmd->scan_begin_src == TRIG_TIMER)
-		err |= cfc_check_trigger_arg_min(&cmd->scan_begin_arg,
-		1000000);
+
+	if (cmd->scan_begin_src == TRIG_TIMER) {
+		i = 1;
+		/* find a power of 2 for the number of channels */
+		while (i < (cmd->chanlist_len))
+			i = i * 2;
+		err |= cfc_check_trigger_arg_min(&cmd->scan_begin_arg, board->ao_ns_min_calc / 2 * i); /* 2 is num of channels */
+		/* now calc the real sampling rate with all the
+		 * rounding errors */
+		tmp_timer = ((uint32_t) (cmd->scan_begin_arg / board->ao_ns_min)) * board->ao_ns_min;
+		pdata->delay_usecs = daqgert_ao_delay_rate(dev, tmp_timer, spi_data->device_type, speed_test);
+		err |= cfc_check_trigger_arg_is(&cmd->scan_begin_arg, tmp_timer);
+	}
 
 	err |= cfc_check_trigger_arg_is(&cmd->scan_end_arg, cmd->chanlist_len);
 
@@ -1657,16 +1696,16 @@ static uint32_t daqgert_ai_delay_rate(struct comedi_device *dev, int32_t rate, i
 	int32_t spacing_usecs = 0;
 
 	if (test_mode) {
-		dev_info(dev->class_dev, "speed testing: rate %i, max_rate %i, spacing usecs %i\n", rate, devpriv->max_rate, spacing_usecs);
+		dev_info(dev->class_dev, "ai speed testing: rate %i, max_rate %i, spacing usecs %i\n", rate, devpriv->ai_max_rate, spacing_usecs);
 		return spacing_usecs;
 	}
-	spacing_usecs = rate - devpriv->max_rate;
+	spacing_usecs = rate - devpriv->ai_max_rate;
 	spacing_usecs = spacing_usecs * 50;
 	spacing_usecs /= (HUNK_LEN * 25);
 	if (spacing_usecs < 30) spacing_usecs = 0;
 	spacing_usecs += CONV_SPEED_FIX;
 	if (device_type == MCP3002) spacing_usecs += CONV_SPEED_FIX_FAST;
-	dev_info(dev->class_dev, "rate %i, max_rate %i, spacing usecs %i\n", rate, devpriv->max_rate, spacing_usecs);
+	dev_info(dev->class_dev, "rate %i, max_rate %i, spacing usecs %i\n", rate, devpriv->ai_max_rate, spacing_usecs);
 	return spacing_usecs;
 }
 
@@ -1749,7 +1788,7 @@ static int32_t daqgert_ai_cmdtest(struct comedi_device *dev,
 
 	if (cmd->convert_src == TRIG_TIMER) {
 		arg = cmd->convert_arg;
-		i8253_cascade_ns_to_timer(devpriv->conv_delay_10nsecs,
+		i8253_cascade_ns_to_timer(devpriv->ai_conv_delay_10nsecs,
 			&divisor1,
 			&divisor2,
 			&arg, cmd->flags);
@@ -1994,19 +2033,20 @@ static int32_t daqgert_auto_attach(struct comedi_device *dev, unsigned long cont
 	mutex_init(&devpriv->drvdata_lock);
 
 	/* Board  operation data */
-	devpriv->cmd_delay_usecs = 10; /* PIC slave delays */
-	devpriv->conv_delay_usecs = 30;
+	devpriv->ai_cmd_delay_usecs = 10; /* PIC slave delays */
+	devpriv->ai_conv_delay_usecs = 30;
 	devpriv->ai_neverending = true;
 	devpriv->hunk = true;
 	devpriv->ai_mix = false;
 	devpriv->ai_spi = &spi_adc;
 	devpriv->ao_spi = &spi_dac;
-	devpriv->conv_delay_10nsecs = CONV_SPEED;
+	devpriv->ai_conv_delay_10nsecs = CONV_SPEED;
 
 	dev->board_ptr = thisboard;
 	dev->board_name = thisboard->name;
 
-	devpriv->max_rate = 1000000000 / thisboard->ai_ns_min; /* samples per second */
+	devpriv->ai_max_rate = 1000000000 / thisboard->ai_ns_min; /* samples per second */
+	devpriv->ao_max_rate = 1000000000 / thisboard->ao_ns_min; /* samples per second */
 
 	/* Use the kernel system_rev EXPORT_SYMBOL */
 	devpriv->RPisys_rev = system_rev; /* what board are we running on? */
