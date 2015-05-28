@@ -300,7 +300,7 @@ static const struct daqgert_board daqgert_boards[] = {
 		.ai_ns_min = 50000, /* values plus software overhead */
 		.ai_ns_min_calc = 35000,
 		.ao_ns_min = 5000,
-		.ao_ns_min_calc = 3500,
+		.ao_ns_min_calc = 4500,
 	},
 	{
 		.name = "Fredboard",
@@ -309,8 +309,8 @@ static const struct daqgert_board daqgert_boards[] = {
 		.n_aochan = 8,
 		.ai_ns_min = 50000,
 		.ai_ns_min_calc = 35000,
-		.ao_ns_min = 15000,
-		.ao_ns_min_calc = 13500,
+		.ao_ns_min = 5000,
+		.ao_ns_min_calc = 4500,
 	},
 };
 
@@ -1552,6 +1552,9 @@ static uint32_t daqgert_ao_delay_rate(struct comedi_device *dev, int32_t rate, i
 		dev_info(dev->class_dev, "ao speed testing: rate %i, spacing usecs %i\n", rate, spacing_usecs);
 		return spacing_usecs;
 	}
+
+	if (rate <= 0) rate = 10000);
+	if (rate > 1000000000) rate = 1000000000);
 	sample_freq = 1000000000 / rate;
 	total_sample_time = board->ao_ns_min * sample_freq; /* time needed for all samples */
 	spacing_usecs = ((1000000000 - total_sample_time) / sample_freq) / 1000;
@@ -1619,13 +1622,13 @@ static int32_t daqgert_ao_cmdtest(struct comedi_device *dev,
 		/* find a power of 2 for the number of channels */
 		while (i < (cmd->chanlist_len))
 			i = i * 2;
-//		err |= cfc_check_trigger_arg_min(&cmd->scan_begin_arg, board->ao_ns_min_calc / 2 * i); /* 2 is num of channels */
-//		err |= cfc_check_trigger_arg_min(&cmd->scan_begin_arg, 20000);
+		tmp_timer = (board->ao_ns_min_calc / 2) * i; /* 2 is num of channels */
+		err |= cfc_check_trigger_arg_min(&cmd->scan_begin_arg, tmp_timer); /* fastest */
 		/* now calc the real sampling rate with all the
 		 * rounding errors */
 		tmp_timer = ((uint32_t) (cmd->scan_begin_arg / board->ao_ns_min)) * board->ao_ns_min;
 		pdata->delay_usecs = daqgert_ao_delay_rate(dev, tmp_timer, spi_data->device_type, speed_test);
-		err |= cfc_check_trigger_arg_max(&cmd->scan_begin_arg, 999999999);
+		err |= cfc_check_trigger_arg_max(&cmd->scan_begin_arg, 1000000000); /* slowest */
 	} else {
 		pdata->delay_usecs = 0;
 	}
@@ -1664,20 +1667,23 @@ static int32_t daqgert_ai_poll(struct comedi_device *dev, struct comedi_subdevic
 /* get close to a good sample spacing for one second, test_mode is to see what the max sample rate is */
 static uint32_t daqgert_ai_delay_rate(struct comedi_device *dev, int32_t rate, int32_t device_type, bool test_mode)
 {
-	struct daqgert_private *devpriv = dev->private;
-	int32_t spacing_usecs = 0;
+	const struct daqgert_board *board = dev->board_ptr;
+	int32_t spacing_usecs = 0, sample_freq, total_sample_time;
 
 	if (test_mode) {
-		dev_info(dev->class_dev, "ai speed testing: rate %i, max_rate %i, spacing usecs %i\n", rate, devpriv->ai_max_rate, spacing_usecs);
+		dev_info(dev->class_dev, "ai speed testing: rate %i, spacing usecs %i\n", rate, spacing_usecs);
 		return spacing_usecs;
 	}
-	spacing_usecs = rate - devpriv->ai_max_rate;
-	spacing_usecs = spacing_usecs * 50;
-	spacing_usecs /= (HUNK_LEN * 25);
+
+	if (rate <= 0) rate = 20000);
+	if (rate > 1000000000) rate = 1000000000);
+	sample_freq = 1000000000 / rate;
+	total_sample_time = board->ao_ns_min * sample_freq; /* time needed for all samples */
+	spacing_usecs = ((1000000000 - total_sample_time) / sample_freq) / 1000;
 	if (spacing_usecs < 30) spacing_usecs = 0;
 	spacing_usecs += CONV_SPEED_FIX;
 	if (device_type == MCP3002) spacing_usecs += CONV_SPEED_FIX_FAST;
-	dev_info(dev->class_dev, "ai rate %i, max_rate %i, spacing usecs %i\n", rate, devpriv->ai_max_rate, spacing_usecs);
+	dev_info(dev->class_dev, "ai rate %i, spacing usecs %i\n", rate, spacing_usecs);
 	return spacing_usecs;
 }
 
@@ -1733,6 +1739,8 @@ static int32_t daqgert_ai_cmdtest(struct comedi_device *dev,
 		/* now calc the real sampling rate with all the
 		 * rounding errors */
 		tmp_timer = ((uint32_t) (cmd->scan_begin_arg / board->ai_ns_min)) * board->ai_ns_min;
+		pdata->delay_usecs = daqgert_ai_delay_rate(dev, tmp_timer, spi_data->device_type, speed_test);
+		pdata->mix_delay_usecs = pdata->delay_usecs < 2; /* double delay with zero for the first scan chan */
 		err |= cfc_check_trigger_arg_is(&cmd->scan_begin_arg, tmp_timer);
 	}
 
@@ -2146,7 +2154,11 @@ static int32_t daqgert_auto_attach(struct comedi_device *dev, unsigned long cont
 		s->do_cmdtest = daqgert_ao_cmdtest;
 		s->do_cmd = daqgert_ao_cmd;
 		s->cancel = daqgert_ao_cancel;
-		comedi_alloc_subdev_readback(s);
+		ret = comedi_alloc_subdev_readback(s);
+		if (ret) {
+			dev_err(dev->class_dev, "alloc subdevice readback failed!\n");
+			return ret;
+		}
 	}
 	/* setup kthreads */
 	if (devpriv->hunk) {
