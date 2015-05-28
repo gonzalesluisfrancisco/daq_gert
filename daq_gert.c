@@ -1553,7 +1553,7 @@ static uint32_t daqgert_ao_delay_rate(struct comedi_device *dev, int32_t rate, i
 		return spacing_usecs;
 	}
 
-	if (rate <= 0) rate = 10000);
+	if (rate <= 0) rate = 10000;
 	if (rate > 1000000000) rate = 1000000000;
 	sample_freq = 1000000000 / rate;
 	total_sample_time = board->ao_ns_min * sample_freq; /* time needed for all samples */
@@ -1675,7 +1675,7 @@ static uint32_t daqgert_ai_delay_rate(struct comedi_device *dev, int32_t rate, i
 		return spacing_usecs;
 	}
 
-	if (rate <= 0) rate = 20000);
+	if (rate <= 0) rate = 20000;
 	if (rate > 1000000000) rate = 1000000000;
 	sample_freq = 1000000000 / rate;
 	total_sample_time = board->ao_ns_min * sample_freq; /* time needed for all samples */
