@@ -1544,10 +1544,10 @@ ai_cmd_exit:
 }
 
 /* get close to a good sample spacing for one second, test_mode is to see what the max sample rate is */
-static uint32_t daqgert_ao_delay_rate(struct comedi_device *dev, int32_t rate, int32_t device_type, bool test_mode)
+static int32_t daqgert_ao_delay_rate(struct comedi_device *dev, int32_t rate, int32_t device_type, bool test_mode)
 {
 	const struct daqgert_board *board = dev->board_ptr;
-	int32_t spacing_usecs = 0, sample_freq, total_sample_time;
+	int32_t spacing_usecs = 0, sample_freq, total_sample_time, delay_time;
 	if (test_mode) {
 		dev_info(dev->class_dev, "ao speed testing: rate %i, spacing usecs %i\n", rate, spacing_usecs);
 		return spacing_usecs;
@@ -1556,9 +1556,14 @@ static uint32_t daqgert_ao_delay_rate(struct comedi_device *dev, int32_t rate, i
 	if (rate <= 0) rate = 10000;
 	if (rate > 1000000000) rate = 1000000000;
 	sample_freq = 1000000000 / rate;
-	total_sample_time = board->ao_ns_min * sample_freq; /* time needed for all samples */
-	spacing_usecs = (((1000000000 - total_sample_time) / sample_freq) - board->ao_ns_min) / 1000;
-	if (spacing_usecs < 30) spacing_usecs = 0;
+	total_sample_time = board->ao_ns_min * sample_freq; /* ns time needed for all samples in one second */
+	delay_time = 1000000000 - total_sample_time; /* what's left */
+	if (delay_time >= sample_freq) { /* something */
+		spacing_usecs = (delay_time / sample_freq) / 1000;
+		if (spacing_usecs < 0) spacing_usecs = 0;
+	} else { /* or nothing */
+		spacing_usecs = 0;
+	}
 	dev_info(dev->class_dev, "ao rate %i, spacing usecs %i\n", rate, spacing_usecs);
 	return spacing_usecs;
 }
@@ -1666,10 +1671,10 @@ static int32_t daqgert_ai_poll(struct comedi_device *dev, struct comedi_subdevic
 }
 
 /* get close to a good sample spacing for one second, test_mode is to see what the max sample rate is */
-static uint32_t daqgert_ai_delay_rate(struct comedi_device *dev, int32_t rate, int32_t device_type, bool test_mode)
+static int32_t daqgert_ai_delay_rate(struct comedi_device *dev, int32_t rate, int32_t device_type, bool test_mode)
 {
 	const struct daqgert_board *board = dev->board_ptr;
-	int32_t spacing_usecs = 0, sample_freq, total_sample_time;
+	int32_t spacing_usecs = 0, sample_freq, total_sample_time, delay_time;
 
 	if (test_mode) {
 		dev_info(dev->class_dev, "ai speed testing: rate %i, spacing usecs %i\n", rate, spacing_usecs);
@@ -1679,9 +1684,14 @@ static uint32_t daqgert_ai_delay_rate(struct comedi_device *dev, int32_t rate, i
 	if (rate <= 0) rate = 20000;
 	if (rate > 1000000000) rate = 1000000000;
 	sample_freq = 1000000000 / rate;
-	total_sample_time = board->ao_ns_min * sample_freq; /* time needed for all samples */
-	spacing_usecs = (((1000000000 - total_sample_time) / sample_freq) - board->ao_ns_min) / 1000;
-	if (spacing_usecs < 30) spacing_usecs = 0;
+	total_sample_time = board->ai_ns_min * sample_freq; /* time needed for all samples */
+	delay_time = 1000000000 - total_sample_time;
+	if (delay_time >= sample_freq) {
+		spacing_usecs = (delay_time / sample_freq) / 1000;
+		if (spacing_usecs < 0) spacing_usecs = 0;
+	} else {
+		spacing_usecs = 0;
+	}
 	spacing_usecs += CONV_SPEED_FIX;
 	if (device_type == MCP3002) spacing_usecs += CONV_SPEED_FIX_FAST;
 	dev_info(dev->class_dev, "ai rate %i, spacing usecs %i\n", rate, spacing_usecs);
