@@ -207,7 +207,7 @@ static const uint32_t PICSL12 = 0;
 
 static const uint32_t SPI_BUFF_SIZE = 3072;
 static const uint32_t MAX_CHANLIST_LEN = 256;
-static const uint32_t CONV_SPEED = 5000; /* 10s of nsecs: the true rate is ~4883 so we need a fixup,  two conversions per mix scan */
+static const uint32_t CONV_SPEED = 5000; /* 10s of nsecs: the true rate is ~4883/5000 so we need a fixup,  two conversions per mix scan */
 static const uint32_t CONV_SPEED_FIX = 1; /* usecs: round it up to ~50usecs total with this */
 static const uint32_t CONV_SPEED_FIX_FAST = 16; /* used for the MCP3002 ADC */
 
@@ -1557,7 +1557,8 @@ static uint32_t daqgert_ao_delay_rate(struct comedi_device *dev, int32_t rate, i
 	if (rate > 1000000000) rate = 1000000000;
 	sample_freq = 1000000000 / rate;
 	total_sample_time = board->ao_ns_min * sample_freq; /* time needed for all samples */
-	spacing_usecs = ((1000000000 - total_sample_time) / sample_freq) / 1000;
+	spacing_usecs = (((1000000000 - total_sample_time) / sample_freq) - board->ao_ns_min) / 1000;
+	if (spacing_usecs < 30) spacing_usecs = 0;
 	dev_info(dev->class_dev, "ao rate %i, spacing usecs %i\n", rate, spacing_usecs);
 	return spacing_usecs;
 }
@@ -1679,7 +1680,7 @@ static uint32_t daqgert_ai_delay_rate(struct comedi_device *dev, int32_t rate, i
 	if (rate > 1000000000) rate = 1000000000;
 	sample_freq = 1000000000 / rate;
 	total_sample_time = board->ao_ns_min * sample_freq; /* time needed for all samples */
-	spacing_usecs = ((1000000000 - total_sample_time) / sample_freq) / 1000;
+	spacing_usecs = (((1000000000 - total_sample_time) / sample_freq) - board->ao_ns_min) / 1000;
 	if (spacing_usecs < 30) spacing_usecs = 0;
 	spacing_usecs += CONV_SPEED_FIX;
 	if (device_type == MCP3002) spacing_usecs += CONV_SPEED_FIX_FAST;
