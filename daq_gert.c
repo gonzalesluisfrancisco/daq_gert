@@ -1048,44 +1048,31 @@ static void daqgert_handle_ai_eoc(struct comedi_device *dev,
 	struct daqgert_private *devpriv = dev->private;
 	struct comedi_cmd *cmd = &s->async->cmd;
 	uint32_t next_chan, val;
+	uint32_t chan = s->async->cur_chan;
 
-	dev_info(dev->class_dev, "current channel %i, %i, %i\n", cmd->chanlist[s->async->cur_chan], s->async->cur_chan,cmd->chanlist_len);
+	dev_info(dev->class_dev, "current channel %i, %i, %i\n", cmd->chanlist[s->async->cur_chan], s->async->cur_chan, cmd->chanlist_len);
 	val = daqgert_ai_get_sample(dev, s);
 	comedi_buf_write_samples(s, &val, 1);
 
 	/* fixup for mix mode convert_src TRIG_NOW */
 	if (cmd->convert_src == TRIG_NOW) {
-		daqgert_ai_set_chan_range(dev, cmd->chanlist[s->async->cur_chan] + 1, 1);
+		daqgert_ai_set_chan_range(dev, cmd->chanlist[s->async->cur_chan], 1);
 		val = daqgert_ai_get_sample(dev, s);
 		comedi_buf_write_samples(s, &val, 1);
 		daqgert_ai_set_chan_range(dev, cmd->chanlist[s->async->cur_chan], 1);
 	}
 
-	next_chan = s->async->cur_chan + 1;
-	if (next_chan >= cmd->chanlist_len)
-		next_chan = 0;
-
-	if (cmd->chanlist[s->async->cur_chan] != cmd->chanlist[next_chan])
+	next_chan = s->async->cur_chan;
+	if (cmd->chanlist[chan] != cmd->chanlist[next_chan])
 		daqgert_ai_set_chan_range(dev, cmd->chanlist[next_chan], 1);
 
-	if (s->async->cur_chan >= cmd->chanlist_len) {
-		s->async->cur_chan = 0;
-		s->async->events |= COMEDI_CB_EOS;
-	}
-
-	if (cmd->stop_src == TRIG_COUNT) {
-		if (s->async->cur_chan == 0) {
-			if (!devpriv->ai_neverending) {
-				/* all data sampled */
-				if (s->async->scans_done >= cmd->stop_arg) {
-					daqgert_ai_cancel(dev, s);
-					s->async->scans_done = cmd->stop_arg;
-					s->async->events |= COMEDI_CB_EOA;
-				}
-			}
+	if (cmd->stop_src == TRIG_COUNT &&
+		s->async->scans_done >= cmd->stop_arg) {
+		if (!devpriv->ai_neverending) {
+			daqgert_ai_cancel(dev, s);
+			s->async->events |= COMEDI_CB_EOA;
 		}
 	}
-	comedi_handle_events(dev, s);
 }
 
 static void daqgert_ao_next_chan(struct comedi_device *dev,
