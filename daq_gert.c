@@ -1049,6 +1049,7 @@ static void daqgert_handle_ai_eoc(struct comedi_device *dev,
 	struct comedi_cmd *cmd = &s->async->cmd;
 	uint32_t next_chan, val;
 
+	dev_info(dev->class_dev, "current channel %i, %i, %i\n", cmd->chanlist[s->async->cur_chan], s->async->cur_chan,cmd->chanlist_len);
 	val = daqgert_ai_get_sample(dev, s);
 	comedi_buf_write_samples(s, &val, 1);
 
@@ -1067,7 +1068,6 @@ static void daqgert_handle_ai_eoc(struct comedi_device *dev,
 	if (cmd->chanlist[s->async->cur_chan] != cmd->chanlist[next_chan])
 		daqgert_ai_set_chan_range(dev, cmd->chanlist[next_chan], 1);
 
-	s->async->cur_chan++;
 	if (s->async->cur_chan >= cmd->chanlist_len) {
 		s->async->cur_chan = 0;
 		s->async->events |= COMEDI_CB_EOS;
@@ -1094,7 +1094,6 @@ static void daqgert_ao_next_chan(struct comedi_device *dev,
 	struct daqgert_private *devpriv = dev->private;
 	struct comedi_cmd *cmd = &s->async->cmd;
 
-	s->async->cur_chan++;
 	if (s->async->cur_chan >= cmd->chanlist_len) {
 		s->async->cur_chan = 0;
 		s->async->events |= COMEDI_CB_EOS;
@@ -1480,6 +1479,7 @@ static int32_t daqgert_ao_cmd(struct comedi_device *dev, struct comedi_subdevice
 	}
 
 	devpriv->timing_lockout++;
+	schedule();
 ao_cmd_exit:
 	mutex_unlock(&devpriv->cmd_lock);
 	return ret;
@@ -1570,6 +1570,7 @@ static int32_t daqgert_ai_cmd(struct comedi_device *dev, struct comedi_subdevice
 	}
 
 	devpriv->timing_lockout++;
+	schedule();
 ai_cmd_exit:
 	mutex_unlock(&devpriv->cmd_lock);
 	return ret;
@@ -1751,7 +1752,8 @@ static int32_t daqgert_ai_cmdtest(struct comedi_device *dev,
 
 	err |= cfc_check_trigger_src(&cmd->start_src, TRIG_NOW | TRIG_INT);
 	err |= cfc_check_trigger_src(&cmd->scan_begin_src, TRIG_FOLLOW | TRIG_TIMER);
-	err |= cfc_check_trigger_src(&cmd->convert_src, TRIG_TIMER | TRIG_NOW);
+	//	err |= cfc_check_trigger_src(&cmd->convert_src, TRIG_TIMER | TRIG_NOW);
+	err |= cfc_check_trigger_src(&cmd->convert_src, TRIG_TIMER);
 	err |= cfc_check_trigger_src(&cmd->scan_end_src, TRIG_COUNT);
 	err |= cfc_check_trigger_src(&cmd->stop_src, TRIG_NONE | TRIG_COUNT);
 
