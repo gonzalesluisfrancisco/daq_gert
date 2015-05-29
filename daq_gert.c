@@ -1050,7 +1050,6 @@ static void daqgert_handle_ai_eoc(struct comedi_device *dev,
 	uint32_t next_chan, val;
 	uint32_t chan = s->async->cur_chan;
 
-	dev_info(dev->class_dev, "current channel %i, %i, %i\n", cmd->chanlist[s->async->cur_chan], s->async->cur_chan, cmd->chanlist_len);
 	val = daqgert_ai_get_sample(dev, s);
 	comedi_buf_write_samples(s, &val, 1);
 
@@ -1081,26 +1080,14 @@ static void daqgert_ao_next_chan(struct comedi_device *dev,
 	struct daqgert_private *devpriv = dev->private;
 	struct comedi_cmd *cmd = &s->async->cmd;
 
-	if (s->async->cur_chan >= cmd->chanlist_len) {
-		s->async->cur_chan = 0;
-		s->async->events |= COMEDI_CB_EOS;
-	}
-
-	if (cmd->stop_src == TRIG_COUNT) {
-		if (s->async->cur_chan == 0) {
-			if (!devpriv->ao_neverending) {
-				/* all data sampled */
-				if (s->async->scans_done >= cmd->stop_arg) {
-					dev_info(dev->class_dev, "ao_next_chan cancel\n");
-					daqgert_ao_cancel(dev, s);
-					s->async->scans_done = cmd->stop_arg;
-					s->async->events |= COMEDI_CB_EOA;
-					comedi_handle_events(dev, s);
-				}
-			}
+	if (cmd->stop_src == TRIG_COUNT &&
+		s->async->scans_done >= cmd->stop_arg) {
+		if (!devpriv->ao_neverending) {
+			/* all data sampled */
+			daqgert_ao_cancel(dev, s);
+			s->async->events |= COMEDI_CB_EOA;
 		}
 	}
-	comedi_handle_events(dev, s);
 }
 
 /* start chan set in ao_cmd */
@@ -1110,6 +1097,7 @@ static void daqgert_handle_ao_eoc(struct comedi_device *dev,
 	struct comedi_cmd *cmd = &s->async->cmd;
 	uint32_t next_chan, val;
 	uint16_t sampl_val;
+	uint32_t chan = s->async->cur_chan;
 
 	if (!comedi_buf_read_samples(s, &sampl_val, 1)) {
 		dev_err(dev->class_dev, "buffer underflow\n");
@@ -1121,11 +1109,8 @@ static void daqgert_handle_ao_eoc(struct comedi_device *dev,
 	val = sampl_val;
 	daqgert_ao_put_sample(dev, s, val);
 
-	next_chan = s->async->cur_chan + 1;
-	if (next_chan >= cmd->chanlist_len)
-		next_chan = 0;
-
-	if (cmd->chanlist[s->async->cur_chan] != cmd->chanlist[next_chan])
+	next_chan = s->async->cur_chan;
+	if (cmd->chanlist[chan] != cmd->chanlist[next_chan])
 		daqgert_ao_set_chan_range(dev, cmd->chanlist[next_chan], 1);
 
 	daqgert_ao_next_chan(dev, s);
