@@ -1041,39 +1041,11 @@ static uint32_t daqgert_ai_get_sample(struct comedi_device *dev,
 	return val & s->maxdata;
 }
 
-static void daqgert_ai_next_chan(struct comedi_device *dev,
-	struct comedi_subdevice *s)
-{
-	struct daqgert_private *devpriv = dev->private;
-	struct comedi_cmd *cmd = &s->async->cmd;
-
-
-	s->async->cur_chan++;
-	if (s->async->cur_chan >= cmd->chanlist_len) {
-		s->async->cur_chan = 0;
-		s->async->events |= COMEDI_CB_EOS;
-	}
-
-	if (cmd->stop_src == TRIG_COUNT) {
-		if (s->async->cur_chan == 0) {
-			if (!devpriv->ai_neverending) {
-				/* all data sampled */
-				if (s->async->scans_done >= cmd->stop_arg) {
-					daqgert_ai_cancel(dev, s);
-					s->async->scans_done = cmd->stop_arg;
-					s->async->events |= COMEDI_CB_EOA;
-				}
-			}
-		}
-	}
-	comedi_handle_events(dev, s);
-
-}
-
 /* start chan set in ai_cmd */
 static void daqgert_handle_ai_eoc(struct comedi_device *dev,
 	struct comedi_subdevice *s)
 {
+	struct daqgert_private *devpriv = dev->private;
 	struct comedi_cmd *cmd = &s->async->cmd;
 	uint32_t next_chan, val;
 
