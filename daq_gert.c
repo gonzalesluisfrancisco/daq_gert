@@ -2449,6 +2449,6 @@ module_exit(daqgert_exit);
 
 MODULE_AUTHOR("Fred Brooks <spam@sma2.rain.com>");
 MODULE_DESCRIPTION("RPi DIO/AI/AO Driver");
-MODULE_VERSION("0.0.25");
+MODULE_VERSION("0.0.26");
 MODULE_LICENSE("GPL");
 MODULE_ALIAS("spi:spigert");
