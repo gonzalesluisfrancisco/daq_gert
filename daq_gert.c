@@ -1053,14 +1053,6 @@ static void daqgert_handle_ai_eoc(struct comedi_device *dev,
 	val = daqgert_ai_get_sample(dev, s);
 	comedi_buf_write_samples(s, &val, 1);
 
-	/* fixup for mix mode convert_src TRIG_NOW */
-	if (cmd->convert_src == TRIG_NOW) {
-		daqgert_ai_set_chan_range(dev, cmd->chanlist[s->async->cur_chan], 1);
-		val = daqgert_ai_get_sample(dev, s);
-		comedi_buf_write_samples(s, &val, 1);
-		daqgert_ai_set_chan_range(dev, cmd->chanlist[s->async->cur_chan], 1);
-	}
-
 	next_chan = s->async->cur_chan;
 	if (cmd->chanlist[chan] != cmd->chanlist[next_chan])
 		daqgert_ai_set_chan_range(dev, cmd->chanlist[next_chan], 1);
@@ -1451,7 +1443,6 @@ static int32_t daqgert_ao_cmd(struct comedi_device *dev, struct comedi_subdevice
 	}
 
 	devpriv->timing_lockout++;
-	schedule();
 ao_cmd_exit:
 	mutex_unlock(&devpriv->cmd_lock);
 	return ret;
@@ -1542,7 +1533,6 @@ static int32_t daqgert_ai_cmd(struct comedi_device *dev, struct comedi_subdevice
 	}
 
 	devpriv->timing_lockout++;
-	schedule();
 ai_cmd_exit:
 	mutex_unlock(&devpriv->cmd_lock);
 	return ret;
@@ -1724,8 +1714,8 @@ static int32_t daqgert_ai_cmdtest(struct comedi_device *dev,
 
 	err |= cfc_check_trigger_src(&cmd->start_src, TRIG_NOW | TRIG_INT);
 	err |= cfc_check_trigger_src(&cmd->scan_begin_src, TRIG_FOLLOW | TRIG_TIMER);
-	err |= cfc_check_trigger_src(&cmd->convert_src, TRIG_TIMER | TRIG_NOW);
-	//	err |= cfc_check_trigger_src(&cmd->convert_src, TRIG_TIMER);
+	//	err |= cfc_check_trigger_src(&cmd->convert_src, TRIG_TIMER | TRIG_NOW);
+	err |= cfc_check_trigger_src(&cmd->convert_src, TRIG_TIMER);
 	err |= cfc_check_trigger_src(&cmd->scan_end_src, TRIG_COUNT);
 	err |= cfc_check_trigger_src(&cmd->stop_src, TRIG_NONE | TRIG_COUNT);
 
@@ -1875,6 +1865,7 @@ static int32_t daqgert_ao_cancel(struct comedi_device *dev,
 	dev_info(dev->class_dev, "ao cancel\n");
 	ao_count = devpriv->ao_count;
 	s->async->cur_chan = 0;
+	devpriv->ao_cmd_running = false;
 	do { /* wait if needed to SPI to clear or timeout */
 		schedule(); /* force a context switch to stop the AO thread */
 		msleep(1);
@@ -1884,7 +1875,6 @@ static int32_t daqgert_ao_cancel(struct comedi_device *dev,
 	devpriv->timing_lockout--;
 	if (devpriv->timing_lockout < 0) devpriv->timing_lockout = 0;
 	devpriv->ao_cmd_canceled = true;
-	devpriv->ao_cmd_running = false;
 	return 0;
 }
 
