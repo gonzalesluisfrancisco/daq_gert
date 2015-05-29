@@ -282,6 +282,8 @@ static int32_t speed_test = 0;
 module_param(speed_test, int, S_IRUGO);
 static int32_t wiringpi = 1;
 module_param(wiringpi, int, S_IRUGO);
+static int32_t use_hunking = 1;
+module_param(use_hunking, int, S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);
 
 struct daqgert_board {
 	const char *name;
@@ -860,6 +862,9 @@ static int32_t daqgert_ai_thread_function(void *data)
 	struct comedi_device *dev = (void*) data;
 	struct comedi_subdevice *s = dev->read_subdev;
 	struct daqgert_private *devpriv = dev->private;
+	struct spi_param_type *spi_data = s->private;
+	struct spi_device *spi = spi_data->spi;
+	struct comedi_control *pdata = spi->dev.platform_data;
 
 	while (!kthread_should_stop()) {
 		while (!devpriv->run) {
@@ -875,15 +880,13 @@ static int32_t daqgert_ai_thread_function(void *data)
 		}
 		if (devpriv->ai_cmd_running) {
 			if (devpriv->ai_hunk) {
-				usleep_range(5, 6);
 				daqgert_handle_ai_hunk(dev, s);
-
 				devpriv->hunk_count++;
 				hunk_count = devpriv->hunk_count;
 			} else {
-				usleep_range(5, 6);
 				daqgert_handle_ai_eoc(dev, s);
 				devpriv->ai_count++;
+				usleep_range(pdata->delay_usecs, pdata->delay_usecs + 1);
 			}
 		} else {
 			devpriv->spi_ai_run = false;
@@ -1017,18 +1020,7 @@ static uint32_t daqgert_ai_get_sample(struct comedi_device *dev,
 		if (devpriv->ai_hunk) { /* for single channel command scans with pre-formatted tx_buffer & transfer array */
 			spi_message_init_with_transfers(&m, &pdata->t[0], HUNK_LEN); /* make the proper message with the transfers */
 		} else {
-			memset(&pdata->t, 0, sizeof(pdata->t)); /* clear the transfer array */
-			pdata->tx_buff[2] = 0; /* format the ADC data as a single transmission into the buffer */
-			pdata->tx_buff[1] = 0;
 			pdata->tx_buff[0] = 0b11010000 | ((chan & 0x01) << 5);
-
-			pdata->t[0].tx_buf = pdata->tx_buff;
-			if (spi_data->device_type == MCP3002) { /* 10 bit adc data */
-				pdata->t[0].len = 2;
-			} else {
-				pdata->t[0].len = 3;
-			}
-			pdata->t[0].rx_buf = pdata->rx_buff;
 			spi_message_init_with_transfers(&m, &pdata->t[0], 1); /* make the proper message with the transfer */
 		}
 		spi_bus_lock(spi_data->spi->master);
@@ -1363,6 +1355,32 @@ static void daqgert_ai_setup_hunk(struct comedi_device *dev,
 	transfer_to_hunk_buf(dev, s, ptr, bufptr, len, offset, mix_mode);
 }
 
+static void daqgert_ai_setup_eoc(struct comedi_device *dev,
+	struct comedi_subdevice *s)
+{
+	struct spi_param_type *spi_data = s->private;
+	struct spi_device *spi = spi_data->spi;
+	struct comedi_control *pdata = spi->dev.platform_data;
+	uint32_t len;
+
+	memset(&pdata->t, 0, sizeof(pdata->t));
+	if (spi_data->device_type == MCP3002) {
+		len = 2;
+	} else {
+		len = 3;
+	}
+
+	/* format the tx_buffer */
+	pdata->tx_buff[2] = 0; /* format the ADC data as a single transmission into the buffer */
+	pdata->tx_buff[1] = 0;
+
+	/* format the transfer array */
+	pdata->t[0].cs_change = 0;
+	pdata->t[0].len = len;
+	pdata->t[0].tx_buf = pdata->tx_buff;
+	pdata->t[0].rx_buf = pdata->rx_buff;
+}
+
 static int32_t daqgert_ai_inttrig(struct comedi_device *dev,
 	struct comedi_subdevice *s,
 	uint32_t trig_num)
@@ -1434,6 +1452,7 @@ static int32_t daqgert_ao_cmd(struct comedi_device *dev, struct comedi_subdevice
 		goto ao_cmd_exit;
 	}
 
+	devpriv->hunk = use_hunking;
 	/* for possible hunking of AO */
 	if (cmd->stop_src == TRIG_COUNT) {
 		devpriv->ao_scans = cmd->chanlist_len * cmd->stop_arg;
@@ -1487,6 +1506,7 @@ static int32_t daqgert_ai_cmd(struct comedi_device *dev, struct comedi_subdevice
 		goto ai_cmd_exit;
 	}
 
+	devpriv->hunk = use_hunking;
 	if (cmd->stop_src == TRIG_COUNT) {
 		devpriv->ai_scans = cmd->chanlist_len * cmd->stop_arg;
 		devpriv->ai_neverending = false;
@@ -1504,6 +1524,7 @@ static int32_t daqgert_ai_cmd(struct comedi_device *dev, struct comedi_subdevice
 			if (cmd->chanlist[0] != cmd->chanlist[i]) {
 				/* we can't use HUNK :-( */
 				devpriv->ai_hunk = false;
+				dev_info(dev->class_dev, "hunk ai mode transfers disabled\n");
 				break;
 			}
 		}
@@ -1528,11 +1549,15 @@ static int32_t daqgert_ai_cmd(struct comedi_device *dev, struct comedi_subdevice
 		if (cmd->chanlist_len == 1)
 			devpriv->ai_hunk = false;
 	}
-	if (devpriv->timing_lockout)
+	if (devpriv->timing_lockout) {
 		devpriv->ai_hunk = false;
+		dev_info(dev->class_dev, "all hunk ai mode transfers disabled from timing lockout\n");
+	}
 
 	if (devpriv->ai_hunk) /* run batch conversions in background */
 		daqgert_ai_setup_hunk(dev, s, true);
+	else
+		daqgert_ai_setup_eoc(dev, s);
 
 	if (cmd->start_src == TRIG_NOW) {
 		s->async->inttrig = NULL;
@@ -1732,13 +1757,8 @@ static int32_t daqgert_ai_cmdtest(struct comedi_device *dev,
 	/* Step 1 : check if triggers are trivially valid */
 
 	err |= cfc_check_trigger_src(&cmd->start_src, TRIG_NOW | TRIG_INT);
-	if (devpriv->timing_lockout) {
-		err |= cfc_check_trigger_src(&cmd->scan_begin_src, TRIG_FOLLOW);
-		err |= cfc_check_trigger_src(&cmd->convert_src, TRIG_NOW);
-	} else {
-		err |= cfc_check_trigger_src(&cmd->scan_begin_src, TRIG_FOLLOW | TRIG_TIMER);
-		err |= cfc_check_trigger_src(&cmd->convert_src, TRIG_TIMER | TRIG_NOW);
-	}
+	err |= cfc_check_trigger_src(&cmd->scan_begin_src, TRIG_FOLLOW | TRIG_TIMER);
+	err |= cfc_check_trigger_src(&cmd->convert_src, TRIG_TIMER | TRIG_NOW);
 	err |= cfc_check_trigger_src(&cmd->scan_end_src, TRIG_COUNT);
 	err |= cfc_check_trigger_src(&cmd->stop_src, TRIG_NONE | TRIG_COUNT);
 
@@ -2051,7 +2071,7 @@ static int32_t daqgert_auto_attach(struct comedi_device *dev, unsigned long cont
 	devpriv->ai_cmd_delay_usecs = 10; /* PIC slave delays */
 	devpriv->ai_conv_delay_usecs = 30;
 	devpriv->ai_neverending = true;
-	devpriv->hunk = true;
+	devpriv->hunk = use_hunking;
 	devpriv->ai_mix = false;
 	devpriv->ai_spi = &spi_adc;
 	devpriv->ao_spi = &spi_dac;
