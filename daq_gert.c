@@ -1939,22 +1939,19 @@ ai_read_exit:
 	return ret ? ret : insn->n;
 }
 
-/* write to the DAC via SPI and read the last value back */
+/* write to the DAC via SPI and read the last value back DON't LOCK */
 static int32_t daqgert_ao_winsn(struct comedi_device *dev,
 	struct comedi_subdevice *s,
 	struct comedi_insn *insn, uint32_t *data)
 {
-	struct daqgert_private *devpriv = dev->private;
 	uint32_t chan = CR_CHAN(insn->chanspec);
 	uint32_t n, val = s->readback[chan];
 
-	mutex_lock(&devpriv->drvdata_lock);
 	daqgert_ao_set_chan_range(dev, insn->chanspec, 1);
 	for (n = 0; n < insn->n; n++) {
 		val = data[n];
 		daqgert_ao_put_sample(dev, s, val);
 	}
-	mutex_unlock(&devpriv->cmd_lock);
 	return insn->n;
 }
 
