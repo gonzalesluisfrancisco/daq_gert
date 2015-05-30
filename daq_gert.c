@@ -976,13 +976,13 @@ static void daqgert_ao_put_sample(struct comedi_device *dev,
 static uint32_t daqgert_ai_get_sample(struct comedi_device *dev,
 	struct comedi_subdevice *s)
 {
-	int32_t chan;
-	uint32_t val;
 	struct daqgert_private *devpriv = dev->private;
 	struct spi_param_type *spi_data = s->private;
 	struct spi_device *spi = spi_data->spi;
 	struct comedi_control *pdata = spi->dev.platform_data;
 	struct spi_message m;
+	int32_t chan;
+	uint32_t val;
 
 	mutex_lock(&devpriv->drvdata_lock);
 	chan = CR_CHAN(devpriv->ai_chan);
