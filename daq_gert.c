@@ -22,7 +22,6 @@
 
 /*
  * TODO:	Refactor sample put get code to reduce the amount of build up/down time
- *		Fix cancel crashing bug
  * 
 Driver: "experimental" daq_gert in progress ... for 4.+ kernels with DT
  * 
@@ -193,7 +192,6 @@ static void daqgert_ao_put_sample(struct comedi_device *,
 static void daqgert_handle_ai_hunk(struct comedi_device *,
 	struct comedi_subdevice *);
 
-#define AO_TESTING	false
 #define HUNK_LEN 1000
 
 /* analog chip types (type - 12 bits) */
@@ -261,9 +259,9 @@ static const uint32_t DIO_PINS_DEFAULT = 0xff;
 static int32_t daqgert_conf = 0;
 module_param(daqgert_conf, int, S_IRUGO);
 static int32_t pullups = 2;
-module_param(pullups, int, S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);
+module_param(pullups, int, S_IRUGO);
 static int32_t gpiosafe = 1;
-module_param(gpiosafe, int, S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);
+module_param(gpiosafe, int, S_IRUGO);
 static int32_t dio_conf = 0;
 module_param(dio_conf, int, S_IRUGO);
 static int32_t ai_count = 0;
@@ -283,7 +281,7 @@ module_param(speed_test, int, S_IRUGO);
 static int32_t wiringpi = 1;
 module_param(wiringpi, int, S_IRUGO);
 static int32_t use_hunking = 1;
-module_param(use_hunking, int, S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);
+module_param(use_hunking, int, S_IRUGO);
 
 struct daqgert_board {
 	const char *name;
@@ -963,14 +961,6 @@ static void daqgert_ao_put_sample(struct comedi_device *dev,
 	struct spi_device *spi = spi_data->spi;
 	struct comedi_control *pdata = spi->dev.platform_data;
 	uint32_t val_tmp, chan;
-	static uint32_t n = 0;
-
-	if (AO_TESTING) {
-		if ((n++ % 2) == 0)
-			val = 2048;
-		else
-			val = 128;
-	}
 
 	mutex_lock(&devpriv->drvdata_lock);
 	chan = CR_CHAN(devpriv->ao_chan);
@@ -1015,7 +1005,7 @@ static uint32_t daqgert_ai_get_sample(struct comedi_device *dev,
 		val += pdata->rx_buff[0] << 8;
 	} else { /* Gertboard onboard ADC device */
 		if (devpriv->ai_hunk) { /* for single channel command scans with pre-formatted tx_buffer & transfer array */
-			spi_message_init_with_transfers(&m, &pdata->t[0], HUNK_LEN); /* make the proper message with the transfers */
+			spi_message_init_with_transfers(&m, &pdata->t[0], hunk_len); /* make the proper message with the transfers */
 		} else {
 			pdata->tx_buff[0] = 0b11010000 | ((chan & 0x01) << 5);
 			spi_message_init_with_transfers(&m, &pdata->t[0], 1); /* make the proper message with the transfer */
@@ -1205,10 +1195,10 @@ static void transfer_to_hunk_buf(struct comedi_device *dev,
 	tx_buff = pdata->tx_buff;
 	rx_buff = pdata->rx_buff;
 
-	if (hunk_len > HUNK_LEN) {
+	if (hunk_len > hunk_len) {
 		dev_err(dev->class_dev, "scan transfer too large %i>%i\n",
-			hunk_len, HUNK_LEN);
-		hunk_len = HUNK_LEN;
+			hunk_len, hunk_len);
+		hunk_len = hunk_len;
 	}
 
 	for (i = 0; i < hunk_len; i++) {
@@ -1252,9 +1242,9 @@ static void daqgert_handle_ai_hunk(struct comedi_device *dev,
 
 	len = devpriv->ai_scans;
 	if (cmd->stop_src == TRIG_COUNT) {
-		if (devpriv->ai_scans_left > HUNK_LEN) {
-			devpriv->ai_scans_left -= HUNK_LEN;
-			len = HUNK_LEN;
+		if (devpriv->ai_scans_left > hunk_len) {
+			devpriv->ai_scans_left -= hunk_len;
+			len = hunk_len;
 		} else {
 			len = devpriv->ai_scans_left;
 			devpriv->ai_scans_left = 0;
@@ -1288,8 +1278,8 @@ static void daqgert_ai_setup_hunk(struct comedi_device *dev,
 
 	len = devpriv->ai_scans;
 	if (cmd->stop_src == TRIG_COUNT) { /* optimize small samples */
-		if (devpriv->ai_scans > HUNK_LEN) {
-			len = HUNK_LEN;
+		if (devpriv->ai_scans > hunk_len) {
+			len = hunk_len;
 		} else {
 			len = devpriv->ai_scans;
 		}
@@ -1358,8 +1348,6 @@ static int32_t daqgert_ai_inttrig(struct comedi_device *dev,
 		devpriv->timer = true;
 		daqgert_ai_start_pacer(dev, true);
 		devpriv->ai_cmd_running = true;
-		if (AO_TESTING)
-			devpriv->ao_cmd_running = true;
 		devpriv->ai_cmd_canceled = false;
 		s->async->inttrig = NULL;
 	} else {
@@ -1416,7 +1404,7 @@ static int32_t daqgert_ao_cmd(struct comedi_device *dev, struct comedi_subdevice
 		devpriv->ao_scans = cmd->chanlist_len * cmd->stop_arg;
 		devpriv->ao_neverending = false;
 	} else {
-		devpriv->ao_scans = HUNK_LEN;
+		devpriv->ao_scans = hunk_len;
 		devpriv->ao_neverending = true;
 	}
 
@@ -1468,7 +1456,7 @@ static int32_t daqgert_ai_cmd(struct comedi_device *dev, struct comedi_subdevice
 		devpriv->ai_scans = cmd->chanlist_len * cmd->stop_arg;
 		devpriv->ai_neverending = false;
 	} else {
-		devpriv->ai_scans = HUNK_LEN;
+		devpriv->ai_scans = hunk_len;
 		devpriv->ai_neverending = true;
 	}
 	devpriv->ai_scans_left = devpriv->ai_scans; /* a count down */
@@ -1522,8 +1510,6 @@ static int32_t daqgert_ai_cmd(struct comedi_device *dev, struct comedi_subdevice
 		devpriv->timer = true;
 		daqgert_ai_start_pacer(dev, true);
 		devpriv->ai_cmd_running = true;
-		if (AO_TESTING)
-			devpriv->ao_cmd_running = true;
 		devpriv->ai_cmd_canceled = false;
 	} else {
 		/* TRIG_INT */
@@ -1848,8 +1834,6 @@ static int32_t daqgert_ai_cancel(struct comedi_device *dev,
 	devpriv->ai_cmd_running = false;
 	devpriv->timing_lockout--;
 	if (devpriv->timing_lockout < 0) devpriv->timing_lockout = 0;
-	if (AO_TESTING)
-		devpriv->ao_cmd_running = false;
 	return 0;
 }
 
@@ -2126,7 +2110,7 @@ static int32_t daqgert_auto_attach(struct comedi_device *dev, unsigned long cont
 
 	if (devpriv->num_subdev > 1) { /* we have the SPI ADC DAC on board */
 		/* daq_gert ai */
-		if (devpriv->hunk) dev_info(dev->class_dev, "hunk ai transfers enabled, length: %i\n", HUNK_LEN);
+		if (devpriv->hunk) dev_info(dev->class_dev, "hunk ai transfers enabled, length: %i\n", hunk_len);
 		s = &dev->subdevices[1];
 		s->private = devpriv->ai_spi; /* SPI adc comedi state */
 		num_ai_chan = daqgert_ai_config(dev, s); /* config SPI ports for ai use */
