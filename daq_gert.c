@@ -1948,11 +1948,11 @@ static int32_t daqgert_ai_rinsn(struct comedi_device *dev,
 	mutex_lock(&devpriv->drvdata_lock);
 	devpriv->ai_hunk = false;
 	devpriv->ai_chan = CR_CHAN(insn->chanspec);
-	mutex_unlock(&devpriv->drvdata_lock);
 	/* convert n samples */
 	for (n = 0; n < insn->n; n++) {
 		data[n] = daqgert_ai_get_sample(dev, s);
 	}
+	mutex_unlock(&devpriv->drvdata_lock);
 	ret = 0;
 ai_read_exit:
 	mutex_unlock(&devpriv->cmd_lock);
@@ -1967,11 +1967,13 @@ static int32_t daqgert_ao_winsn(struct comedi_device *dev,
 	uint32_t chan = CR_CHAN(insn->chanspec);
 	uint32_t n, val = s->readback[chan];
 
+	mutex_lock(&devpriv->drvdata_lock);
 	daqgert_ao_set_chan_range(dev, insn->chanspec, 1);
 	for (n = 0; n < insn->n; n++) {
 		val = data[n];
 		daqgert_ao_put_sample(dev, s, val);
 	}
+	mutex_unlock(&devpriv->cmd_lock);
 	return insn->n;
 }
 
@@ -1993,7 +1995,7 @@ static int32_t daqgert_ao_config(struct comedi_device *dev,
 	return spi_data->chan;
 }
 
-static int32_t daqgert_auto_attach(struct comedi_device *dev, unsigned long context)
+static int32_t daqgert_auto_attach(struct comedi_device *dev, unsigned long unused_context)
 {
 	const struct daqgert_board *thisboard = &daqgert_boards[gert_type];
 	struct comedi_subdevice *s;
@@ -2387,8 +2389,6 @@ static int32_t daqgert_spi_probe(struct comedi_device * dev)
 		dev_info(dev->class_dev, "no %s PIC found, gpio pins only. Detect code %i\n",
 			thisboard->name, ret);
 		spi_adc.chan = 0;
-
-		return spi_adc.chan;
 	}
 	return spi_adc.chan;
 }
