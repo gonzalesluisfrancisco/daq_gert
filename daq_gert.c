@@ -1122,6 +1122,7 @@ static void transfer_from_hunk_buf(struct comedi_device *dev,
 	struct spi_param_type *spi_data = s->private;
 	uint32_t i, val;
 
+	s->async->cur_chan = 0; /* reset the hunk start chan */
 	for (i = 0; i < len; i++) { /* count up from zero to access the buffer */
 		if (spi_data->device_type == MCP3002) {
 			val = ((bufptr[0 + bufpos] << 7) | (bufptr[1 + bufpos] >> 1)) & 0x3FF;
