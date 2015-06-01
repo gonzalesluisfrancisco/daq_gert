@@ -2321,21 +2321,12 @@ static int32_t spidev_spi_remove(struct spi_device * spi)
 	return 0;
 }
 
-static const struct spi_device_id daqgert_ids[] = {
-	{ "mcp3x02s", 1},
-	{ "mcp48xxs", 2},
-	{ "picsl10s", 4},
-	{ "picsl12s", 8},
-	{},
-};
-
 static struct spi_driver spidev_spi_driver = {
 	.driver =
 	{
 		.name = "spigert",
 		.owner = THIS_MODULE,
 	},
-//	.id_table = daqgert_ids,
 	.probe = spidev_spi_probe,
 	.remove = spidev_spi_remove,
 };
