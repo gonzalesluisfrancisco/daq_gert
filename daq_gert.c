@@ -172,6 +172,7 @@ The output range is 0 to 4095 for 0.0 to 2.048 onboard devices (output resolutio
 #include <linux/timer.h>
 #include "8253.h"
 
+/* /sys/module parameter variables */
 static int32_t daqgert_spi_probe(struct comedi_device *);
 static void daqgert_ai_clear_eoc(struct comedi_device *);
 static int32_t daqgert_ai_cancel(struct comedi_device *,
@@ -192,8 +193,10 @@ static void daqgert_ao_put_sample(struct comedi_device *,
 static void daqgert_handle_ai_hunk(struct comedi_device *,
 	struct comedi_subdevice *);
 
+/* SPI transfer buffer size */
 #define HUNK_LEN 1000
 
+/* branch macros for ARM7 */
 #define likely(x)      __builtin_expect(!!(x), 1)
 #define unlikely(x)    __builtin_expect(!!(x), 0)
 
@@ -213,7 +216,6 @@ static const uint32_t CONV_SPEED_FIX = 1; /* usecs: round it up to ~50usecs tota
 static const uint32_t CONV_SPEED_FIX_FAST = 16; /* used for the MCP3002 ADC */
 static const uint32_t NS_TO_MS = 1000;
 static const uint32_t MAX_BOARD_RATE = 1000000000;
-
 
 static const uint8_t CSnA = 0; /* GPIO 8  Gertboard ADC */
 static const uint8_t CSnB = 1; /* GPIO 7  Gertboard DAC */
@@ -257,6 +259,10 @@ static const uint32_t NUM_DIO_CHAN_REV3 = 17;
 static const uint32_t NUM_DIO_OUTPUTS = 8;
 static const uint32_t DIO_PINS_DEFAULT = 0xff;
 
+/* Globals for the RPi board rev */
+extern uint32_t system_rev; /* from the kernel symbol table exports */
+extern uint32_t system_serial_low;
+extern uint32_t system_serial_high;
 
 /* found at /sys/modules/daq_gert/parameters */
 static int32_t daqgert_conf = 0;
@@ -326,6 +332,21 @@ static const struct daqgert_board daqgert_boards[] = {
 	},
 };
 
+static const struct comedi_lrange daqgert_ai_range3_300 = {1,
+	{
+		RANGE(0, 3.300),
+	}};
+static const struct comedi_lrange daqgert_ai_range2_048 = {1,
+	{
+		RANGE(0, 2.048),
+	}};
+
+static const struct comedi_lrange daqgert_ao_range = {1,
+	{
+		RANGE(0, 2.048),
+	}};
+
+/* Comedi SPI device I/O buffer control structure */
 struct comedi_control {
 	uint8_t *tx_buff;
 	uint8_t *rx_buff;
@@ -335,6 +356,7 @@ struct comedi_control {
 	struct mutex daqgert_platform_lock;
 };
 
+/* SPI attached devices used by Comedi for I/O */
 struct spi_param_type {
 	uint32_t range : 1;
 	uint32_t bits : 2;
@@ -348,9 +370,10 @@ struct spi_param_type {
 	struct task_struct *daqgert_task;
 };
 
-/* SPI devices for COMEDI to use in global scope */
+/* SPI device variables  for COMEDI to use in global scope */
 static struct spi_param_type spi_adc, spi_dac;
 
+/* RPi board control state variables */
 struct daqgert_private {
 	uint32_t RPisys_rev;
 	uint32_t __iomem *timer_1mhz;
@@ -385,27 +408,6 @@ struct daqgert_private {
 	int32_t timing_lockout;
 };
 
-/* Locals to hold pointers to the hardware */
-
-/* Global for the RPi board rev */
-extern uint32_t system_rev; /* from the kernel symbol table exports */
-extern uint32_t system_serial_low;
-extern uint32_t system_serial_high;
-
-static const struct comedi_lrange daqgert_ai_range3_300 = {1,
-	{
-		RANGE(0, 3.300),
-	}};
-static const struct comedi_lrange daqgert_ai_range2_048 = {1,
-	{
-		RANGE(0, 2.048),
-	}};
-
-static const struct comedi_lrange daqgert_ao_range = {1,
-	{
-		RANGE(0, 2.048),
-	}};
-
 /* pin exclude list */
 static int32_t wpi_pin_safe(struct comedi_device *dev, int32_t pin)
 {
@@ -426,6 +428,7 @@ static int32_t wpi_pin_safe(struct comedi_device *dev, int32_t pin)
 	return true;
 }
 
+/* Wiring PI routines modified for sparce and Comedi */
 /*
  Doing it the Arduino way with lookup tables...
       Yes, it's probably more inefficient than all the bit-twidling, but it
@@ -851,7 +854,7 @@ static int32_t wiringPiSetupGpio(struct comedi_device *dev)
 	return 0;
 }
 
-/* chip byte offsets for arrays */
+/* chip byte offsets for arrays for 10 or 12 bit devices */
 static int32_t daqgert_device_offset(int32_t device_type)
 {
 	int32_t len;
@@ -866,7 +869,8 @@ static int32_t daqgert_device_offset(int32_t device_type)
 	return len;
 }
 
-/* A client must be connected with a valid comedi cmd 
+/* 
+ * A client must be connected with a valid comedi cmd 
  * and *data a pointer to that comedi structure
  * for this not to segfault 
  */
@@ -911,6 +915,10 @@ static int32_t daqgert_ai_thread_function(void *data)
 
 }
 
+/*
+ * AO async thread
+ * 
+ */
 static int32_t daqgert_ao_thread_function(void *data)
 {
 	struct comedi_device *dev = (void*) data;
@@ -936,6 +944,10 @@ static int32_t daqgert_ao_thread_function(void *data)
 
 }
 
+/*
+ * AI async thread 
+ * 
+ */
 static void daqgert_ai_start_pacer(struct comedi_device *dev, bool load_timers)
 {
 	struct daqgert_private *devpriv = dev->private;
@@ -945,6 +957,9 @@ static void daqgert_ai_start_pacer(struct comedi_device *dev, bool load_timers)
 		mod_timer(&devpriv->ai_spi->my_timer, jiffies + msecs_to_jiffies(10));
 }
 
+/*
+ * Only one AI range so only the channel is set
+ */
 static void daqgert_ai_set_chan_range(struct comedi_device *dev,
 	uint32_t chanspec, char wait)
 {
@@ -957,6 +972,9 @@ static void daqgert_ai_set_chan_range(struct comedi_device *dev,
 	mutex_unlock(&devpriv->drvdata_lock);
 }
 
+/*
+ * Only one AO range so only the channel is set
+ */
 static void daqgert_ao_set_chan_range(struct comedi_device *dev,
 	uint32_t chanspec, char wait)
 {
@@ -969,6 +987,9 @@ static void daqgert_ao_set_chan_range(struct comedi_device *dev,
 	mutex_unlock(&devpriv->drvdata_lock);
 }
 
+/*
+ * transfers on value to the DAC device
+ */
 static void daqgert_ao_put_sample(struct comedi_device *dev,
 	struct comedi_subdevice *s, uint32_t val)
 {
@@ -989,6 +1010,9 @@ static void daqgert_ao_put_sample(struct comedi_device *dev,
 	mutex_unlock(&devpriv->drvdata_lock);
 }
 
+/*
+ * returns one value from the ADC device
+ */
 static uint32_t daqgert_ai_get_sample(struct comedi_device *dev,
 	struct comedi_subdevice *s)
 {
@@ -1114,6 +1138,9 @@ static void daqgert_handle_ao_eoc(struct comedi_device *dev,
 	daqgert_ao_next_chan(dev, s);
 }
 
+/*
+ * moves the data from the SPI buffers into the Comedi buffer
+ */
 static void transfer_from_hunk_buf(struct comedi_device *dev,
 	struct comedi_subdevice *s, uint8_t *bufptr,
 	uint32_t bufpos, uint32_t len, uint32_t offset)
@@ -1144,6 +1171,10 @@ static void transfer_from_hunk_buf(struct comedi_device *dev,
 	}
 }
 
+/*
+ * uses the Comedi cmd info to construct a transfers buffer to 
+ * improve sample timing
+ */
 static void transfer_to_hunk_buf(struct comedi_device *dev,
 	struct comedi_subdevice *s,
 	uint8_t *bufptr,
@@ -1230,6 +1261,9 @@ static void daqgert_handle_ai_hunk(struct comedi_device *dev,
 		dev_info(dev->class_dev, "From hunk %i %i\n", s->async->scans_done, cmd->stop_arg);
 }
 
+/*
+ * test for conditions that allow for the hunk_len transfer buffer
+ */
 static void daqgert_ai_setup_hunk(struct comedi_device *dev,
 	struct comedi_subdevice *s, bool mix_mode)
 {
@@ -1262,6 +1296,9 @@ static void daqgert_ai_setup_hunk(struct comedi_device *dev,
 	transfer_to_hunk_buf(dev, s, bufptr, bufpos, len, offset, mix_mode);
 }
 
+/*
+ * setup a single AI transfer
+ */
 static void daqgert_ai_setup_eoc(struct comedi_device *dev,
 	struct comedi_subdevice * s)
 {
@@ -1479,7 +1516,10 @@ ai_cmd_exit:
 	return ret;
 }
 
-/* get close to a good sample spacing for one second, test_mode is to see what the max sample rate is */
+/* 
+ * get close to a good sample spacing for one second, 
+ * test_mode is to see what the max sample rate is 
+ */
 static int32_t daqgert_ao_delay_rate(struct comedi_device *dev, int32_t rate, int32_t device_type, bool test_mode)
 {
 	const struct daqgert_board *board = dev->board_ptr;
@@ -1610,7 +1650,10 @@ static int32_t daqgert_ai_poll(struct comedi_device *dev, struct comedi_subdevic
 	return num_bytes;
 }
 
-/* get close to a good sample spacing for one second, test_mode is to see what the max sample rate is */
+/* 
+ * get close to a good sample spacing for one second, 
+ * test_mode is to see what the max sample rate is 
+ */
 static int32_t daqgert_ai_delay_rate(struct comedi_device *dev, int32_t rate, int32_t device_type, bool test_mode)
 {
 	const struct daqgert_board *board = dev->board_ptr;
@@ -1643,7 +1686,10 @@ static int32_t daqgert_ai_delay_rate(struct comedi_device *dev, int32_t rate, in
 	return spacing_usecs;
 }
 
-/* For some scans we can do a quasi-DMA-like transfer that's much faster */
+/* 
+ * For some scans we can do a quasi-DMA-like transfer that's much faster and
+ * has better long term timing
+ */
 static int32_t daqgert_ai_cmdtest(struct comedi_device *dev,
 	struct comedi_subdevice *s, struct comedi_cmd * cmd)
 {
@@ -1740,6 +1786,9 @@ static int32_t daqgert_ai_cmdtest(struct comedi_device *dev,
 	return 0;
 }
 
+/*
+ * DMA timer that's not currently useful
+ */
 static void my_timer_ai_callback(unsigned long data)
 {
 	struct comedi_device *dev = (void*) data;
@@ -1825,9 +1874,12 @@ static int32_t daqgert_ao_cancel(struct comedi_device *dev,
 	return 0;
 }
 
-/* FIXME Slow brute forced IO bits, 5us reads from userland */
-
-/* need to use (fix) state to optimize changes */
+/* 
+ * 
+ * FIXME Slow brute forced IO bits, 5us reads from userland
+ * 
+ * need to use (fix) state to optimize changes 
+ */
 static int32_t daqgert_dio_insn_bits(struct comedi_device *dev,
 	struct comedi_subdevice *s,
 	struct comedi_insn *insn, uint32_t * data)
@@ -1857,7 +1909,9 @@ static int32_t daqgert_dio_insn_bits(struct comedi_device *dev,
 	return insn->n;
 }
 
-/* query or change DIO config */
+/* 
+ * query or change DIO config 
+ */
 static int32_t daqgert_dio_insn_config(struct comedi_device *dev,
 	struct comedi_subdevice *s,
 	struct comedi_insn *insn, uint32_t * data)
@@ -1891,7 +1945,9 @@ static int32_t daqgert_dio_insn_config(struct comedi_device *dev,
 	return insn->n;
 }
 
-/* Talk to the ADC via the SPI */
+/* 
+ * Talk to the ADC via the SPI 
+ */
 static int32_t daqgert_ai_rinsn(struct comedi_device *dev,
 	struct comedi_subdevice *s,
 	struct comedi_insn *insn, uint32_t * data)
@@ -1918,7 +1974,9 @@ ai_read_exit:
 	return ret ? ret : insn->n;
 }
 
-/* write to the DAC via SPI and read the last value back DON't LOCK */
+/* 
+ * write to the DAC via SPI and read the last value back DON't LOCK 
+ */
 static int32_t daqgert_ao_winsn(struct comedi_device *dev,
 	struct comedi_subdevice *s,
 	struct comedi_insn *insn, uint32_t * data)
@@ -1952,6 +2010,9 @@ static int32_t daqgert_ao_config(struct comedi_device *dev,
 	return spi_data->chan;
 }
 
+/*
+ * when the module is loaded handle the details
+ */
 static int32_t daqgert_auto_attach(struct comedi_device *dev, unsigned long unused_context)
 {
 	const struct daqgert_board *thisboard = &daqgert_boards[gert_type];
@@ -2169,9 +2230,9 @@ static struct comedi_driver daqgert_driver = {
 	.offset = sizeof(struct daqgert_board),
 };
 
-static struct spi_driver spidev_spi_driver;
-
-/* called for each listed spigert device in the bcm270*.c file */
+/* 
+ * called for each listed spigert device in the bcm270*.c file 
+ */
 static int32_t spidev_spi_probe(struct spi_device * spi)
 {
 	struct comedi_control *pdata;
@@ -2260,12 +2321,21 @@ static int32_t spidev_spi_remove(struct spi_device * spi)
 	return 0;
 }
 
+static const struct spi_device_id daqgert_ids[] = {
+	{ "mcp3x02s", 1},
+	{ "mcp48xxs", 2},
+	{ "picsl10s", 4},
+	{ "picsl12s", 8},
+	{},
+};
+
 static struct spi_driver spidev_spi_driver = {
 	.driver =
 	{
 		.name = "spigert",
 		.owner = THIS_MODULE,
 	},
+	.id_table = daqgert_ids,
 	.probe = spidev_spi_probe,
 	.remove = spidev_spi_remove,
 };
@@ -2383,6 +2453,6 @@ module_exit(daqgert_exit);
 
 MODULE_AUTHOR("Fred Brooks <spam@sma2.rain.com>");
 MODULE_DESCRIPTION("RPi DIO/AI/AO Driver");
-MODULE_VERSION("0.0.27");
+MODULE_VERSION("0.0.28");
 MODULE_LICENSE("GPL");
 MODULE_ALIAS("spi:spigert");
