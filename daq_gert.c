@@ -2335,7 +2335,7 @@ static struct spi_driver spidev_spi_driver = {
 		.name = "spigert",
 		.owner = THIS_MODULE,
 	},
-	.id_table = daqgert_ids,
+//	.id_table = daqgert_ids,
 	.probe = spidev_spi_probe,
 	.remove = spidev_spi_remove,
 };
