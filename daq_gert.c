@@ -2038,10 +2038,10 @@ static int32_t daqgert_auto_attach(struct comedi_device *dev, unsigned long unus
 	{
 		if (pdata->select == CSnA) {
 			slave_spi_adc = &pdata->slave;
-			dev_info(dev->class_dev, "spi device CS %i found: adc\n", pdata->select);
+			dev_info(dev->class_dev, "spi CS%i found: assigned to adc devices\n", pdata->select);
 		} else {
 			slave_spi_dac = &pdata->slave;
-			dev_info(dev->class_dev, "spi device CS %i found: dac\n", pdata->select);
+			dev_info(dev->class_dev, "spi CS%i found: assigned to dac devices\n", pdata->select);
 		}
 	}
 
