@@ -307,6 +307,8 @@ struct daqgert_board {
 	uint32_t ao_rate_min;
 	int32_t ai_cs;
 	int32_t ao_cs;
+	int32_t ai_max_speed_hz;
+	int32_t ao_max_speed_hz;
 };
 
 static const struct daqgert_board daqgert_boards[] = {
@@ -323,6 +325,8 @@ static const struct daqgert_board daqgert_boards[] = {
 		.ao_rate_min = 10000,
 		.ai_cs = 0,
 		.ao_cs = 1,
+		.ai_max_speed_hz = 1000000,
+		.ao_max_speed_hz = 8000000,
 	},
 	{
 		.name = "Fredboard",
@@ -337,6 +341,8 @@ static const struct daqgert_board daqgert_boards[] = {
 		.ao_rate_min = 10000,
 		.ai_cs = 0,
 		.ao_cs = 1,
+		.ai_max_speed_hz = 1000000,
+		.ao_max_speed_hz = 8000000,
 	},
 };
 
@@ -2045,10 +2051,16 @@ static int32_t daqgert_auto_attach(struct comedi_device *dev, unsigned long unus
 	{
 		if (pdata->slave.spi->chip_select == thisboard->ai_cs) {
 			slave_spi_adc = &pdata->slave;
-			dev_info(dev->class_dev, "spi CS%i found: assigned to adc devices\n", pdata->slave.spi->chip_select);
+			pdata->slave.spi->max_speed_hz = thisboard->ai_max_speed_hz;
+			spi_setup(pdata->slave.spi);
+			dev_info(dev->class_dev, "setup: spi cd %d: %d Hz: assigned to adc devices\n",
+				pdata->slave.spi->chip_select, pdata->slave.spi->max_speed_hz);
 		} else {
 			slave_spi_dac = &pdata->slave;
-			dev_info(dev->class_dev, "spi CS%i found: assigned to dac devices\n", pdata->slave.spi->chip_select);
+			pdata->slave.spi->max_speed_hz = thisboard->ao_max_speed_hz;
+			spi_setup(pdata->slave.spi);
+			dev_info(dev->class_dev, "setup: spi cd %d: %d Hz: assigned to dac devices\n",
+				pdata->slave.spi->chip_select, pdata->slave.spi->max_speed_hz);
 		}
 	}
 
@@ -2288,23 +2300,21 @@ static int32_t spigert_spi_probe(struct spi_device * spi)
 		INIT_LIST_HEAD(&pdata->device_entry);
 		spi_adc.spi = spi;
 		pdata->slave.spi = spi;
-		spi->max_speed_hz = 1000000;
-		list_add(&pdata->device_entry, &device_list);
+		list_add_tail(&pdata->device_entry, &device_list);
 	}
 	if (spi->chip_select == CSnB) {
 		/* get a copy of the slave device 1 to share with comedi */ /* we need a device to talk to the DAC */
 		INIT_LIST_HEAD(&pdata->device_entry);
 		spi_dac.spi = spi;
 		pdata->slave.spi = spi;
-		spi->max_speed_hz = 8000000;
-		list_add(&pdata->device_entry, &device_list);
+		list_add_tail(&pdata->device_entry, &device_list);
 	}
 	spi->bits_per_word = 8;
 	spi->mode = SPI_MODE_3; /* mode 3 for ADC & DAC*/
 	spi_setup(spi);
 	dev_info(&spi->dev,
-		"setup: cd %d: %d Hz, bpw %u, mode 0x%x\n",
-		spi->chip_select, spi->max_speed_hz, spi->bits_per_word,
+		"setup: cd %d: bpw %u, mode 0x%x\n",
+		spi->chip_select, spi->bits_per_word,
 		spi->mode);
 
 	/* speed adjustments */
