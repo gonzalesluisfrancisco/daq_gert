@@ -305,8 +305,6 @@ struct daqgert_board {
 	uint32_t ao_ns_min;
 	uint32_t ao_ns_min_calc;
 	uint32_t ao_rate_min;
-	int32_t ai_cs;
-	int32_t ao_cs;
 };
 
 static const struct daqgert_board daqgert_boards[] = {
@@ -321,8 +319,6 @@ static const struct daqgert_board daqgert_boards[] = {
 		.ao_ns_min = 5000,
 		.ao_ns_min_calc = 4500,
 		.ao_rate_min = 10000,
-		.ai_cs = 0,
-		.ao_cs = 1,
 	},
 	{
 		.name = "Fredboard",
@@ -335,8 +331,6 @@ static const struct daqgert_board daqgert_boards[] = {
 		.ao_ns_min = 5000,
 		.ao_ns_min_calc = 4500,
 		.ao_rate_min = 10000,
-		.ai_cs = 0,
-		.ao_cs = 1,
 	},
 };
 
@@ -378,7 +372,6 @@ struct comedi_spigert {
 	struct mutex daqgert_platform_lock;
 	struct list_head device_entry;
 	struct spi_param_type slave;
-	int32_t select;
 };
 
 static LIST_HEAD(device_list);
@@ -2044,12 +2037,12 @@ static int32_t daqgert_auto_attach(struct comedi_device *dev, unsigned long unus
 
 	list_for_each_entry(pdata, &device_list, device_entry)
 	{
-		if (pdata->select == thisboard->ai_cs) {
+		if (pdata->slave.spi->chip_select == thisboard->ai_cs) {
 			slave_spi_adc = &pdata->slave;
-			dev_info(dev->class_dev, "spi CS%i found: assigned to adc devices\n", pdata->select);
+			dev_info(dev->class_dev, "spi CS%i found: assigned to adc devices\n", pdata->slave.spi->chip_select);
 		} else {
 			slave_spi_dac = &pdata->slave;
-			dev_info(dev->class_dev, "spi CS%i found: assigned to dac devices\n", pdata->select);
+			dev_info(dev->class_dev, "spi CS%i found: assigned to dac devices\n", pdata->slave.spi->chip_select);
 		}
 	}
 
@@ -2284,13 +2277,11 @@ static int32_t spigert_spi_probe(struct spi_device * spi)
 		goto kfree_tx_exit;
 	}
 
-
 	if (spi->chip_select == CSnA) {
 		/* get a copy of the slave device 0 to share with comedi */ /* we need a device to talk to the ADC */
 		INIT_LIST_HEAD(&pdata->device_entry);
 		spi_adc.spi = spi;
 		pdata->slave.spi = spi;
-		pdata->select = CSnA;
 		spi->max_speed_hz = 1000000;
 		list_add(&pdata->device_entry, &device_list);
 	}
@@ -2299,7 +2290,6 @@ static int32_t spigert_spi_probe(struct spi_device * spi)
 		INIT_LIST_HEAD(&pdata->device_entry);
 		spi_dac.spi = spi;
 		pdata->slave.spi = spi;
-		pdata->select = CSnB;
 		spi->max_speed_hz = 8000000;
 		list_add(&pdata->device_entry, &device_list);
 	}
