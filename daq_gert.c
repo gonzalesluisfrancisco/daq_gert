@@ -305,6 +305,8 @@ struct daqgert_board {
 	uint32_t ao_ns_min;
 	uint32_t ao_ns_min_calc;
 	uint32_t ao_rate_min;
+	int32_t ai_cs;
+	int32_t ao_cs
 };
 
 static const struct daqgert_board daqgert_boards[] = {
@@ -319,6 +321,8 @@ static const struct daqgert_board daqgert_boards[] = {
 		.ao_ns_min = 5000,
 		.ao_ns_min_calc = 4500,
 		.ao_rate_min = 10000,
+		.ai_cs = 0,
+		.ao_cs = 1,
 	},
 	{
 		.name = "Fredboard",
@@ -331,6 +335,8 @@ static const struct daqgert_board daqgert_boards[] = {
 		.ao_ns_min = 5000,
 		.ao_ns_min_calc = 4500,
 		.ao_rate_min = 10000,
+		.ai_cs = 0,
+		.ao_cs = 1,
 	},
 };
 
@@ -2034,9 +2040,11 @@ static int32_t daqgert_auto_attach(struct comedi_device *dev, unsigned long unus
 	if (!devpriv)
 		return -ENOMEM;
 
+	dev->board_ptr = thisboard;
+
 	list_for_each_entry(pdata, &device_list, device_entry)
 	{
-		if (pdata->select == CSnA) {
+		if (pdata->select == thisboard->ai_cs) {
 			slave_spi_adc = &pdata->slave;
 			dev_info(dev->class_dev, "spi CS%i found: assigned to adc devices\n", pdata->select);
 		} else {
@@ -2059,7 +2067,6 @@ static int32_t daqgert_auto_attach(struct comedi_device *dev, unsigned long unus
 	devpriv->ai_conv_delay_10nsecs = CONV_SPEED;
 	devpriv->timing_lockout = 0;
 
-	dev->board_ptr = thisboard;
 	dev->board_name = thisboard->name;
 
 	devpriv->ai_rate_max = MAX_BOARD_RATE; /* lowest samples per second */
