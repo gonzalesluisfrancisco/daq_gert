@@ -372,6 +372,7 @@ struct comedi_spigert {
 	struct mutex daqgert_platform_lock;
 	struct list_head device_entry;
 	struct spi_param_type slave;
+	int32_t select;
 };
 
 static LIST_HEAD(device_list);
@@ -2036,11 +2037,14 @@ static int32_t daqgert_auto_attach(struct comedi_device *dev, unsigned long unus
 	list_for_each_entry(pdata, &device_list, device_entry)
 	{
 		slave_spi_adc = &pdata->slave;
-	}
-
-	list_for_each_entry(pdata, &device_list, device_entry)
-	{
-		slave_spi_dac = &pdata->slave;
+		dev_info(dev->class_dev, "SPI device %i found, ", pdata->select);
+		if (pdata->select == CSnA) {
+			slave_spi_adc = &pdata->slave;
+			dev_info(dev->class_dev, "adc\n");
+		} else {
+			slave_spi_dac = &pdata->slave;
+			dev_info(dev->class_dev, "dac\n");
+		}
 	}
 
 	mutex_init(&devpriv->cmd_lock);
@@ -2281,6 +2285,7 @@ static int32_t spigert_spi_probe(struct spi_device * spi)
 		INIT_LIST_HEAD(&pdata->device_entry);
 		spi_adc.spi = spi;
 		pdata->slave.spi = spi;
+		pdata->select = CSnA;
 		spi->max_speed_hz = 1000000;
 		list_add(&pdata->device_entry, &device_list);
 	}
@@ -2288,7 +2293,8 @@ static int32_t spigert_spi_probe(struct spi_device * spi)
 		/* get a copy of the slave device 1 to share with comedi */ /* we need a device to talk to the DAC */
 		INIT_LIST_HEAD(&pdata->device_entry);
 		spi_dac.spi = spi;
-		pdata->slave.spi = spi;
+		slave_spi_adc.spi = spi;
+		pdata->select = CSnB;
 		spi->max_speed_hz = 8000000;
 		list_add(&pdata->device_entry, &device_list);
 	}
