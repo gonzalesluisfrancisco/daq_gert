@@ -305,6 +305,8 @@ struct daqgert_board {
 	uint32_t ao_ns_min;
 	uint32_t ao_ns_min_calc;
 	uint32_t ao_rate_min;
+	int32_t ai_cs;
+	int32_t ao_cs;
 };
 
 static const struct daqgert_board daqgert_boards[] = {
@@ -319,6 +321,8 @@ static const struct daqgert_board daqgert_boards[] = {
 		.ao_ns_min = 5000,
 		.ao_ns_min_calc = 4500,
 		.ao_rate_min = 10000,
+		.ai_cs = 0,
+		.ao_cs = 1,
 	},
 	{
 		.name = "Fredboard",
@@ -331,6 +335,8 @@ static const struct daqgert_board daqgert_boards[] = {
 		.ao_ns_min = 5000,
 		.ao_ns_min_calc = 4500,
 		.ao_rate_min = 10000,
+		.ai_cs = 0,
+		.ao_cs = 1,
 	},
 };
 
