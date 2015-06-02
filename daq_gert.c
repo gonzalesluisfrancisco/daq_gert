@@ -22,6 +22,7 @@
 
 /*
  * TODO:	Refactor sample put get code to reduce the amount of build up/down time
+ *		use the kernel list to get the spi devices for Comedi
  * 
 Driver: "experimental" daq_gert in progress ... for 4.+ kernels with DT
  * 
@@ -170,6 +171,7 @@ The output range is 0 to 4095 for 0.0 to 2.048 onboard devices (output resolutio
 #include <linux/delay.h>
 #include <linux/device.h>
 #include <linux/timer.h>
+#include <linux/list.h>
 #include "8253.h"
 
 /* /sys/module parameter variables */
@@ -346,16 +348,6 @@ static const struct comedi_lrange daqgert_ao_range = {1,
 		RANGE(0, 2.048),
 	}};
 
-/* Comedi SPI device I/O buffer control structure */
-struct comedi_control {
-	uint8_t *tx_buff;
-	uint8_t *rx_buff;
-	struct spi_transfer t[HUNK_LEN];
-	uint32_t delay_usecs;
-	uint32_t mix_delay_usecs;
-	struct mutex daqgert_platform_lock;
-};
-
 /* SPI attached devices used by Comedi for I/O */
 struct spi_param_type {
 	uint32_t range : 1;
@@ -369,6 +361,20 @@ struct spi_param_type {
 	struct timer_list my_timer;
 	struct task_struct *daqgert_task;
 };
+
+/* Comedi SPI device I/O buffer control structure */
+struct comedi_spigert {
+	uint8_t *tx_buff;
+	uint8_t *rx_buff;
+	struct spi_transfer t[HUNK_LEN];
+	uint32_t delay_usecs;
+	uint32_t mix_delay_usecs;
+	struct mutex daqgert_platform_lock;
+	struct list_head device_entry;
+	struct spi_param_type slave;
+};
+
+static LIST_HEAD(device_list);
 
 /* SPI device variables  for COMEDI to use in global scope */
 static struct spi_param_type spi_adc, spi_dac;
@@ -881,7 +887,7 @@ static int32_t daqgert_ai_thread_function(void *data)
 	struct daqgert_private *devpriv = dev->private;
 	struct spi_param_type *spi_data = s->private;
 	struct spi_device *spi = spi_data->spi;
-	struct comedi_control *pdata = spi->dev.platform_data;
+	struct comedi_spigert *pdata = spi->dev.platform_data;
 
 	while (!kthread_should_stop()) {
 		while (unlikely(!devpriv->run)) {
@@ -926,7 +932,7 @@ static int32_t daqgert_ao_thread_function(void *data)
 	struct daqgert_private *devpriv = dev->private;
 	struct spi_param_type *spi_data = s->private;
 	struct spi_device *spi = spi_data->spi;
-	struct comedi_control *pdata = spi->dev.platform_data;
+	struct comedi_spigert *pdata = spi->dev.platform_data;
 
 	while (!kthread_should_stop()) {
 		if (likely(devpriv->ao_cmd_running)) {
@@ -996,7 +1002,7 @@ static void daqgert_ao_put_sample(struct comedi_device *dev,
 	struct daqgert_private *devpriv = dev->private;
 	struct spi_param_type *spi_data = s->private;
 	struct spi_device *spi = spi_data->spi;
-	struct comedi_control *pdata = spi->dev.platform_data;
+	struct comedi_spigert *pdata = spi->dev.platform_data;
 	uint32_t val_tmp, chan;
 
 	mutex_lock(&devpriv->drvdata_lock);
@@ -1019,7 +1025,7 @@ static uint32_t daqgert_ai_get_sample(struct comedi_device *dev,
 	struct daqgert_private *devpriv = dev->private;
 	struct spi_param_type *spi_data = s->private;
 	struct spi_device *spi = spi_data->spi;
-	struct comedi_control *pdata = spi->dev.platform_data;
+	struct comedi_spigert *pdata = spi->dev.platform_data;
 	struct spi_message m;
 	int32_t chan;
 	uint32_t val;
@@ -1184,7 +1190,7 @@ static void transfer_to_hunk_buf(struct comedi_device *dev,
 	struct daqgert_private *devpriv = dev->private;
 	struct spi_param_type *spi_data = s->private;
 	struct spi_device *spi = spi_data->spi;
-	struct comedi_control *pdata = spi->dev.platform_data;
+	struct comedi_spigert *pdata = spi->dev.platform_data;
 	uint32_t i, len, delay_usecs = pdata->delay_usecs;
 	uint32_t chan;
 	uint8_t *tx_buff, *rx_buff;
@@ -1236,7 +1242,7 @@ static void daqgert_handle_ai_hunk(struct comedi_device *dev,
 	struct comedi_cmd *cmd = &s->async->cmd;
 	struct spi_param_type *spi_data = s->private;
 	struct spi_device *spi = spi_data->spi;
-	struct comedi_control *pdata = spi->dev.platform_data;
+	struct comedi_spigert *pdata = spi->dev.platform_data;
 	int32_t len, bufpos;
 	uint8_t *bufptr;
 
@@ -1271,7 +1277,7 @@ static void daqgert_ai_setup_hunk(struct comedi_device *dev,
 	struct comedi_cmd *cmd = &s->async->cmd;
 	struct spi_param_type *spi_data = s->private;
 	struct spi_device *spi = spi_data->spi;
-	struct comedi_control *pdata = spi->dev.platform_data;
+	struct comedi_spigert *pdata = spi->dev.platform_data;
 	uint32_t len, offset, bufpos;
 	uint8_t *bufptr;
 
@@ -1304,7 +1310,7 @@ static void daqgert_ai_setup_eoc(struct comedi_device *dev,
 {
 	struct spi_param_type *spi_data = s->private;
 	struct spi_device *spi = spi_data->spi;
-	struct comedi_control *pdata = spi->dev.platform_data;
+	struct comedi_spigert *pdata = spi->dev.platform_data;
 	uint32_t len;
 
 	memset(&pdata->t, 0, sizeof(pdata->t));
@@ -1555,7 +1561,7 @@ static int32_t daqgert_ao_cmdtest(struct comedi_device *dev,
 	struct daqgert_private *devpriv = dev->private;
 	struct spi_param_type *spi_data = s->private;
 	struct spi_device *spi = spi_data->spi;
-	struct comedi_control *pdata = spi->dev.platform_data;
+	struct comedi_spigert *pdata = spi->dev.platform_data;
 	int32_t i, err = 0;
 	uint32_t flags;
 	uint32_t tmp_timer;
@@ -1697,7 +1703,7 @@ static int32_t daqgert_ai_cmdtest(struct comedi_device *dev,
 	struct daqgert_private *devpriv = dev->private;
 	struct spi_param_type *spi_data = s->private;
 	struct spi_device *spi = spi_data->spi;
-	struct comedi_control *pdata = spi->dev.platform_data;
+	struct comedi_spigert *pdata = spi->dev.platform_data;
 
 	int32_t i, err = 0;
 	uint32_t divisor1 = 0, divisor2 = 0;
@@ -2020,10 +2026,22 @@ static int32_t daqgert_auto_attach(struct comedi_device *dev, unsigned long unus
 	int32_t ret, i;
 	int32_t num_ai_chan, num_ao_chan, num_dio_chan = NUM_DIO_CHAN;
 	struct daqgert_private *devpriv;
+	struct comedi_spigert *pdata;
+	static struct spi_param_type *slave_spi_adc, *slave_spi_dac;
 
 	devpriv = comedi_alloc_devpriv(dev, sizeof(*devpriv)); /* auto free on exit */
 	if (!devpriv)
 		return -ENOMEM;
+
+	list_for_each_entry(pdata, &device_list, device_entry)
+	{
+		slave_spi_adc = &pdata->slave;
+	}
+
+	list_for_each_entry(pdata, &device_list, device_entry)
+	{
+		slave_spi_dac = &pdata->slave;
+	}
 
 	mutex_init(&devpriv->cmd_lock);
 	mutex_init(&devpriv->drvdata_lock);
@@ -2233,12 +2251,12 @@ static struct comedi_driver daqgert_driver = {
 /* 
  * called for each listed spigert device in the bcm270*.c file 
  */
-static int32_t spidev_spi_probe(struct spi_device * spi)
+static int32_t spigert_spi_probe(struct spi_device * spi)
 {
-	struct comedi_control *pdata;
+	struct comedi_spigert *pdata;
 	int32_t ret;
 
-	pdata = kzalloc(sizeof(struct comedi_control), GFP_KERNEL);
+	pdata = kzalloc(sizeof(struct comedi_spigert), GFP_KERNEL);
 	if (!pdata)
 		return -ENOMEM;
 	mutex_init(&pdata->daqgert_platform_lock);
@@ -2257,15 +2275,22 @@ static int32_t spidev_spi_probe(struct spi_device * spi)
 		goto kfree_tx_exit;
 	}
 
+
 	if (spi->chip_select == CSnA) {
 		/* get a copy of the slave device 0 to share with comedi */ /* we need a device to talk to the ADC */
+		INIT_LIST_HEAD(&pdata->device_entry);
 		spi_adc.spi = spi;
+		pdata->slave.spi = spi;
 		spi->max_speed_hz = 1000000;
+		list_add(&pdata->device_entry, &device_list);
 	}
 	if (spi->chip_select == CSnB) {
 		/* get a copy of the slave device 1 to share with comedi */ /* we need a device to talk to the DAC */
+		INIT_LIST_HEAD(&pdata->device_entry);
 		spi_dac.spi = spi;
+		pdata->slave.spi = spi;
 		spi->max_speed_hz = 8000000;
+		list_add(&pdata->device_entry, &device_list);
 	}
 	spi->bits_per_word = 8;
 	spi->mode = SPI_MODE_3; /* mode 3 for ADC & DAC*/
@@ -2306,9 +2331,11 @@ kfree_exit:
 	return ret;
 }
 
-static int32_t spidev_spi_remove(struct spi_device * spi)
+static int32_t spigert_spi_remove(struct spi_device * spi)
 {
-	struct comedi_control *pdata = spi->dev.platform_data;
+	struct comedi_spigert *pdata = spi->dev.platform_data;
+
+	list_del(&pdata->device_entry);
 
 	if (pdata->rx_buff)
 		kfree(pdata->rx_buff);
@@ -2321,14 +2348,14 @@ static int32_t spidev_spi_remove(struct spi_device * spi)
 	return 0;
 }
 
-static struct spi_driver spidev_spi_driver = {
+static struct spi_driver spigert_spi_driver = {
 	.driver =
 	{
 		.name = "spigert",
 		.owner = THIS_MODULE,
 	},
-	.probe = spidev_spi_probe,
-	.remove = spidev_spi_remove,
+	.probe = spigert_spi_probe,
+	.remove = spigert_spi_remove,
 };
 
 /*
@@ -2417,7 +2444,7 @@ static int32_t __init daqgert_init(void)
 {
 	int32_t ret;
 
-	ret = spi_register_driver(&spidev_spi_driver);
+	ret = spi_register_driver(&spigert_spi_driver);
 	if (ret < 0)
 		return ret;
 	ret = comedi_driver_register(&daqgert_driver);
@@ -2438,7 +2465,7 @@ static void __exit daqgert_exit(void)
 {
 	comedi_auto_unconfig(&spi_adc.spi->master->dev);
 	comedi_driver_unregister(&daqgert_driver);
-	spi_unregister_driver(&spidev_spi_driver);
+	spi_unregister_driver(&spigert_spi_driver);
 }
 module_exit(daqgert_exit);
 
