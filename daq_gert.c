@@ -306,7 +306,7 @@ struct daqgert_board {
 	uint32_t ao_ns_min_calc;
 	uint32_t ao_rate_min;
 	int32_t ai_cs;
-	int32_t ao_cs
+	int32_t ao_cs;
 };
 
 static const struct daqgert_board daqgert_boards[] = {
