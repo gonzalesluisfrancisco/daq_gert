@@ -2300,14 +2300,12 @@ static int32_t spigert_spi_probe(struct spi_device * spi)
 	if (spi->chip_select == CSnA) {
 		/* get a copy of the slave device 0 to share with comedi */ /* we need a device to talk to the ADC */
 		INIT_LIST_HEAD(&pdata->device_entry); /* create entry into the Comedi device list */
-		//		spi_adc.spi = spi;
 		pdata->slave.spi = spi;
 		list_add_tail(&pdata->device_entry, &device_list); /* put entry into the Comedi device list */
 	}
 	if (spi->chip_select == CSnB) {
 		/* get a copy of the slave device 1 to share with comedi */ /* we need a device to talk to the DAC */
 		INIT_LIST_HEAD(&pdata->device_entry);
-		//		spi_dac.spi = spi;
 		pdata->slave.spi = spi;
 		list_add_tail(&pdata->device_entry, &device_list);
 	}
