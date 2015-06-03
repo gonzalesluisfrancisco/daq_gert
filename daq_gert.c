@@ -2045,6 +2045,12 @@ static int32_t daqgert_auto_attach(struct comedi_device *dev, unsigned long unus
 
 	dev->board_ptr = thisboard;
 
+	/*
+	 * loop the spi device queue for needed devices
+	 */
+	if (list_empty(&device_list))
+		return -ENODEV;
+
 	list_for_each_entry(pdata, &device_list, device_entry)
 	{
 		if (pdata->slave.spi->chip_select == thisboard->ai_cs) {
