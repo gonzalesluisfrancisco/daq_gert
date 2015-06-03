@@ -409,7 +409,7 @@ struct daqgert_private {
 	int32_t timing_lockout;
 };
 
-static int32_t daqgert_spi_probe(struct comedi_device *, spi_param_type *, spi_param_type *);
+static int32_t daqgert_spi_probe(struct comedi_device *, struct spi_param_type *, struct spi_param_type *);
 static void daqgert_ai_clear_eoc(struct comedi_device *);
 static int32_t daqgert_ai_cancel(struct comedi_device *,
 	struct comedi_subdevice *);
@@ -2384,7 +2384,7 @@ static struct spi_driver spigert_spi_driver = {
  * setup and probe the spi bus for devices, save the data to the global spi variables
  */
 static int32_t daqgert_spi_probe(struct comedi_device * dev,
-	spi_param_type * spi_adc, spi_param_type * spi_dac)
+	struct spi_param_type * spi_adc, struct spi_param_type * spi_dac)
 {
 	int32_t ret;
 	const struct daqgert_board *thisboard = dev->board_ptr;
@@ -2482,10 +2482,10 @@ static int32_t __init daqgert_init(void)
 		i++;
 	}
 
-	if (!pdata->slave.spi || (i != 2))
+	if ((i != 2) || !slave->spi )
 		return -ENODEV;
 	if (gert_autoload)
-		ret = comedi_auto_config(&pdata->slave.spi->master->dev, &daqgert_driver, 0);
+		ret = comedi_auto_config(&slave->spi->master->dev, &daqgert_driver, 0);
 	if (ret < 0)
 		return ret;
 
@@ -2503,7 +2503,7 @@ static void __exit daqgert_exit(void)
 		slave_spi = &pdata->slave;
 	}
 
-	comedi_auto_unconfig(&pdata->slave.spi->master->dev);
+	comedi_auto_unconfig(&slave->spi->master->dev);
 	comedi_driver_unregister(&daqgert_driver);
 	spi_unregister_driver(&spigert_spi_driver);
 }
