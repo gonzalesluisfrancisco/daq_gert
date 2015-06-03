@@ -173,17 +173,25 @@ The output range is 0 to 4095 for 0.0 to 2.048 onboard devices (output resolutio
 #include <linux/list.h>
 #include "8253.h"
 
-/* this is the Comedi SPI device queue */
+/* 
+ * this is the Comedi SPI device queue 
+ */
 static LIST_HEAD(device_list);
 
-/* SPI link setup */
+/* 
+ * SPI link setup 
+ */
 static const uint16_t SPI_MODE = SPI_MODE_3; /* mode 3 for ADC & DAC*/
 static const uint8_t SPI_BPW = 8; /* 8 bit SPI words */
 
-/* SPI transfer buffer size */
+/* 
+ * SPI transfer buffer size 
+ */
 #define HUNK_LEN 1000
 
-/* branch macros for ARM7 */
+/* 
+ * branch macros for ARM7 
+ */
 #define likely(x)      __builtin_expect(!!(x), 1)
 #define unlikely(x)    __builtin_expect(!!(x), 0)
 
@@ -207,7 +215,9 @@ static const uint32_t MAX_BOARD_RATE = 1000000000;
 static const uint8_t CSnA = 0; /* GPIO 8  Gertboard ADC */
 static const uint8_t CSnB = 1; /* GPIO 7  Gertboard DAC */
 
-/* PIC Slave commands */
+/* 
+ * PIC Slave commands 
+ */
 static const uint8_t CMD_ZERO = 0b00000000;
 static const uint8_t CMD_ADC_GO = 0b10000000;
 static const uint8_t CMD_PORT_GO = 0b10100000; /* send data LO_NIBBLE to port buffer */
@@ -239,14 +249,18 @@ static const uint32_t PUD_OFF = 0;
 static const uint32_t PUD_DOWN = 1;
 static const uint32_t PUD_UP = 2;
 
-/* driver hardware numbers */
+/* 
+ * driver hardware numbers 
+ */
 static const uint32_t NUM_DIO_CHAN = 17;
 static const uint32_t NUM_DIO_CHAN_REV2 = 17;
 static const uint32_t NUM_DIO_CHAN_REV3 = 17;
 static const uint32_t NUM_DIO_OUTPUTS = 8;
 static const uint32_t DIO_PINS_DEFAULT = 0xff;
 
-/* Globals for the RPi board rev */
+/* 
+ * Globals for the RPi board rev 
+ */
 extern uint32_t system_rev; /* from the kernel symbol table exports */
 extern uint32_t system_serial_low;
 extern uint32_t system_serial_high;
@@ -345,7 +359,9 @@ static const struct comedi_lrange daqgert_ao_range = {1,
 		RANGE(0, 2.048),
 	}};
 
-/* SPI attached devices used by Comedi for I/O */
+/* 
+ * SPI attached devices used by Comedi for I/O 
+ */
 struct spi_param_type {
 	uint32_t range : 1;
 	uint32_t bits : 2;
@@ -359,7 +375,9 @@ struct spi_param_type {
 	struct task_struct *daqgert_task;
 };
 
-/* Comedi SPI device I/O buffer control structure */
+/* 
+ * Comedi SPI device I/O buffer control structure 
+ */
 struct comedi_spigert {
 	uint8_t *tx_buff;
 	uint8_t *rx_buff;
@@ -371,7 +389,9 @@ struct comedi_spigert {
 	struct spi_param_type slave;
 };
 
-/* RPi board control state variables */
+/* 
+ * RPi board control state variables 
+ */
 struct daqgert_private {
 	uint32_t RPisys_rev;
 	uint32_t __iomem *timer_1mhz;
@@ -426,7 +446,9 @@ static void daqgert_ao_put_sample(struct comedi_device *,
 static void daqgert_handle_ai_hunk(struct comedi_device *,
 	struct comedi_subdevice *);
 
-/* pin exclude list */
+/* 
+ * pin exclude list 
+ */
 static int32_t wpi_pin_safe(struct comedi_device *dev, int32_t pin)
 {
 	struct daqgert_private *devpriv = dev->private;
@@ -446,7 +468,9 @@ static int32_t wpi_pin_safe(struct comedi_device *dev, int32_t pin)
 	return true;
 }
 
-/* Wiring PI routines modified for sparce and Comedi */
+/* 
+ * Wiring PI routines modified for sparce and Comedi 
+ */
 /*
  Doing it the Arduino way with lookup tables...
       Yes, it's probably more inefficient than all the bit-twidling, but it
@@ -471,7 +495,9 @@ static int32_t pinToGpioR1 [64] = {
 	-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, /* ... 63 */
 };
 
-/* Revision 2: */
+/* 
+ * Revision 2: 
+ */
 
 static int32_t pinToGpioR2 [64] = {
 	17, 18, 27, 22, 23, 24, 25, 4, /* From the Original Wiki - GPIO 0 through 7:   wpi  0 -  7 */
@@ -668,10 +694,12 @@ static void pinModeGpio(struct comedi_device *dev, int32_t pin, int32_t mode)
 	shift = gpioToShift [pin];
 
 	if (mode == INPUT) /* Sets bits to zero = input */
-		iowrite32(ioread32((__iomem uint32_t*) dev->mmio + fSel) & ~(7 << shift), (__iomem uint32_t*) dev->mmio + fSel);
+		iowrite32(ioread32((__iomem uint32_t*) dev->mmio + fSel) & ~(7 << shift),
+		(__iomem uint32_t*) dev->mmio + fSel);
 	else
 		if (mode == OUTPUT)
-		iowrite32((ioread32((__iomem uint32_t*) dev->mmio + fSel) & ~(7 << shift)) | (1 << shift), (__iomem uint32_t*) dev->mmio + fSel);
+		iowrite32((ioread32((__iomem uint32_t*) dev->mmio + fSel) & ~(7 << shift)) | (1 << shift),
+		(__iomem uint32_t*) dev->mmio + fSel);
 }
 
 static void pinModeWPi(struct comedi_device *dev, int32_t pin, int32_t mode)
@@ -872,7 +900,9 @@ static int32_t wiringPiSetupGpio(struct comedi_device *dev)
 	return 0;
 }
 
-/* chip byte offsets for arrays for 10 or 12 bit devices */
+/* 
+ * chip byte offsets for arrays for 10 or 12 bit devices 
+ */
 static int32_t daqgert_device_offset(int32_t device_type)
 {
 	int32_t len;
@@ -1087,7 +1117,9 @@ static uint32_t daqgert_ai_get_sample(struct comedi_device *dev,
 	return val & s->maxdata;
 }
 
-/* start chan set in ai_cmd */
+/* 
+ * start chan set in ai_cmd 
+ */
 static void daqgert_handle_ai_eoc(struct comedi_device *dev,
 	struct comedi_subdevice *s)
 {
@@ -1128,7 +1160,9 @@ static void daqgert_ao_next_chan(struct comedi_device *dev,
 	}
 }
 
-/* start chan set in ao_cmd */
+/* 
+ * start chan set in ao_cmd 
+ */
 static void daqgert_handle_ao_eoc(struct comedi_device *dev,
 	struct comedi_subdevice *s)
 {
@@ -2095,7 +2129,8 @@ static int32_t daqgert_auto_attach(struct comedi_device *dev, unsigned long unus
 	}
 
 	dev->iobase = GPIO_BASE; /* bcm iobase */
-	/* dev->mmio is a void pointer with 8bit pointer indexing, 
+	/* 
+	 * dev->mmio is a void pointer with 8bit pointer indexing, 
 	 * we need 32bit indexing so mmio is casted to a (__iomem uint32_t*) 
 	 * pointer for GPIO R/W operations 
 	 */
@@ -2111,8 +2146,10 @@ static int32_t daqgert_auto_attach(struct comedi_device *dev, unsigned long unus
 		return -EINVAL;
 	}
 
-	/* setup the pins in a static matter for now */
-	/* PIN mode for all */
+	/* 
+	 * setup the pins in a static matter for now
+	 * PIN mode for all 
+	 */
 	if (wiringpi) {
 		dev_info(dev->class_dev, "%s WiringPiSetup\n", thisboard->name);
 		if (wiringPiSetup(dev) < 0) {
@@ -2146,12 +2183,16 @@ static int32_t daqgert_auto_attach(struct comedi_device *dev, unsigned long unus
 		dev_info(dev->class_dev, "%s WPi pins set [0..7] to outputs\n", thisboard->name);
 	}
 
-	/* assume we have DON"T have a Gertboard */
+	/* 
+	 * assume we have DON"T have a Gertboard 
+	 */
 	dev_info(dev->class_dev, "%s detection started\n", thisboard->name);
 	devpriv->num_subdev = 1;
 	if (daqgert_spi_probe(dev, slave_spi_adc, slave_spi_dac))
 		devpriv->num_subdev += 2;
-	/* add AI and AO channels */
+	/* 
+	 * add AI and AO channels 
+	 */
 	dev_info(dev->class_dev, "%s detection completed\n", thisboard->name);
 	ret = comedi_alloc_subdevices(dev, devpriv->num_subdev);
 	if (ret) {
@@ -2195,7 +2236,9 @@ static int32_t daqgert_auto_attach(struct comedi_device *dev, unsigned long unus
 		s->cancel = daqgert_ai_cancel;
 		dev->read_subdev = s;
 
-		/* setup the timer to call my_timer_ai_callback */
+		/* 
+		 * setup the timer to call my_timer_ai_callback 
+		 */
 		setup_timer(&devpriv->ai_spi->my_timer, my_timer_ai_callback, (unsigned long) dev);
 
 		/* daq-gert ao */
@@ -2220,7 +2263,9 @@ static int32_t daqgert_auto_attach(struct comedi_device *dev, unsigned long unus
 			return ret;
 		}
 	}
-	/* setup kthreads */
+	/* 
+	 * setup kthreads 
+	 */
 	if (devpriv->hunk) {
 		devpriv->ai_spi->daqgert_task = kthread_run(&daqgert_ai_thread_function, (void *) dev, "daqgert_h_a");
 		devpriv->ao_spi->daqgert_task = kthread_run(&daqgert_ao_thread_function, (void *) dev, "daqgert_h_d");
@@ -2254,7 +2299,6 @@ static void daqgert_detach(struct comedi_device * dev)
 		kthread_stop(devpriv->ai_spi->daqgert_task);
 	devpriv->ai_spi->daqgert_task = NULL;
 
-	/* remove kernel timer when unloading module */
 	del_timer_sync(&devpriv->ai_spi->my_timer);
 
 	iounmap(devpriv->timer_1mhz);
@@ -2285,9 +2329,7 @@ static int32_t spigert_spi_probe(struct spi_device * spi)
 		return -ENOMEM;
 	mutex_init(&pdata->daqgert_platform_lock);
 
-	/* allocate the SPI transfer buffer structures */
 	spi->dev.platform_data = pdata;
-	/* these buffers are large to handle async SPI transfer scans in a hunk */
 	pdata->tx_buff = kzalloc(SPI_BUFF_SIZE, GFP_KERNEL | GFP_DMA);
 	if (!pdata->tx_buff) {
 		ret = -ENOMEM;
@@ -2303,13 +2345,18 @@ static int32_t spigert_spi_probe(struct spi_device * spi)
 	 * Do only two chip selects for the Gertboard 
 	 */
 	if (spi->chip_select == CSnA) {
-		/* get a copy of the slave device 0 to share with comedi */ /* we need a device to talk to the ADC */
+		/* 
+		 * get a copy of the slave device 0 to share with comedi 
+		 * we need a device to talk to the ADC 
+		 */
 		INIT_LIST_HEAD(&pdata->device_entry); /* create entry into the Comedi device list */
 		pdata->slave.spi = spi;
 		list_add_tail(&pdata->device_entry, &device_list); /* put entry into the Comedi device list */
 	}
 	if (spi->chip_select == CSnB) {
-		/* get a copy of the slave device 1 to share with comedi */ /* we need a device to talk to the DAC */
+		/* 
+		 * we need a device to talk to the DAC 
+		 */
 		INIT_LIST_HEAD(&pdata->device_entry);
 		pdata->slave.spi = spi;
 		list_add_tail(&pdata->device_entry, &device_list);
@@ -2322,11 +2369,15 @@ static int32_t spigert_spi_probe(struct spi_device * spi)
 		spi->chip_select, spi->bits_per_word,
 		spi->mode);
 
-	/* inter-spacing speed adjustments */
+	/* 
+	 * inter-spacing speed adjustments 
+	 */
 	pdata->delay_usecs = 0; /* delay between any single conversion */
 	pdata->mix_delay_usecs = 0; /* delay for alt mix command conversions */
 
-	/* Check for basic errors */
+	/* 
+	 * Check for basic errors 
+	 */
 	ret = spi_w8r8(spi, 0); /* check for spi comm error */
 	if (ret < 0) {
 		dev_err(&spi->dev, "spi comm error\n");
@@ -2416,7 +2467,9 @@ static int32_t daqgert_spi_probe(struct comedi_device * dev,
 		spi_adc->device_type = MCP3002;
 		spi_dac->device_type = MCP4802;
 	}
-	/* SPI data transfers, send a few dummies for config info */
+	/* 
+	 * SPI data transfers, send a few dummies for config info 
+	 */
 	spi_w8r8(spi_adc->spi, CMD_DUMMY_CFG);
 	spi_w8r8(spi_adc->spi, CMD_DUMMY_CFG);
 	ret = spi_w8r8(spi_adc->spi, CMD_DUMMY_CFG);
@@ -2455,7 +2508,6 @@ static int32_t daqgert_spi_probe(struct comedi_device * dev,
 			spi_adc->chan, spi_adc->range, spi_adc->device_type, spi_adc->bits, spi_adc->pic18, ret);
 	} else {
 		spi_adc->pic18 = 0; /* SPI probes found nothing */
-		/* look for the gertboard SPI devices .pic18 code 1 */
 		dev_info(dev->class_dev, "no %s PIC found, gpio pins only. Detect code %i\n",
 			thisboard->name, ret);
 		spi_adc->chan = 0;
@@ -2476,7 +2528,9 @@ static int32_t __init daqgert_init(void)
 	if (ret < 0)
 		return ret;
 
-	/* find a spi device from the probe and the number of devices to check */
+	/* 
+	 * find a spi device from the probe and the number of devices to check 
+	 */
 	list_for_each_entry(pdata, &device_list, device_entry)
 	{
 		slave_spi = &pdata->slave;
@@ -2499,7 +2553,9 @@ static void __exit daqgert_exit(void)
 	struct comedi_spigert *pdata;
 	static struct spi_param_type *slave_spi;
 
-	/* find the needed spi device for module shutdown */
+	/* 
+	 * find the needed spi device for module shutdown 
+	 */
 	list_for_each_entry(pdata, &device_list, device_entry)
 	{
 		slave_spi = &pdata->slave;
