@@ -198,8 +198,6 @@ static const uint8_t SPI_BPW = 8; /* 8 bit SPI words */
 enum daqgert_state_bits {
 	AI_CMD_RUNNING = 0,
 	AO_CMD_RUNNING,
-	AI_CMD_CANCELED,
-	AO_CMD_CANCELED,
 	SPI_AI_RUN,
 	SPI_AO_RUN,
 	CMD_TIMER,
@@ -413,7 +411,7 @@ struct daqgert_private {
 	unsigned long state_bits;
 	uint32_t ai_rate_max, ao_rate_max, ao_timer, ao_counter;
 	uint32_t ai_conv_delay_usecs, ai_conv_delay_10nsecs, ai_cmd_delay_usecs;
-	int32_t ai_chan, ao_chan, timer, run, spi_ai_run, spi_ao_run, ai_count,
+	int32_t ai_chan, ao_chan, ai_count,
 	ao_count, hunk_count, ai_cmd_canceled,
 	ao_cmd_canceled;
 	struct mutex drvdata_lock, cmd_lock;
@@ -423,6 +421,8 @@ struct daqgert_private {
 	uint16_t ai_mix : 1;
 	uint16_t ai_neverending : 1;
 	uint16_t ao_neverending : 1;
+	uint16_t timer : 1;
+	uint16_t run : 1;
 	int32_t mix_chan;
 	uint32_t ai_scans; /*  length of scanlist */
 	int32_t ai_scans_left; /*  number left to finish */
@@ -949,13 +949,12 @@ static int32_t daqgert_ai_thread_function(void *data)
 			else
 				msleep(1);
 
-			if (devpriv->timer && devpriv->run)
-				devpriv->spi_ai_run = true;
 			if (kthread_should_stop())
 				return 0;
 		}
 		if (likely(test_bit(AI_CMD_RUNNING, &devpriv->state_bits))) {
 			if (devpriv->ai_hunk) {
+				set_bit(SPI_AI_RUN, &devpriv->state_bits);
 				daqgert_handle_ai_hunk(dev, s);
 				devpriv->hunk_count++;
 				hunk_count = devpriv->hunk_count;
@@ -965,7 +964,7 @@ static int32_t daqgert_ai_thread_function(void *data)
 				usleep_range(pdata->delay_usecs, pdata->delay_usecs + 1);
 			}
 		} else {
-			devpriv->spi_ai_run = false;
+			clear_bit(SPI_AI_RUN, &devpriv->state_bits);
 			msleep(1);
 		}
 	}
@@ -988,12 +987,12 @@ static int32_t daqgert_ao_thread_function(void *data)
 
 	while (!kthread_should_stop()) {
 		if (likely(test_bit(AO_CMD_RUNNING, &devpriv->state_bits))) {
-			devpriv->spi_ao_run = true;
+			set_bit(SPI_AO_RUN, &devpriv->state_bits);
 			daqgert_handle_ao_eoc(dev, s);
 			devpriv->ao_count++;
 			usleep_range(pdata->delay_usecs, pdata->delay_usecs + 1);
 		} else {
-			devpriv->spi_ao_run = false;
+			clear_bit(SPI_AO_RUN, &devpriv->state_bits);
 			msleep(1);
 		}
 	}
@@ -1063,8 +1062,8 @@ static void daqgert_ao_put_sample(struct comedi_device *dev,
 	pdata->tx_buff[0] = (0b00110000 | ((chan & 0x01) << 7) | (val_tmp >> 8));
 	spi_write_then_read(spi_data->spi, pdata->tx_buff, 2, pdata->rx_buff, 2); /* Load DAC channel, send two bytes */
 	s->readback[chan] = val;
-	devpriv->spi_ao_run = false;
 	mutex_unlock(&devpriv->drvdata_lock);
+	clear_bit(SPI_AO_RUN, &devpriv->state_bits);
 }
 
 /*
@@ -1123,8 +1122,8 @@ static uint32_t daqgert_ai_get_sample(struct comedi_device *dev,
 			}
 		}
 	}
-	devpriv->spi_ai_run = false;
 	mutex_unlock(&devpriv->drvdata_lock);
+	clear_bit(SPI_AI_RUN, &devpriv->state_bits);
 	return val & s->maxdata;
 }
 
@@ -1883,7 +1882,7 @@ static void daqgert_ai_clear_eoc(struct comedi_device * dev)
 	do { /* wait if needed to SPI to clear or timeout */
 		schedule(); /* force a context switch */
 		msleep(1);
-	} while (devpriv->spi_ai_run && (count--));
+	} while (test_bit(SPI_AI_RUN, &devpriv->state_bits) && (count--));
 
 	devpriv->run = false;
 	devpriv->timer = false;
@@ -1930,7 +1929,7 @@ static int32_t daqgert_ao_cancel(struct comedi_device *dev,
 	do { /* wait if needed to SPI to clear or timeout */
 		schedule(); /* force a context switch to stop the AO thread */
 		msleep(1);
-	} while (devpriv->spi_ao_run && (count--));
+	} while (test_bit(SPI_AO_RUN, &devpriv->state_bits) && (count--));
 
 	s->async->inttrig = NULL;
 	devpriv->timing_lockout--;
