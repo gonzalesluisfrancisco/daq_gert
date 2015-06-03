@@ -2071,7 +2071,7 @@ static int32_t daqgert_auto_attach(struct comedi_device *dev, unsigned long unus
 	int32_t num_ai_chan, num_ao_chan, num_dio_chan = NUM_DIO_CHAN;
 	struct daqgert_private *devpriv;
 	struct comedi_spigert *pdata;
-	static struct spi_param_type *slave_spi_adc, *slave_spi_dac;
+	struct spi_param_type *slave_spi_adc, *slave_spi_dac;
 
 	devpriv = comedi_alloc_devpriv(dev, sizeof(*devpriv)); /* auto free on exit */
 	if (!devpriv)
