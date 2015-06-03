@@ -954,7 +954,9 @@ static int32_t daqgert_ai_thread_function(void *data)
 		}
 		if (likely(test_bit(AI_CMD_RUNNING, &devpriv->state_bits))) {
 			if (devpriv->ai_hunk) {
+				smp_mb__before_atomic();
 				set_bit(SPI_AI_RUN, &devpriv->state_bits);
+				smp_mb__after_atomic();
 				daqgert_handle_ai_hunk(dev, s);
 				devpriv->hunk_count++;
 				hunk_count = devpriv->hunk_count;
@@ -965,6 +967,7 @@ static int32_t daqgert_ai_thread_function(void *data)
 			}
 		} else {
 			clear_bit(SPI_AI_RUN, &devpriv->state_bits);
+			smp_mb__after_atomic();
 			msleep(1);
 		}
 	}
@@ -987,12 +990,15 @@ static int32_t daqgert_ao_thread_function(void *data)
 
 	while (!kthread_should_stop()) {
 		if (likely(test_bit(AO_CMD_RUNNING, &devpriv->state_bits))) {
+			smp_mb__before_atomic();
 			set_bit(SPI_AO_RUN, &devpriv->state_bits);
+			smp_mb__after_atomic();
 			daqgert_handle_ao_eoc(dev, s);
 			devpriv->ao_count++;
 			usleep_range(pdata->delay_usecs, pdata->delay_usecs + 1);
 		} else {
 			clear_bit(SPI_AO_RUN, &devpriv->state_bits);
+			smp_mb__after_atomic();
 			msleep(1);
 		}
 	}
@@ -1064,6 +1070,7 @@ static void daqgert_ao_put_sample(struct comedi_device *dev,
 	s->readback[chan] = val;
 	mutex_unlock(&devpriv->drvdata_lock);
 	clear_bit(SPI_AO_RUN, &devpriv->state_bits);
+	smp_mb__after_atomic();
 }
 
 /*
@@ -1124,6 +1131,7 @@ static uint32_t daqgert_ai_get_sample(struct comedi_device *dev,
 	}
 	mutex_unlock(&devpriv->drvdata_lock);
 	clear_bit(SPI_AI_RUN, &devpriv->state_bits);
+	smp_mb__after_atomic();
 	return val & s->maxdata;
 }
 
