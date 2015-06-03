@@ -195,6 +195,10 @@ static void daqgert_ao_put_sample(struct comedi_device *,
 static void daqgert_handle_ai_hunk(struct comedi_device *,
 	struct comedi_subdevice *);
 
+/* SPI link setup */
+static const uint16_t SPI_MODE = SPI_MODE_3; /* mode 3 for ADC & DAC*/
+static const uint8_t SPI_BPW = 8; /* 8 bit SPI words */
+
 /* SPI transfer buffer size */
 #define HUNK_LEN 1000
 
@@ -305,10 +309,10 @@ struct daqgert_board {
 	uint32_t ao_ns_min;
 	uint32_t ao_ns_min_calc;
 	uint32_t ao_rate_min;
-	int32_t ai_cs;
-	int32_t ao_cs;
-	int32_t ai_max_speed_hz;
-	int32_t ao_max_speed_hz;
+	uint8_t ai_cs;
+	uint8_t ao_cs;
+	uint32_t ai_max_speed_hz;
+	uint32_t ao_max_speed_hz;
 };
 
 static const struct daqgert_board daqgert_boards[] = {
@@ -2309,15 +2313,15 @@ static int32_t spigert_spi_probe(struct spi_device * spi)
 		pdata->slave.spi = spi;
 		list_add_tail(&pdata->device_entry, &device_list);
 	}
-	spi->bits_per_word = 8;
-	spi->mode = SPI_MODE_3; /* mode 3 for ADC & DAC*/
+	spi->bits_per_word = SPI_BPW;
+	spi->mode = SPI_MODE;
 	spi_setup(spi);
 	dev_info(&spi->dev,
 		"setup: cd %d: bpw %u, mode 0x%x\n",
 		spi->chip_select, spi->bits_per_word,
 		spi->mode);
 
-	/* speed adjustments */
+	/* inter-spacing speed adjustments */
 	pdata->delay_usecs = 0; /* delay between any single conversion */
 	pdata->mix_delay_usecs = 0; /* delay for alt mix command conversions */
 
