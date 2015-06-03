@@ -2102,6 +2102,9 @@ static int32_t daqgert_auto_attach(struct comedi_device *dev, unsigned long unus
 		}
 	}
 
+	/*
+	 * check for possible bad spigert table entry
+	 */
 	if (!slave_spi_adc || !slave_spi_dac)
 		return -ENODEV;
 
