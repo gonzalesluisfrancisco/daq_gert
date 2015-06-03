@@ -174,27 +174,6 @@ The output range is 0 to 4095 for 0.0 to 2.048 onboard devices (output resolutio
 #include <linux/list.h>
 #include "8253.h"
 
-/* /sys/module parameter variables */
-static int32_t daqgert_spi_probe(struct comedi_device *);
-static void daqgert_ai_clear_eoc(struct comedi_device *);
-static int32_t daqgert_ai_cancel(struct comedi_device *,
-	struct comedi_subdevice *);
-static int32_t daqgert_ao_cancel(struct comedi_device *,
-	struct comedi_subdevice *);
-static void daqgert_handle_ai_eoc(struct comedi_device *,
-	struct comedi_subdevice *);
-static void daqgert_handle_ao_eoc(struct comedi_device *,
-	struct comedi_subdevice *);
-static void my_timer_ai_callback(unsigned long);
-static void daqgert_ai_set_chan_range(struct comedi_device *,
-	uint32_t, char);
-static uint32_t daqgert_ai_get_sample(struct comedi_device *,
-	struct comedi_subdevice *);
-static void daqgert_ao_put_sample(struct comedi_device *,
-	struct comedi_subdevice *, uint32_t);
-static void daqgert_handle_ai_hunk(struct comedi_device *,
-	struct comedi_subdevice *);
-
 /* SPI link setup */
 static const uint16_t SPI_MODE = SPI_MODE_3; /* mode 3 for ADC & DAC*/
 static const uint8_t SPI_BPW = 8; /* 8 bit SPI words */
@@ -393,7 +372,7 @@ struct comedi_spigert {
 static LIST_HEAD(device_list);
 
 /* SPI device variables  for COMEDI to use in global scope */
-static struct spi_param_type spi_adc, spi_dac;
+//static struct spi_param_type spi_adc, spi_dac;
 
 /* RPi board control state variables */
 struct daqgert_private {
@@ -429,6 +408,26 @@ struct daqgert_private {
 	int32_t(*digitalRead) (struct comedi_device *dev, int32_t pin);
 	int32_t timing_lockout;
 };
+
+static int32_t daqgert_spi_probe(struct comedi_device *, spi_param_type *, spi_param_type *);
+static void daqgert_ai_clear_eoc(struct comedi_device *);
+static int32_t daqgert_ai_cancel(struct comedi_device *,
+	struct comedi_subdevice *);
+static int32_t daqgert_ao_cancel(struct comedi_device *,
+	struct comedi_subdevice *);
+static void daqgert_handle_ai_eoc(struct comedi_device *,
+	struct comedi_subdevice *);
+static void daqgert_handle_ao_eoc(struct comedi_device *,
+	struct comedi_subdevice *);
+static void my_timer_ai_callback(unsigned long);
+static void daqgert_ai_set_chan_range(struct comedi_device *,
+	uint32_t, char);
+static uint32_t daqgert_ai_get_sample(struct comedi_device *,
+	struct comedi_subdevice *);
+static void daqgert_ao_put_sample(struct comedi_device *,
+	struct comedi_subdevice *, uint32_t);
+static void daqgert_handle_ai_hunk(struct comedi_device *,
+	struct comedi_subdevice *);
 
 /* pin exclude list */
 static int32_t wpi_pin_safe(struct comedi_device *dev, int32_t pin)
@@ -2077,8 +2076,8 @@ static int32_t daqgert_auto_attach(struct comedi_device *dev, unsigned long unus
 	devpriv->ai_neverending = true;
 	devpriv->hunk = use_hunking;
 	devpriv->ai_mix = false;
-	devpriv->ai_spi = &spi_adc;
-	devpriv->ao_spi = &spi_dac;
+	devpriv->ai_spi = slave_spi_adc;
+	devpriv->ao_spi = slave_spi_dac;
 	devpriv->ai_conv_delay_10nsecs = CONV_SPEED;
 	devpriv->timing_lockout = 0;
 
@@ -2149,7 +2148,7 @@ static int32_t daqgert_auto_attach(struct comedi_device *dev, unsigned long unus
 	/* assume we have DON"T have a Gertboard */
 	dev_info(dev->class_dev, "%s detection started\n", thisboard->name);
 	devpriv->num_subdev = 1;
-	if (daqgert_spi_probe(dev))
+	if (daqgert_spi_probe(dev, slave_spi_adc, slave_spi_dac))
 		devpriv->num_subdev += 2;
 	/* add AI and AO channels */
 	dev_info(dev->class_dev, "%s detection completed\n", thisboard->name);
@@ -2299,17 +2298,19 @@ static int32_t spigert_spi_probe(struct spi_device * spi)
 		goto kfree_tx_exit;
 	}
 
+	/*
+	 * Do only static two chip select for the Gertboard */
 	if (spi->chip_select == CSnA) {
 		/* get a copy of the slave device 0 to share with comedi */ /* we need a device to talk to the ADC */
-		INIT_LIST_HEAD(&pdata->device_entry);
-		spi_adc.spi = spi;
+		INIT_LIST_HEAD(&pdata->device_entry); /* create entry into the Comedi device list */
+		//		spi_adc.spi = spi;
 		pdata->slave.spi = spi;
-		list_add_tail(&pdata->device_entry, &device_list);
+		list_add_tail(&pdata->device_entry, &device_list); /* put entry into the Comedi device list */
 	}
 	if (spi->chip_select == CSnB) {
 		/* get a copy of the slave device 1 to share with comedi */ /* we need a device to talk to the DAC */
 		INIT_LIST_HEAD(&pdata->device_entry);
-		spi_dac.spi = spi;
+		//		spi_dac.spi = spi;
 		pdata->slave.spi = spi;
 		list_add_tail(&pdata->device_entry, &device_list);
 	}
@@ -2382,88 +2383,91 @@ static struct spi_driver spigert_spi_driver = {
 /*
  * setup and probe the spi bus for devices, save the data to the global spi variables
  */
-static int32_t daqgert_spi_probe(struct comedi_device * dev)
+static int32_t daqgert_spi_probe(struct comedi_device * dev,
+	spi_param_type * spi_adc, spi_param_type * spi_dac)
 {
 	int32_t ret;
 	const struct daqgert_board *thisboard = dev->board_ptr;
 
 	dev_info(dev->class_dev, "spi probe\n");
-	if (!spi_adc.spi) {
+	if (!spi_adc->spi) {
 		dev_err(dev->class_dev, "no spi channel detected\n");
-		spi_adc.chan = 0;
-		spi_dac.chan = 0;
-		return spi_adc.chan;
+		spi_adc->chan = 0;
+		spi_dac->chan = 0;
+		return spi_adc->chan;
 	}
 
-	spi_dac.chan = thisboard->n_aochan;
+	spi_dac->chan = thisboard->n_aochan;
 
 	switch (daqgert_conf) {
 	case 1:
-		spi_adc.device_type = MCP3202;
-		spi_dac.device_type = MCP4822;
+		spi_adc->device_type = MCP3202;
+		spi_dac->device_type = MCP4822;
 		break;
 	case 2:
-		spi_adc.device_type = MCP3002;
-		spi_dac.device_type = MCP4822;
+		spi_adc->device_type = MCP3002;
+		spi_dac->device_type = MCP4822;
 		break;
 	case 3:
-		spi_adc.device_type = MCP3202;
-		spi_dac.device_type = MCP4802;
+		spi_adc->device_type = MCP3202;
+		spi_dac->device_type = MCP4802;
 		break;
 	default:
-		spi_adc.device_type = MCP3002;
-		spi_dac.device_type = MCP4802;
+		spi_adc->device_type = MCP3002;
+		spi_dac->device_type = MCP4802;
 	}
 	/* SPI data transfers, send a few dummies for config info */
-	spi_w8r8(spi_adc.spi, CMD_DUMMY_CFG);
-	spi_w8r8(spi_adc.spi, CMD_DUMMY_CFG);
-	ret = spi_w8r8(spi_adc.spi, CMD_DUMMY_CFG);
+	spi_w8r8(spi_adc->spi, CMD_DUMMY_CFG);
+	spi_w8r8(spi_adc->spi, CMD_DUMMY_CFG);
+	ret = spi_w8r8(spi_adc->spi, CMD_DUMMY_CFG);
 	dev_info(dev->class_dev,
 		"%s adc board pre detect code %i, daqgert_conf option value %i\n",
 		thisboard->name, ret, daqgert_conf);
 	if ((ret != 76) && (ret != 110)) { /* PIC slave adc codes */
-		ret = spi_w8r8(spi_adc.spi, 0b01100000); /* check for channel 0 SE */
+		ret = spi_w8r8(spi_adc->spi, 0b01100000); /* check for channel 0 SE */
 		if (1) { /* FIXME need to add another probe test */
-			spi_adc.pic18 = 0; /* MCP3X02 mode */
-			spi_adc.chan = thisboard->n_aichan;
-			spi_adc.range = 0; /* range 2.048 */
+			spi_adc->pic18 = 0; /* MCP3X02 mode */
+			spi_adc->chan = thisboard->n_aichan;
+			spi_adc->range = 0; /* range 2.048 */
 			dev_info(dev->class_dev,
 				"%s adc chip board detected, %i channels, range code %i, device code %i, PIC code %i, detect code %i\n",
-				thisboard->name, spi_adc.chan, spi_adc.range, spi_adc.device_type, spi_adc.pic18, ret);
-			return spi_adc.chan;
+				thisboard->name, spi_adc->chan, spi_adc->range, spi_adc->device_type, spi_adc->pic18, ret);
+			return spi_adc->chan;
 		}
-		spi_adc.pic18 = 0; /* SPI probes found nothing */
+		spi_adc->pic18 = 0; /* SPI probes found nothing */
 		dev_info(dev->class_dev, "no %s adc found, gpio pins only. detect code %i\n",
 			thisboard->name, ret);
-		spi_adc.chan = 0;
-		return spi_adc.chan;
+		spi_adc->chan = 0;
+		return spi_adc->chan;
 	}
 	if (ret) {
-		spi_adc.pic18 = 1; /* PIC18 single-end mode 10 bits */
-		spi_adc.device_type = PICSL10;
-		spi_adc.chan = ret & 0x0f;
-		spi_adc.range = (ret & 0b00100000) >> 5;
-		spi_adc.bits = (ret & 0b00010000) >> 4;
-		if (spi_adc.bits) {
-			spi_adc.pic18 = 2; /* PIC24 mode 12 bits */
-			spi_adc.device_type = PICSL12;
+		spi_adc->pic18 = 1; /* PIC18 single-end mode 10 bits */
+		spi_adc->device_type = PICSL10;
+		spi_adc->chan = ret & 0x0f;
+		spi_adc->range = (ret & 0b00100000) >> 5;
+		spi_adc->bits = (ret & 0b00010000) >> 4;
+		if (spi_adc->bits) {
+			spi_adc->pic18 = 2; /* PIC24 mode 12 bits */
+			spi_adc->device_type = PICSL12;
 		}
 		dev_info(dev->class_dev,
 			"PIC spi slave adc chip board detected, %i channels, range code %i, device code %i, bits code %i, PIC code %i, detect Code %i\n",
-			spi_adc.chan, spi_adc.range, spi_adc.device_type, spi_adc.bits, spi_adc.pic18, ret);
+			spi_adc->chan, spi_adc->range, spi_adc->device_type, spi_adc->bits, spi_adc->pic18, ret);
 	} else {
-		spi_adc.pic18 = 0; /* SPI probes found nothing */
+		spi_adc->pic18 = 0; /* SPI probes found nothing */
 		/* look for the gertboard SPI devices .pic18 code 1 */
 		dev_info(dev->class_dev, "no %s PIC found, gpio pins only. Detect code %i\n",
 			thisboard->name, ret);
-		spi_adc.chan = 0;
+		spi_adc->chan = 0;
 	}
-	return spi_adc.chan;
+	return spi_adc->chan;
 }
 
 static int32_t __init daqgert_init(void)
 {
-	int32_t ret;
+	struct comedi_spigert *pdata;
+	static struct spi_param_type *slave_spi;
+	int32_t ret, i = 0;
 
 	ret = spi_register_driver(&spigert_spi_driver);
 	if (ret < 0)
@@ -2471,10 +2475,17 @@ static int32_t __init daqgert_init(void)
 	ret = comedi_driver_register(&daqgert_driver);
 	if (ret < 0)
 		return ret;
-	if (!spi_adc.spi || !spi_dac.spi)
+
+	list_for_each_entry(pdata, &device_list, device_entry)
+	{
+		slave_spi = &pdata->slave;
+		i++;
+	}
+
+	if (!pdata->slave.spi || (i != 2))
 		return -ENODEV;
 	if (gert_autoload)
-		ret = comedi_auto_config(&spi_adc.spi->master->dev, &daqgert_driver, 0);
+		ret = comedi_auto_config(&pdata->slave.spi->master->dev, &daqgert_driver, 0);
 	if (ret < 0)
 		return ret;
 
@@ -2484,7 +2495,15 @@ module_init(daqgert_init);
 
 static void __exit daqgert_exit(void)
 {
-	comedi_auto_unconfig(&spi_adc.spi->master->dev);
+	struct comedi_spigert *pdata;
+	static struct spi_param_type *slave_spi;
+
+	list_for_each_entry(pdata, &device_list, device_entry)
+	{
+		slave_spi = &pdata->slave;
+	}
+
+	comedi_auto_unconfig(&pdata->slave.spi->master->dev);
 	comedi_driver_unregister(&daqgert_driver);
 	spi_unregister_driver(&spigert_spi_driver);
 }
