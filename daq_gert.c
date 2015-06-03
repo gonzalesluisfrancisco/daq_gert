@@ -22,7 +22,6 @@
 
 /*
  * TODO:	Refactor sample put get code to reduce the amount of build up/down time
- *		use the kernel list to get the spi devices for Comedi
  * 
 Driver: "experimental" daq_gert in progress ... for 4.+ kernels with DT
  * 
@@ -173,6 +172,9 @@ The output range is 0 to 4095 for 0.0 to 2.048 onboard devices (output resolutio
 #include <linux/timer.h>
 #include <linux/list.h>
 #include "8253.h"
+
+/* this is the Comedi SPI device queue */
+static LIST_HEAD(device_list);
 
 /* SPI link setup */
 static const uint16_t SPI_MODE = SPI_MODE_3; /* mode 3 for ADC & DAC*/
@@ -368,8 +370,6 @@ struct comedi_spigert {
 	struct list_head device_entry;
 	struct spi_param_type slave;
 };
-
-static LIST_HEAD(device_list);
 
 /* RPi board control state variables */
 struct daqgert_private {
@@ -2471,13 +2471,14 @@ static int32_t __init daqgert_init(void)
 	if (ret < 0)
 		return ret;
 
+	/* find a spi device from the probe and the number of devices to check */
 	list_for_each_entry(pdata, &device_list, device_entry)
 	{
 		slave_spi = &pdata->slave;
 		i++;
 	}
 
-	if ((i != 2) || !slave_spi->spi )
+	if ((i != 2) || !slave_spi->spi)
 		return -ENODEV;
 	if (gert_autoload)
 		ret = comedi_auto_config(&slave_spi->spi->master->dev, &daqgert_driver, 0);
@@ -2493,6 +2494,7 @@ static void __exit daqgert_exit(void)
 	struct comedi_spigert *pdata;
 	static struct spi_param_type *slave_spi;
 
+	/* find the needed spi device for module shutdown */
 	list_for_each_entry(pdata, &device_list, device_entry)
 	{
 		slave_spi = &pdata->slave;
@@ -2506,6 +2508,6 @@ module_exit(daqgert_exit);
 
 MODULE_AUTHOR("Fred Brooks <spam@sma2.rain.com>");
 MODULE_DESCRIPTION("RPi DIO/AI/AO Driver");
-MODULE_VERSION("0.0.28");
+MODULE_VERSION("0.0.29");
 MODULE_LICENSE("GPL");
 MODULE_ALIAS("spi:spigert");
