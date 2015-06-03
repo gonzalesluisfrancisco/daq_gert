@@ -195,6 +195,17 @@ static const uint8_t SPI_BPW = 8; /* 8 bit SPI words */
 #define likely(x)      __builtin_expect(!!(x), 1)
 #define unlikely(x)    __builtin_expect(!!(x), 0)
 
+enum daqgert_state_bits {
+	AI_CMD_RUNNING = 0,
+	AO_CMD_RUNNING,
+	AI_CMD_CANCELED,
+	AO_CMD_CANCELED,
+	SPI_AI_RUN,
+	SPI_AO_RUN,
+	CMD_TIMER,
+	CMD_RUN,
+};
+
 /* analog chip types (type - 12 bits) */
 static const uint32_t MCP3002 = 2; /* 10 bit ADC */
 static const uint32_t MCP3202 = 0;
@@ -399,20 +410,20 @@ struct daqgert_private {
 	int32_t *physToGpio;
 	int32_t board_rev;
 	int32_t num_subdev;
+	unsigned long state_bits;
 	uint32_t ai_rate_max, ao_rate_max, ao_timer, ao_counter;
-	uint32_t ai_conv_delay_usecs, ai_conv_delay_10nsecs, ai_cmd_delay_usecs,
-	ai_neverending, ao_neverending;
+	uint32_t ai_conv_delay_usecs, ai_conv_delay_10nsecs, ai_cmd_delay_usecs;
 	int32_t ai_chan, ao_chan, timer, run, spi_ai_run, spi_ao_run, ai_count,
-	ao_count, hunk_count, ai_cmd_running, ai_cmd_canceled, ao_cmd_running,
+	ao_count, hunk_count, ai_cmd_canceled,
 	ao_cmd_canceled;
 	struct mutex drvdata_lock, cmd_lock;
 	uint32_t val;
 	uint16_t hunk : 1;
 	uint16_t ai_hunk : 1;
 	uint16_t ai_mix : 1;
+	uint16_t ai_neverending : 1;
+	uint16_t ao_neverending : 1;
 	int32_t mix_chan;
-	uint32_t last_hunk_run;
-	uint32_t runs_to_end; /* how many times we must switch buffers */
 	uint32_t ai_scans; /*  length of scanlist */
 	int32_t ai_scans_left; /*  number left to finish */
 	uint32_t ao_scans; /*  length of scanlist */
@@ -943,7 +954,7 @@ static int32_t daqgert_ai_thread_function(void *data)
 			if (kthread_should_stop())
 				return 0;
 		}
-		if (likely(devpriv->ai_cmd_running)) {
+		if (likely(test_bit(AI_CMD_RUNNING, &devpriv->state_bits))) {
 			if (devpriv->ai_hunk) {
 				daqgert_handle_ai_hunk(dev, s);
 				devpriv->hunk_count++;
@@ -976,7 +987,7 @@ static int32_t daqgert_ao_thread_function(void *data)
 	struct comedi_spigert *pdata = spi->dev.platform_data;
 
 	while (!kthread_should_stop()) {
-		if (likely(devpriv->ao_cmd_running)) {
+		if (likely(test_bit(AO_CMD_RUNNING, &devpriv->state_bits))) {
 			devpriv->spi_ao_run = true;
 			daqgert_handle_ao_eoc(dev, s);
 			devpriv->ao_count++;
@@ -1333,11 +1344,6 @@ static void daqgert_ai_setup_hunk(struct comedi_device *dev,
 			len = devpriv->ai_scans;
 	}
 
-	if (cmd->stop_src == TRIG_NONE) /* for future double buffer */
-		devpriv->runs_to_end = true;
-	else
-		devpriv->runs_to_end = false;
-
 	bufptr = (uint8_t *) pdata->tx_buff;
 	bufpos = 0;
 	offset = daqgert_device_offset(spi_data->device_type);
@@ -1385,11 +1391,13 @@ static int32_t daqgert_ai_inttrig(struct comedi_device *dev,
 	mutex_lock(&devpriv->cmd_lock);
 	dev_info(dev->class_dev, "ai inttrig\n");
 
-	if (!devpriv->ai_cmd_running) {
+	if (!test_bit(AI_CMD_RUNNING, &devpriv->state_bits)) {
 		devpriv->run = false;
 		devpriv->timer = true;
 		daqgert_ai_start_pacer(dev, true);
-		devpriv->ai_cmd_running = true;
+		smp_mb__before_atomic();
+		set_bit(AI_CMD_RUNNING, &devpriv->state_bits);
+		smp_mb__after_atomic();
 		devpriv->ai_cmd_canceled = false;
 		s->async->inttrig = NULL;
 	} else {
@@ -1414,8 +1422,10 @@ static int32_t daqgert_ao_inttrig(struct comedi_device *dev,
 	mutex_lock(&devpriv->cmd_lock);
 	dev_info(dev->class_dev, "ao inttrig\n");
 
-	if (!devpriv->ao_cmd_running) {
-		devpriv->ao_cmd_running = true;
+	if (!test_bit(AO_CMD_RUNNING, &devpriv->state_bits)) {
+		smp_mb__before_atomic();
+		set_bit(AO_CMD_RUNNING, &devpriv->state_bits);
+		smp_mb__after_atomic();
 		devpriv->ao_cmd_canceled = false;
 		s->async->inttrig = NULL;
 	} else {
@@ -1434,7 +1444,7 @@ static int32_t daqgert_ao_cmd(struct comedi_device *dev, struct comedi_subdevice
 
 	mutex_lock(&devpriv->cmd_lock);
 	dev_info(dev->class_dev, "ao_cmd\n");
-	if (devpriv->ao_cmd_running) {
+	if (test_bit(AO_CMD_RUNNING, &devpriv->state_bits)) {
 		dev_info(dev->class_dev, "ao_cmd busy\n");
 		ret = -EBUSY;
 		goto ao_cmd_exit;
@@ -1464,7 +1474,9 @@ static int32_t daqgert_ao_cmd(struct comedi_device *dev, struct comedi_subdevice
 	if (cmd->start_src == TRIG_NOW) {
 		s->async->inttrig = NULL;
 		/* enable this acquisition operation */
-		devpriv->ao_cmd_running = true;
+		smp_mb__before_atomic();
+		set_bit(AI_CMD_RUNNING, &devpriv->state_bits);
+		smp_mb__after_atomic();
 		devpriv->ao_cmd_canceled = false;
 	} else {
 		/* TRIG_INT */
@@ -1487,7 +1499,7 @@ static int32_t daqgert_ai_cmd(struct comedi_device *dev, struct comedi_subdevice
 
 	mutex_lock(&devpriv->cmd_lock);
 	dev_info(dev->class_dev, "ai_cmd\n");
-	if (devpriv->ai_cmd_running) {
+	if (test_bit(AI_CMD_RUNNING, &devpriv->state_bits)) {
 		dev_info(dev->class_dev, "ai_cmd busy\n");
 		ret = -EBUSY;
 		goto ai_cmd_exit;
@@ -1551,7 +1563,9 @@ static int32_t daqgert_ai_cmd(struct comedi_device *dev, struct comedi_subdevice
 		devpriv->run = false;
 		devpriv->timer = true;
 		daqgert_ai_start_pacer(dev, true);
-		devpriv->ai_cmd_running = true;
+		smp_mb__before_atomic();
+		set_bit(AI_CMD_RUNNING, &devpriv->state_bits);
+		smp_mb__after_atomic();
 		devpriv->ai_cmd_canceled = false;
 	} else {
 		/* TRIG_INT */
@@ -1880,7 +1894,7 @@ static int32_t daqgert_ai_cancel(struct comedi_device *dev,
 {
 	struct daqgert_private *devpriv = dev->private;
 
-	if (!devpriv->ai_cmd_running)
+	if (!test_bit(AI_CMD_RUNNING, &devpriv->state_bits))
 		return 0;
 
 	daqgert_ai_clear_eoc(dev);
@@ -1891,7 +1905,8 @@ static int32_t daqgert_ai_cancel(struct comedi_device *dev,
 	s->async->cur_chan = 0;
 	s->async->inttrig = NULL;
 	devpriv->ai_cmd_canceled = true;
-	devpriv->ai_cmd_running = false;
+	clear_bit(AI_CMD_RUNNING, &devpriv->state_bits);
+	smp_mb__after_atomic();
 	devpriv->timing_lockout--;
 	if (devpriv->timing_lockout < 0)
 		devpriv->timing_lockout = 0;
@@ -1904,13 +1919,14 @@ static int32_t daqgert_ao_cancel(struct comedi_device *dev,
 	struct daqgert_private *devpriv = dev->private;
 	int32_t count = 500;
 
-	if (!devpriv->ao_cmd_running)
+	if (!test_bit(AO_CMD_RUNNING, &devpriv->state_bits))
 		return 0;
 
 	dev_info(dev->class_dev, "ao cancel\n");
 	ao_count = devpriv->ao_count;
 	s->async->cur_chan = 0;
-	devpriv->ao_cmd_running = false;
+	clear_bit(AO_CMD_RUNNING, &devpriv->state_bits);
+	smp_mb__after_atomic();
 	do { /* wait if needed to SPI to clear or timeout */
 		schedule(); /* force a context switch to stop the AO thread */
 		msleep(1);
@@ -2007,7 +2023,7 @@ static int32_t daqgert_ai_rinsn(struct comedi_device *dev,
 	int32_t n;
 
 	mutex_lock(&devpriv->cmd_lock);
-	if (unlikely(devpriv->ai_cmd_running))
+	if (unlikely(test_bit(AI_CMD_RUNNING, &devpriv->state_bits)))
 		goto ai_read_exit;
 
 	mutex_lock(&devpriv->drvdata_lock);
