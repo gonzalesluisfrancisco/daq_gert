@@ -371,9 +371,6 @@ struct comedi_spigert {
 
 static LIST_HEAD(device_list);
 
-/* SPI device variables  for COMEDI to use in global scope */
-//static struct spi_param_type spi_adc, spi_dac;
-
 /* RPi board control state variables */
 struct daqgert_private {
 	uint32_t RPisys_rev;
@@ -2482,10 +2479,10 @@ static int32_t __init daqgert_init(void)
 		i++;
 	}
 
-	if ((i != 2) || !slave->spi )
+	if ((i != 2) || !slave_spi->spi )
 		return -ENODEV;
 	if (gert_autoload)
-		ret = comedi_auto_config(&slave->spi->master->dev, &daqgert_driver, 0);
+		ret = comedi_auto_config(&slave_spi->spi->master->dev, &daqgert_driver, 0);
 	if (ret < 0)
 		return ret;
 
@@ -2503,7 +2500,7 @@ static void __exit daqgert_exit(void)
 		slave_spi = &pdata->slave;
 	}
 
-	comedi_auto_unconfig(&slave->spi->master->dev);
+	comedi_auto_unconfig(&slave_spi->spi->master->dev);
 	comedi_driver_unregister(&daqgert_driver);
 	spi_unregister_driver(&spigert_spi_driver);
 }
