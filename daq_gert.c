@@ -930,7 +930,6 @@ static int32_t daqgert_ai_thread_function(void *data)
 	}
 	/*do_exit(1);*/
 	return 0;
-
 }
 
 /*
@@ -959,7 +958,6 @@ static int32_t daqgert_ao_thread_function(void *data)
 	}
 	/*do_exit(1);*/
 	return 0;
-
 }
 
 /*
@@ -2296,7 +2294,8 @@ static int32_t spigert_spi_probe(struct spi_device * spi)
 	}
 
 	/*
-	 * Do only static two chip select for the Gertboard */
+	 * Do only two chip selects for the Gertboard 
+	 */
 	if (spi->chip_select == CSnA) {
 		/* get a copy of the slave device 0 to share with comedi */ /* we need a device to talk to the ADC */
 		INIT_LIST_HEAD(&pdata->device_entry); /* create entry into the Comedi device list */
@@ -2352,7 +2351,7 @@ static int32_t spigert_spi_remove(struct spi_device * spi)
 {
 	struct comedi_spigert *pdata = spi->dev.platform_data;
 
-	list_del(&pdata->device_entry);
+	if (!list_empty(&device_list)) list_del(&pdata->device_entry);
 
 	if (pdata->rx_buff)
 		kfree(pdata->rx_buff);
