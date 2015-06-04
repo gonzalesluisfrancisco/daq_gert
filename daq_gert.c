@@ -393,6 +393,8 @@ struct comedi_spigert {
 	struct spi_transfer t[HUNK_LEN];
 	uint32_t delay_usecs;
 	uint32_t mix_delay_usecs;
+	uint32_t delay_usecs_calc;
+	uint32_t mix_delay_usecs_calc;
 	struct mutex daqgert_platform_lock;
 	struct list_head device_entry;
 	struct spi_param_type slave;
@@ -1447,6 +1449,9 @@ static int32_t daqgert_ao_cmd(struct comedi_device *dev, struct comedi_subdevice
 {
 	struct comedi_cmd *cmd = &s->async->cmd;
 	struct daqgert_private *devpriv = dev->private;
+	struct spi_param_type *spi_data = s->private;
+	struct spi_device *spi = spi_data->spi;
+	struct comedi_spigert *pdata = spi->dev.platform_data;
 	int ret = 0;
 
 	mutex_lock(&devpriv->cmd_lock);
@@ -1456,6 +1461,12 @@ static int32_t daqgert_ao_cmd(struct comedi_device *dev, struct comedi_subdevice
 		ret = -EBUSY;
 		goto ao_cmd_exit;
 	}
+
+	/* 
+	 * inter-spacing speed adjustments update from cmd_test
+	 */
+	pdata->delay_usecs = pdata->delay_usecs_calc; /* delay between any single conversion */
+	pdata->mix_delay_usecs = pdata->mix_delay_usecs_calc; /* delay for alt mix command conversions */
 
 	devpriv->hunk = use_hunking;
 	/* for possible hunking of AO */
@@ -1502,6 +1513,8 @@ static int32_t daqgert_ai_cmd(struct comedi_device *dev, struct comedi_subdevice
 	struct comedi_cmd *cmd = &s->async->cmd;
 	struct daqgert_private *devpriv = dev->private;
 	struct spi_param_type *spi_data = s->private;
+	struct spi_device *spi = spi_data->spi;
+	struct comedi_spigert *pdata = spi->dev.platform_data;
 	int32_t ret = 0, i;
 
 	mutex_lock(&devpriv->cmd_lock);
@@ -1511,6 +1524,12 @@ static int32_t daqgert_ai_cmd(struct comedi_device *dev, struct comedi_subdevice
 		ret = -EBUSY;
 		goto ai_cmd_exit;
 	}
+
+	/* 
+	 * inter-spacing speed adjustments from cmd_test
+	 */
+	pdata->delay_usecs = pdata->delay_usecs_calc; /* delay between any single conversion */
+	pdata->mix_delay_usecs = pdata->mix_delay_usecs_calc; /* delay for alt mix command conversions */
 
 	devpriv->hunk = use_hunking;
 	if (cmd->stop_src == TRIG_COUNT) {
@@ -1615,7 +1634,7 @@ static int32_t daqgert_ao_delay_rate(struct comedi_device *dev, int32_t rate, in
 	} else { /* or nothing */
 		spacing_usecs = 0;
 	}
-	dev_info(dev->class_dev, "ao rate %i, spacing usecs %i\n", rate, spacing_usecs);
+//	dev_info(dev->class_dev, "ao rate %i, spacing usecs %i\n", rate, spacing_usecs);
 	return spacing_usecs;
 }
 
@@ -1684,10 +1703,10 @@ static int32_t daqgert_ao_cmdtest(struct comedi_device *dev,
 		/* now calc the real sampling rate with all the
 		 * rounding errors */
 		tmp_timer = ((uint32_t) (cmd->scan_begin_arg / board->ao_ns_min)) * board->ao_ns_min;
-		pdata->delay_usecs = daqgert_ao_delay_rate(dev, tmp_timer, spi_data->device_type, speed_test);
+		pdata->delay_usecs_calc = daqgert_ao_delay_rate(dev, tmp_timer, spi_data->device_type, speed_test);
 		err |= cfc_check_trigger_arg_max(&cmd->scan_begin_arg, devpriv->ao_rate_max); /* slowest */
 	} else {
-		pdata->delay_usecs = 0;
+		pdata->delay_usecs_calc = 0;
 	}
 
 	err |= cfc_check_trigger_arg_is(&cmd->scan_end_arg, cmd->chanlist_len);
@@ -1813,8 +1832,9 @@ static int32_t daqgert_ai_cmdtest(struct comedi_device *dev,
 		/* now calc the real sampling rate with all the
 		 * rounding errors */
 		tmp_timer = ((uint32_t) (cmd->scan_begin_arg / board->ai_ns_min)) * board->ai_ns_min;
-		pdata->delay_usecs = daqgert_ai_delay_rate(dev, tmp_timer, spi_data->device_type, speed_test);
-		pdata->mix_delay_usecs = pdata->delay_usecs < 2; /* double delay with zero for the first scan chan */
+		pdata->delay_usecs_calc = daqgert_ai_delay_rate(dev, tmp_timer, spi_data->device_type, speed_test);
+		pdata->mix_delay_usecs_calc = pdata->delay_usecs_calc < 2; /* double delay with zero for the first scan chan */
+//		dev_info(dev->class_dev, "ai cmd spacing usecs %i, mix %i\n", pdata->delay_usecs, pdata->mix_delay_usecs);
 		err |= cfc_check_trigger_arg_is(&cmd->scan_begin_arg, tmp_timer);
 	}
 
@@ -1836,8 +1856,8 @@ static int32_t daqgert_ai_cmdtest(struct comedi_device *dev,
 
 	/* step 4: fix up any arguments */
 	if (cmd->convert_src == TRIG_NOW) {
-		pdata->delay_usecs = 0;
-		pdata->mix_delay_usecs = pdata->delay_usecs < 2; /* double delay with zero for the first scan chan */
+		pdata->delay_usecs_calc = 0;
+		pdata->mix_delay_usecs_calc = pdata->delay_usecs_calc < 2; /* double delay with zero for the first scan chan */
 	}
 
 	if (cmd->convert_src == TRIG_TIMER) {
@@ -1846,8 +1866,9 @@ static int32_t daqgert_ai_cmdtest(struct comedi_device *dev,
 			&divisor1,
 			&divisor2,
 			&arg, cmd->flags);
-		pdata->delay_usecs = daqgert_ai_delay_rate(dev, arg, spi_data->device_type, speed_test);
-		pdata->mix_delay_usecs = pdata->delay_usecs < 2; /* double delay with zero for the first scan chan */
+		pdata->delay_usecs_calc = daqgert_ai_delay_rate(dev, arg, spi_data->device_type, speed_test);
+		pdata->mix_delay_usecs_calc = pdata->delay_usecs_calc < 2; /* double delay with zero for the first scan chan */
+//		dev_info(dev->class_dev, "ai cmd spacing usecs %i, mix %i\n", pdata->delay_usecs, pdata->mix_delay_usecs);
 		err |= cfc_check_trigger_arg_is(&cmd->convert_arg, arg);
 	}
 
@@ -2397,12 +2418,6 @@ static int32_t spigert_spi_probe(struct spi_device * spi)
 		"setup: cd %d: bpw %u, mode 0x%x\n",
 		spi->chip_select, spi->bits_per_word,
 		spi->mode);
-
-	/* 
-	 * inter-spacing speed adjustments 
-	 */
-	pdata->delay_usecs = 0; /* delay between any single conversion */
-	pdata->mix_delay_usecs = 0; /* delay for alt mix command conversions */
 
 	/* 
 	 * Check for basic errors 
