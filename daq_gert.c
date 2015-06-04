@@ -1634,7 +1634,7 @@ static int32_t daqgert_ao_delay_rate(struct comedi_device *dev, int32_t rate, in
 	} else { /* or nothing */
 		spacing_usecs = 0;
 	}
-//	dev_info(dev->class_dev, "ao rate %i, spacing usecs %i\n", rate, spacing_usecs);
+	//	dev_info(dev->class_dev, "ao rate %i, spacing usecs %i\n", rate, spacing_usecs);
 	return spacing_usecs;
 }
 
@@ -1772,7 +1772,7 @@ static int32_t daqgert_ai_delay_rate(struct comedi_device *dev, int32_t rate, in
 	spacing_usecs += CONV_SPEED_FIX;
 	if (device_type == MCP3002)
 		spacing_usecs += CONV_SPEED_FIX_FAST;
-//	dev_info(dev->class_dev, "ai rate %i, spacing usecs %i\n", rate, spacing_usecs);
+	//	dev_info(dev->class_dev, "ai rate %i, spacing usecs %i\n", rate, spacing_usecs);
 	return spacing_usecs;
 }
 
@@ -1834,7 +1834,7 @@ static int32_t daqgert_ai_cmdtest(struct comedi_device *dev,
 		tmp_timer = ((uint32_t) (cmd->scan_begin_arg / board->ai_ns_min)) * board->ai_ns_min;
 		pdata->delay_usecs_calc = daqgert_ai_delay_rate(dev, tmp_timer, spi_data->device_type, speed_test);
 		pdata->mix_delay_usecs_calc = pdata->delay_usecs_calc < 2; /* double delay with zero for the first scan chan */
-//		dev_info(dev->class_dev, "ai cmd spacing usecs %i, mix %i\n", pdata->delay_usecs, pdata->mix_delay_usecs);
+		//		dev_info(dev->class_dev, "ai cmd spacing usecs %i, mix %i\n", pdata->delay_usecs, pdata->mix_delay_usecs);
 		err |= cfc_check_trigger_arg_is(&cmd->scan_begin_arg, tmp_timer);
 	}
 
@@ -1868,7 +1868,7 @@ static int32_t daqgert_ai_cmdtest(struct comedi_device *dev,
 			&arg, cmd->flags);
 		pdata->delay_usecs_calc = daqgert_ai_delay_rate(dev, arg, spi_data->device_type, speed_test);
 		pdata->mix_delay_usecs_calc = pdata->delay_usecs_calc < 2; /* double delay with zero for the first scan chan */
-//		dev_info(dev->class_dev, "ai cmd spacing usecs %i, mix %i\n", pdata->delay_usecs, pdata->mix_delay_usecs);
+		//		dev_info(dev->class_dev, "ai cmd spacing usecs %i, mix %i\n", pdata->delay_usecs, pdata->mix_delay_usecs);
 		err |= cfc_check_trigger_arg_is(&cmd->convert_arg, arg);
 	}
 
@@ -2314,14 +2314,40 @@ static int32_t daqgert_auto_attach(struct comedi_device *dev, unsigned long unus
 		}
 	}
 	/* 
-	 * setup kthreads 
+	 * setup kthreads on other cores if possible
 	 */
 	if (devpriv->hunk) {
-		devpriv->ai_spi->daqgert_task = kthread_run(&daqgert_ai_thread_function, (void *) dev, "daqgert_h_a");
-		devpriv->ao_spi->daqgert_task = kthread_run(&daqgert_ao_thread_function, (void *) dev, "daqgert_h_d");
+		devpriv->ai_spi->daqgert_task = kthread_create_on_node(&daqgert_ai_thread_function, (void *) dev,
+			cpu_to_node(3), "daqgerth_a%d", 3);
+		if (!IS_ERR(devpriv->ai_spi->daqgert_task)) {
+			kthread_bind(devpriv->ai_spi->daqgert_task, 3);
+			wake_up_process(devpriv->ai_spi->daqgert_task);
+		} else
+			devpriv->ai_spi->daqgert_task = kthread_run(&daqgert_ai_thread_function, (void *) dev, "daqgerth_a");
+
+		devpriv->ao_spi->daqgert_task = kthread_create_on_node(&daqgert_ao_thread_function, (void *) dev,
+			cpu_to_node(2), "daqgerth_d%d", 2);
+		if (!IS_ERR(devpriv->ao_spi->daqgert_task)) {
+			kthread_bind(devpriv->ao_spi->daqgert_task, 2);
+			wake_up_process(devpriv->ao_spi->daqgert_task);
+		} else
+			devpriv->ao_spi->daqgert_task = kthread_run(&daqgert_ao_thread_function, (void *) dev, "daqgerth_d");
 	} else {
-		devpriv->ai_spi->daqgert_task = kthread_run(&daqgert_ai_thread_function, (void *) dev, "daqgert_a");
-		devpriv->ao_spi->daqgert_task = kthread_run(&daqgert_ao_thread_function, (void *) dev, "daqgert_d");
+		devpriv->ai_spi->daqgert_task = kthread_create_on_node(&daqgert_ai_thread_function, (void *) dev,
+			cpu_to_node(3), "daqgert_a%d", 3);
+		if (!IS_ERR(devpriv->ai_spi->daqgert_task)) {
+			kthread_bind(devpriv->ai_spi->daqgert_task, 3);
+			wake_up_process(devpriv->ai_spi->daqgert_task);
+		} else
+			devpriv->ai_spi->daqgert_task = kthread_run(&daqgert_ai_thread_function, (void *) dev, "daqgert_a");
+
+		devpriv->ao_spi->daqgert_task = kthread_create_on_node(&daqgert_ao_thread_function, (void *) dev,
+			cpu_to_node(2), "daqgert_d%d", 2);
+		if (!IS_ERR(devpriv->ao_spi->daqgert_task)) {
+			kthread_bind(devpriv->ao_spi->daqgert_task, 2);
+			wake_up_process(devpriv->ao_spi->daqgert_task);
+		} else
+			devpriv->ao_spi->daqgert_task = kthread_run(&daqgert_ao_thread_function, (void *) dev, "daqgert_d");
 	}
 	dev_info(dev->class_dev, "daq_gert SPI i/o threads started\n");
 
