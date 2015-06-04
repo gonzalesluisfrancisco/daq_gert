@@ -1772,7 +1772,7 @@ static int32_t daqgert_ai_delay_rate(struct comedi_device *dev, int32_t rate, in
 	spacing_usecs += CONV_SPEED_FIX;
 	if (device_type == MCP3002)
 		spacing_usecs += CONV_SPEED_FIX_FAST;
-	dev_info(dev->class_dev, "ai rate %i, spacing usecs %i\n", rate, spacing_usecs);
+//	dev_info(dev->class_dev, "ai rate %i, spacing usecs %i\n", rate, spacing_usecs);
 	return spacing_usecs;
 }
 
