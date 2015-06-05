@@ -316,6 +316,8 @@ struct daqgert_board {
 	uint8_t ao_cs;
 	uint32_t ai_max_speed_hz;
 	uint32_t ao_max_speed_hz;
+	int32_t ai_node;
+	int32_t ao_node;
 };
 
 static const struct daqgert_board daqgert_boards[] = {
@@ -334,6 +336,8 @@ static const struct daqgert_board daqgert_boards[] = {
 		.ao_cs = 1,
 		.ai_max_speed_hz = 1000000,
 		.ao_max_speed_hz = 8000000,
+		.ai_node = 3,
+		.ao_node = 2,
 	},
 	{
 		.name = "Fredboard",
@@ -350,6 +354,8 @@ static const struct daqgert_board daqgert_boards[] = {
 		.ao_cs = 1,
 		.ai_max_speed_hz = 1000000,
 		.ao_max_speed_hz = 8000000,
+		.ai_node = 3,
+		.ao_node = 2,
 	},
 };
 
@@ -438,6 +444,8 @@ struct daqgert_private {
 	void(*setPadDrive) (struct comedi_device *dev, int32_t group, int32_t value);
 	int32_t(*digitalRead) (struct comedi_device *dev, int32_t pin);
 	int32_t timing_lockout;
+	int32_t ai_node;
+	int32_t ao_node;
 };
 
 static int32_t daqgert_spi_probe(struct comedi_device *, struct spi_param_type *, struct spi_param_type *);
@@ -2152,47 +2160,28 @@ static int32_t daqgert_ao_config(struct comedi_device *dev,
  */
 static int32_t daqgert_create_thread(struct comedi_device *dev, struct daqgert_private *devpriv)
 {
-	/* 
-	 * setup kthreads on other cores if possible
-	 */
-	dev_info(dev->class_dev, "%d cpu(s) online for threads\n", num_online_cpus());
-	if (devpriv->hunk) {
-		devpriv->ai_spi->daqgert_task = kthread_create_on_node(&daqgert_ai_thread_function, (void *) dev,
-			cpu_to_node(3), "daqgerth_a/%d", 3);
-		if (!IS_ERR(devpriv->ai_spi->daqgert_task)) {
-			kthread_bind(devpriv->ai_spi->daqgert_task, 3);
-			wake_up_process(devpriv->ai_spi->daqgert_task);
-		} else
-			devpriv->ai_spi->daqgert_task = kthread_run(&daqgert_ai_thread_function, (void *) dev, "daqgerth_a");
+	const char hunk_thread_name[] = "daqgerth", thread_name[] = "daqgert";
+	const char *name_ptr;
 
-		devpriv->ao_spi->daqgert_task = kthread_create_on_node(&daqgert_ao_thread_function, (void *) dev,
-			cpu_to_node(2), "daqgerth_d/%d", 2);
-		if (!IS_ERR(devpriv->ao_spi->daqgert_task)) {
-			kthread_bind(devpriv->ao_spi->daqgert_task, 2);
-			wake_up_process(devpriv->ao_spi->daqgert_task);
-		} else
-			devpriv->ao_spi->daqgert_task = kthread_run(&daqgert_ao_thread_function, (void *) dev, "daqgerth_d");
-	} else {
-		devpriv->ai_spi->daqgert_task = kthread_create_on_node(&daqgert_ai_thread_function, (void *) dev,
-			cpu_to_node(3), "daqgert_a/%d", 3);
-		if (!IS_ERR(devpriv->ai_spi->daqgert_task)) {
-			kthread_bind(devpriv->ai_spi->daqgert_task, 3);
-			wake_up_process(devpriv->ai_spi->daqgert_task);
-		} else
-			devpriv->ai_spi->daqgert_task = kthread_run(&daqgert_ai_thread_function, (void *) dev, "daqgert_a");
+	if (devpriv->hunk)
+		name_ptr = hunk_thread_name;
+	else
+		name_ptr = thread_name;
 
-		devpriv->ao_spi->daqgert_task = kthread_create_on_node(&daqgert_ao_thread_function, (void *) dev,
-			cpu_to_node(2), "daqgert_d/%d", 2);
-		if (!IS_ERR(devpriv->ao_spi->daqgert_task)) {
-			kthread_bind(devpriv->ao_spi->daqgert_task, 2);
-			wake_up_process(devpriv->ao_spi->daqgert_task);
-		} else
-			devpriv->ao_spi->daqgert_task = kthread_run(&daqgert_ao_thread_function, (void *) dev, "daqgert_d");
-	}
-
-	if (IS_ERR(devpriv->ai_spi->daqgert_task))
+	devpriv->ai_spi->daqgert_task = kthread_create_on_node(&daqgert_ai_thread_function, (void *) dev,
+		cpu_to_node(devpriv->ai_node), "%s_a/%d", name_ptr, devpriv->ai_node);
+	if (!IS_ERR(devpriv->ai_spi->daqgert_task)) {
+		kthread_bind(devpriv->ai_spi->daqgert_task, devpriv->ai_node);
+		wake_up_process(devpriv->ai_spi->daqgert_task);
+	} else
 		return PTR_ERR(devpriv->ai_spi->daqgert_task);
-	if (IS_ERR(devpriv->ao_spi->daqgert_task))
+
+	devpriv->ao_spi->daqgert_task = kthread_create_on_node(&daqgert_ao_thread_function, (void *) dev,
+		cpu_to_node(devpriv->ao_node), "%s_d/%d", name_ptr, devpriv->ao_node);
+	if (!IS_ERR(devpriv->ao_spi->daqgert_task)) {
+		kthread_bind(devpriv->ao_spi->daqgert_task, devpriv->ao_node);
+		wake_up_process(devpriv->ao_spi->daqgert_task);
+	} else
 		return PTR_ERR(devpriv->ao_spi->daqgert_task);
 
 	return 0;
@@ -2205,7 +2194,7 @@ static int32_t daqgert_auto_attach(struct comedi_device *dev, unsigned long unus
 {
 	const struct daqgert_board *thisboard = &daqgert_boards[gert_type];
 	struct comedi_subdevice *s;
-	int32_t ret, i;
+	int32_t ret, i, cpu_nodes;
 	int32_t num_ai_chan, num_ao_chan, num_dio_chan = NUM_DIO_CHAN;
 	struct daqgert_private *devpriv;
 	struct comedi_spigert *pdata;
@@ -2409,6 +2398,16 @@ static int32_t daqgert_auto_attach(struct comedi_device *dev, unsigned long unus
 			dev_err(dev->class_dev, "alloc subdevice readback failed!\n");
 			return ret;
 		}
+	}
+
+	/* 
+	 * setup kthreads on other cores if possible
+	 */
+	cpu_nodes = num_online_cpus();
+	dev_info(dev->class_dev, "%d cpu(s) online for threads\n", cpu_nodes);
+	if (cpu_nodes >= 4) {
+		devpriv->ai_node = thisboard->ai_node;
+		devpriv->ao_node = thisboard->ao_node;
 	}
 
 	ret = daqgert_create_thread(dev, devpriv);
