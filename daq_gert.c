@@ -930,6 +930,19 @@ static int32_t daqgert_device_offset(int32_t device_type)
 	return len;
 }
 
+/*
+ * hrtimer for threads
+ */
+static int __sched daqgert_do_usleep_range(unsigned long min, unsigned long max)
+{
+	ktime_t kmin;
+	unsigned long delta;
+
+	kmin = ktime_set(0, min * NSEC_PER_USEC);
+	delta = (max - min) * NSEC_PER_USEC;
+	return schedule_hrtimeout_range(&kmin, delta, HRTIMER_MODE_REL);
+}
+
 /* 
  * A client must be connected with a valid comedi cmd 
  * and *data a pointer to that comedi structure
