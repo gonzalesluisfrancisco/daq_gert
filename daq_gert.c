@@ -218,7 +218,6 @@ static const uint32_t MAX_CHANLIST_LEN = 256;
 static const uint32_t CONV_SPEED = 5000; /* 10s of nsecs: the true rate is ~4883/5000 so we need a fixup,  two conversions per mix scan */
 static const uint32_t CONV_SPEED_FIX = 1; /* usecs: round it up to ~50usecs total with this */
 static const uint32_t CONV_SPEED_FIX_FAST = 16; /* used for the MCP3002 ADC */
-static const uint32_t NS_TO_MS = 1000;
 static const uint32_t MAX_BOARD_RATE = 1000000000;
 
 static const uint8_t CSnA = 0; /* GPIO 8  Gertboard ADC */
@@ -398,6 +397,8 @@ struct comedi_spigert {
 	struct mutex daqgert_platform_lock;
 	struct list_head device_entry;
 	struct spi_param_type slave;
+	ktime_t kmin;
+	uint32_t delay_nsecs;
 };
 
 /* 
@@ -930,19 +931,6 @@ static int32_t daqgert_device_offset(int32_t device_type)
 	return len;
 }
 
-/*
- * hrtimer for threads
- */
-static int __sched daqgert_do_usleep_range(unsigned long min, unsigned long max)
-{
-	ktime_t kmin;
-	unsigned long delta;
-
-	kmin = ktime_set(0, min * NSEC_PER_USEC);
-	delta = (max - min) * NSEC_PER_USEC;
-	return schedule_hrtimeout_range(&kmin, delta, HRTIMER_MODE_REL);
-}
-
 /* 
  * A client must be connected with a valid comedi cmd 
  * and *data a pointer to that comedi structure
@@ -981,7 +969,9 @@ static int32_t daqgert_ai_thread_function(void *data)
 			} else {
 				daqgert_handle_ai_eoc(dev, s);
 				devpriv->ai_count++;
-				usleep_range(pdata->delay_usecs, pdata->delay_usecs + 1);
+				__set_current_state(TASK_UNINTERRUPTIBLE);
+				pdata->kmin = ktime_set(0, pdata->delay_nsecs);
+				schedule_hrtimeout_range(&pdata->kmin, 0, HRTIMER_MODE_REL_PINNED);
 			}
 		} else {
 			clear_bit(SPI_AI_RUN, &devpriv->state_bits);
@@ -1016,7 +1006,9 @@ static int32_t daqgert_ao_thread_function(void *data)
 			smp_mb__after_atomic();
 			daqgert_handle_ao_eoc(dev, s);
 			devpriv->ao_count++;
-			usleep_range(pdata->delay_usecs, pdata->delay_usecs + 1);
+			__set_current_state(TASK_UNINTERRUPTIBLE);
+			pdata->kmin = ktime_set(0, pdata->delay_nsecs);
+			schedule_hrtimeout_range(&pdata->kmin, 0, HRTIMER_MODE_REL_PINNED);
 		} else {
 			clear_bit(SPI_AO_RUN, &devpriv->state_bits);
 			smp_mb__after_atomic();
@@ -1491,6 +1483,7 @@ static int32_t daqgert_ao_cmd(struct comedi_device *dev, struct comedi_subdevice
 	 * inter-spacing speed adjustments update from cmd_test
 	 */
 	pdata->delay_usecs = pdata->delay_usecs_calc; /* delay between any single conversion */
+	pdata->delay_nsecs = pdata->delay_usecs * NSEC_PER_USEC;
 	pdata->mix_delay_usecs = pdata->mix_delay_usecs_calc; /* delay for alt mix command conversions */
 
 	devpriv->hunk = use_hunking;
@@ -1557,6 +1550,7 @@ static int32_t daqgert_ai_cmd(struct comedi_device *dev, struct comedi_subdevice
 	 * inter-spacing speed adjustments from cmd_test
 	 */
 	pdata->delay_usecs = pdata->delay_usecs_calc; /* delay between any single conversion */
+	pdata->delay_nsecs = pdata->delay_usecs * NSEC_PER_USEC;
 	pdata->mix_delay_usecs = pdata->mix_delay_usecs_calc; /* delay for alt mix command conversions */
 
 	devpriv->hunk = use_hunking;
@@ -1656,7 +1650,7 @@ static int32_t daqgert_ao_delay_rate(struct comedi_device *dev, int32_t rate, in
 	total_sample_time = board->ao_ns_min * sample_freq; /* ns time needed for all samples in one second */
 	delay_time = devpriv->ao_rate_max - total_sample_time; /* what's left */
 	if (delay_time >= sample_freq) { /* something */
-		spacing_usecs = (delay_time / sample_freq) / NS_TO_MS;
+		spacing_usecs = (delay_time / sample_freq) / NSEC_PER_USEC;
 		if (spacing_usecs < 0)
 			spacing_usecs = 0;
 	} else { /* or nothing */
@@ -1794,7 +1788,7 @@ static int32_t daqgert_ai_delay_rate(struct comedi_device *dev, int32_t rate, in
 	total_sample_time = board->ai_ns_min * sample_freq; /* time needed for all samples */
 	delay_time = devpriv->ai_rate_max - total_sample_time;
 	if (delay_time >= sample_freq) {
-		spacing_usecs = (delay_time / sample_freq) / NS_TO_MS;
+		spacing_usecs = (delay_time / sample_freq) / NSEC_PER_USEC;
 		if (spacing_usecs < 0)
 			spacing_usecs = 0;
 	} else {
