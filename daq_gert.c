@@ -172,11 +172,14 @@ The output range is 0 to 4095 for 0.0 to 2.048 onboard devices (output resolutio
 #include <linux/timer.h>
 #include <linux/list.h>
 #include "8253.h"
+#include <linux/of.h>
+#include <linux/of_device.h>
 
 /* 
  * this is the Comedi SPI device queue 
  */
 static LIST_HEAD(device_list);
+static DEFINE_MUTEX(device_list_lock);
 
 /* 
  * SPI link setup 
@@ -274,7 +277,7 @@ extern uint32_t system_serial_low;
 extern uint32_t system_serial_high;
 
 /* found at /sys/modules/daq_gert/parameters */
-static int32_t daqgert_conf = 0;
+static int32_t daqgert_conf = 1;
 module_param(daqgert_conf, int, S_IRUGO);
 static int32_t pullups = 2;
 module_param(pullups, int, S_IRUGO);
@@ -2203,12 +2206,15 @@ static int32_t daqgert_auto_attach(struct comedi_device *dev, unsigned long unus
 	/* 
 	 * auto free on exit of comedi
 	 */
+	dev_info(dev->class_dev, "setup: daqgert start 0\n");
+	msleep(1000);
 	devpriv = comedi_alloc_devpriv(dev, sizeof(*devpriv));
 	if (!devpriv)
 		return -ENOMEM;
 
 	dev->board_ptr = thisboard;
 
+	dev_info(dev->class_dev, "setup: daqgert start 1\n");
 	/*
 	 * loop the spi device queue for needed devices
 	 */
@@ -2468,6 +2474,7 @@ static int32_t spigert_spi_probe(struct spi_device * spi)
 	pdata = kzalloc(sizeof(struct comedi_spigert), GFP_KERNEL);
 	if (!pdata)
 		return -ENOMEM;
+	mutex_lock(&device_list_lock);
 	mutex_init(&pdata->daqgert_platform_lock);
 
 	spi->dev.platform_data = pdata;
@@ -2534,6 +2541,7 @@ kfree_rx_exit:
 kfree_tx_exit:
 	kfree(pdata->tx_buff);
 kfree_exit:
+	mutex_unlock(&device_list_lock);
 	kfree(pdata);
 
 	return ret;
@@ -2556,11 +2564,20 @@ static int32_t spigert_spi_remove(struct spi_device * spi)
 	return 0;
 }
 
+static const struct of_device_id spigert_dt_ids[] = {
+	{ .compatible = "rohm,dh2228fv"},
+	{ .compatible = "linux,spigert" },
+	{},
+};
+
+MODULE_DEVICE_TABLE(of, spigert_dt_ids);
+
 static struct spi_driver spigert_spi_driver = {
 	.driver =
 	{
 		.name = "spigert",
 		.owner = THIS_MODULE,
+		.of_match_table = of_match_ptr(spigert_dt_ids),
 	},
 	.probe = spigert_spi_probe,
 	.remove = spigert_spi_remove,
