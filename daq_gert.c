@@ -2497,6 +2497,7 @@ static int32_t spigert_spi_probe(struct spi_device * spi)
 		INIT_LIST_HEAD(&pdata->device_entry); /* create entry into the Comedi device list */
 		pdata->slave.spi = spi;
 		list_add_tail(&pdata->device_entry, &device_list); /* put entry into the Comedi device list */
+		dev_info(&spi->dev, "setup: daq_gert adc spi device");
 	}
 	if (spi->chip_select == CSnB) {
 		/* 
@@ -2505,6 +2506,7 @@ static int32_t spigert_spi_probe(struct spi_device * spi)
 		INIT_LIST_HEAD(&pdata->device_entry);
 		pdata->slave.spi = spi;
 		list_add_tail(&pdata->device_entry, &device_list);
+		dev_info(&spi->dev, "setup: daq_gert dac spi device");
 	}
 	spi->bits_per_word = SPI_BPW;
 	spi->mode = SPI_MODE;
@@ -2530,6 +2532,18 @@ static int32_t spigert_spi_probe(struct spi_device * spi)
 			spi->chip_select, spi->master->num_chipselect);
 		ret = -EINVAL;
 		goto kfree_rx_exit;
+	}
+
+	/* setup comedi part of driver */
+	if (spi->chip_select == CSnA) {
+		ret = comedi_driver_register(&daqgert_driver);
+		if (ret < 0)
+			return ret;
+
+		if (gert_autoload)
+			ret = comedi_auto_config(&spi->master->dev, &daqgert_driver, 0);
+		if (ret < 0)
+			return ret;
 	}
 	return 0;
 
@@ -2655,35 +2669,7 @@ static int32_t daqgert_spi_probe(struct comedi_device * dev,
 
 static int32_t __init daqgert_init(void)
 {
-	struct comedi_spigert *pdata;
-	static struct spi_param_type *slave_spi;
-	int32_t ret = 0, i = 0;
-
-	ret = spi_register_driver(&spigert_spi_driver);
-	if (ret < 0)
-		return ret;
-//	ret = comedi_driver_register(&daqgert_driver);
-	if (ret < 0)
-		return ret;
-
-	/* 
-	 * find a spi device from the probe and the number of devices to check 
-	 */
-	list_for_each_entry(pdata, &device_list, device_entry)
-	{
-		slave_spi = &pdata->slave;
-		i++;
-	}
-	return 0;
-
-	if ((i != 2) || !slave_spi->spi)
-		return -ENODEV;
-	if (gert_autoload)
-		ret = comedi_auto_config(&slave_spi->spi->master->dev, &daqgert_driver, 0);
-	if (ret < 0)
-		return ret;
-
-	return 0;
+	return spi_register_driver(&spigert_spi_driver);
 }
 module_init(daqgert_init);
 
@@ -2700,14 +2686,14 @@ static void __exit daqgert_exit(void)
 		slave_spi = &pdata->slave;
 	}
 
-//	comedi_auto_unconfig(&slave_spi->spi->master->dev);
-//	comedi_driver_unregister(&daqgert_driver);
+	comedi_auto_unconfig(&slave_spi->spi->master->dev);
+	comedi_driver_unregister(&daqgert_driver);
 	spi_unregister_driver(&spigert_spi_driver);
 }
 module_exit(daqgert_exit);
 
 MODULE_AUTHOR("Fred Brooks <spam@sma2.rain.com>");
 MODULE_DESCRIPTION("RPi DIO/AI/AO Driver");
-MODULE_VERSION("0.0.29");
+MODULE_VERSION("0.0.30");
 MODULE_LICENSE("GPL");
 MODULE_ALIAS("spi:spigert");

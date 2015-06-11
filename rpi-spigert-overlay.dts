@@ -36,23 +36,23 @@
     fragment@2 {
 	target = <&spi0>;
 	__overlay__ {
+            #address-cells = <1>;
+            #size-cells = <0>;
             pinctrl-names = "default";
             pinctrl-0 = <&spi0_pins>;
 
             spigert@0 {
                 compatible = "spigert";
                 reg = <0>;      /* CE0 */
-                #address-cells = <1>;
-                #size-cells = <0>;
                 spi-max-frequency = <500000>;
+		status = "okay";
             };
 
             spigert@1 {
                 compatible = "spigert";
                 reg = <1>;      /* CE1 */
-                #address-cells = <1>;
-                #size-cells = <0>;
                 spi-max-frequency = <500000>;
+		status = "okay";
             };
 	};
     };
