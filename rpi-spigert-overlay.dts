@@ -1,5 +1,5 @@
 /*
- * Device Tree overlay for spigert
+ * Device Tree overlay for the spigert module used by Comedi daq_gert analog devices
  *
  */
 
@@ -7,55 +7,53 @@
 /plugin/;
 
 / {
-	compatible = "brcm,bcm2835", "brcm,bcm2708", "brcm,bcm2709";
+    compatible = "brcm,bcm2835", "brcm,bcm2708", "brcm,bcm2709";
+    /* disable spi-dev for spi0.0 & spi0.1 */
+    fragment@0 {
+	target = <&spi0>;
+	__overlay__ {
+		status = "okay";
 
-	fragment@0 {
-		target = <&spi0>;
-		__overlay__ {
-			status = "okay";
-
-			spidev@0{
-				status = "disabled";
-			};
-
-			spidev@1{
-				status = "disabled";
-			};
+		spidev@0{
+			status = "disabled";
+		};
+		spidev@1{
+			status = "disabled";
 		};
 	};
+    };
 
-	fragment@1 {
-		target = <&gpio>;
-		__overlay__ {
-        spi0_pins: spi0_pins {
-                brcm,pins = <7 8 9 10 11>;
-                brcm,function = <4>; /* alt0 */
-        };
-
-		};
+    fragment@1 {
+	target = <&gpio>;
+	__overlay__ {
+            spi0_pins: spi0_pins {
+            brcm,pins = <7 8 9 10 11>;
+            brcm,function = <4>; /* alt0 */
+            };
 	};
+    };
 
-	fragment@2 {
-		target = <&spi0>;
-		__overlay__ {
-        pinctrl-names = "default";
-        pinctrl-0 = <&spi0_pins>;
+    fragment@2 {
+	target = <&spi0>;
+	__overlay__ {
+            pinctrl-names = "default";
+            pinctrl-0 = <&spi0_pins>;
 
-        spigert@0{
+            spigert@0 {
                 compatible = "spigert";
                 reg = <0>;      /* CE0 */
                 #address-cells = <1>;
                 #size-cells = <0>;
                 spi-max-frequency = <500000>;
-        };
+            };
 
-        spigert@1{
+            spigert@1 {
                 compatible = "spigert";
                 reg = <1>;      /* CE1 */
                 #address-cells = <1>;
                 #size-cells = <0>;
                 spi-max-frequency = <500000>;
-        };
-		};
+            };
 	};
+    };
 };
