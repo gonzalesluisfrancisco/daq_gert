@@ -217,7 +217,7 @@ static const uint32_t PICSL12 = 0;
 static const uint32_t SPI_BUFF_SIZE = 3072;
 static const uint32_t MAX_CHANLIST_LEN = 256;
 static const uint32_t CONV_SPEED = 5000; /* 10s of nsecs: the true rate is ~4883/5000 so we need a fixup,  two conversions per mix scan */
-static const uint32_t CONV_SPEED_FIX = 1; /* usecs: round it up to ~50usecs total with this */
+static const uint32_t CONV_SPEED_FIX = 5; /* usecs: round it up to ~50usecs total with this */
 static const uint32_t CONV_SPEED_FIX_FAST = 16; /* used for the MCP3002 ADC */
 static const uint32_t MAX_BOARD_RATE = 1000000000;
 
@@ -2472,7 +2472,6 @@ static int32_t spigert_spi_probe(struct spi_device * spi)
 	pdata = kzalloc(sizeof(struct comedi_spigert), GFP_KERNEL);
 	if (!pdata)
 		return -ENOMEM;
-	mutex_lock(&device_list_lock);
 	mutex_init(&pdata->daqgert_platform_lock);
 
 	spi->dev.platform_data = pdata;
@@ -2539,7 +2538,6 @@ kfree_rx_exit:
 kfree_tx_exit:
 	kfree(pdata->tx_buff);
 kfree_exit:
-	mutex_unlock(&device_list_lock);
 	kfree(pdata);
 
 	return ret;
@@ -2664,7 +2662,7 @@ static int32_t __init daqgert_init(void)
 	ret = spi_register_driver(&spigert_spi_driver);
 	if (ret < 0)
 		return ret;
-	ret = comedi_driver_register(&daqgert_driver);
+//	ret = comedi_driver_register(&daqgert_driver);
 	if (ret < 0)
 		return ret;
 
@@ -2676,6 +2674,7 @@ static int32_t __init daqgert_init(void)
 		slave_spi = &pdata->slave;
 		i++;
 	}
+	return 0;
 
 	if ((i != 2) || !slave_spi->spi)
 		return -ENODEV;
@@ -2701,8 +2700,8 @@ static void __exit daqgert_exit(void)
 		slave_spi = &pdata->slave;
 	}
 
-	comedi_auto_unconfig(&slave_spi->spi->master->dev);
-	comedi_driver_unregister(&daqgert_driver);
+//	comedi_auto_unconfig(&slave_spi->spi->master->dev);
+//	comedi_driver_unregister(&daqgert_driver);
 	spi_unregister_driver(&spigert_spi_driver);
 }
 module_exit(daqgert_exit);
