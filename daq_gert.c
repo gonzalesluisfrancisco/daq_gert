@@ -172,8 +172,6 @@ The output range is 0 to 4095 for 0.0 to 2.048 onboard devices (output resolutio
 #include <linux/timer.h>
 #include <linux/list.h>
 #include "8253.h"
-#include <linux/of.h>
-#include <linux/of_device.h>
 
 /* 
  * this is the Comedi SPI device queue 
@@ -2564,20 +2562,11 @@ static int32_t spigert_spi_remove(struct spi_device * spi)
 	return 0;
 }
 
-static const struct of_device_id spigert_dt_ids[] = {
-	{ .compatible = "rohm,dh2228fv"},
-	{ .compatible = "linux,spigert" },
-	{},
-};
-
-MODULE_DEVICE_TABLE(of, spigert_dt_ids);
-
 static struct spi_driver spigert_spi_driver = {
 	.driver =
 	{
 		.name = "spigert",
 		.owner = THIS_MODULE,
-		.of_match_table = of_match_ptr(spigert_dt_ids),
 	},
 	.probe = spigert_spi_probe,
 	.remove = spigert_spi_remove,
@@ -2670,7 +2659,7 @@ static int32_t __init daqgert_init(void)
 {
 	struct comedi_spigert *pdata;
 	static struct spi_param_type *slave_spi;
-	int32_t ret, i = 0;
+	int32_t ret = 0, i = 0;
 
 	ret = spi_register_driver(&spigert_spi_driver);
 	if (ret < 0)
