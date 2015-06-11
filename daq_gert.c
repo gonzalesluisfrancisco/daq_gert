@@ -299,7 +299,7 @@ static int32_t speed_test = 0;
 module_param(speed_test, int, S_IRUGO);
 static int32_t wiringpi = 1;
 module_param(wiringpi, int, S_IRUGO);
-static int32_t use_hunking = 1;
+static int32_t use_hunking = 0;
 module_param(use_hunking, int, S_IRUGO);
 
 struct daqgert_board {
@@ -2204,15 +2204,12 @@ static int32_t daqgert_auto_attach(struct comedi_device *dev, unsigned long unus
 	/* 
 	 * auto free on exit of comedi
 	 */
-	dev_info(dev->class_dev, "setup: daqgert start 0\n");
-	msleep(1000);
 	devpriv = comedi_alloc_devpriv(dev, sizeof(*devpriv));
 	if (!devpriv)
 		return -ENOMEM;
 
 	dev->board_ptr = thisboard;
 
-	dev_info(dev->class_dev, "setup: daqgert start 1\n");
 	/*
 	 * loop the spi device queue for needed devices
 	 */
