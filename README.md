@@ -2,13 +2,19 @@ daq_gert
 ========
 Comedi driver for RPi ai, ao gpio for the  gertboard daq_gert.c
 Driver: "experimental" daq_gert in progress ... for 4.+ kernels with DT
-Device-tree is a work in progress
+on the RPi2 with the bcm2835 SPI master
+**********
+Device-tree operation is now working:  Use overlay rpi-spigert-overlay.dtb
+to load the device module in /boot/config.txt: 
+dtparam=spi=on
+dtoverlay=rpi-spigert-overlay.dtb
+**********
 
 The DAQ-GERT appears in Comedi as a  digital I/O subdevice (0) with
 17 or 21 or 30 channels, 
 a analog input subdevice (1) with 2 single-ended channels with onboard adc, OR
 a analog input subdevice (1) with single-ended channels set by the SPI slave device
-a analog output subdevice(2) with 2 channels with onboard dac
+and a analog output subdevice(2) with 2 channels with onboard dac
 
 It's mainly a test driver for a modded version of xoscope in COMEDI mode
 
@@ -18,31 +24,32 @@ on ADC samples is limited to about 20,000 S/sec on a RPi2
 
 
 Notes:
-This driver requires a kernel patch to gain direct SPI access at the kernel. 
+This driver currently requires a kernel patch to gain direct SPI access at the kernel level. 
 
  * git clone https://github.com/raspberrypi/linux.git in /usr/src for the latest
  * linux kernel source tree
  * 
  * cd to the linux kernel source directory: /usr/src/linux etc...
- * copy the daq_gert.diff patch file from the daq_gert directory to here
- * copy RPI2.config or RPi.confg the from the daq_gert directory to .config in the Linux source directory
+ * copy the daq_gert.diff patch file from the daq_gert directory to the source
+ * directory 
+ * copy RPi2.config_4.0.y from the daq_gert directory to .config in the Linux source directory
  * 
  * patch the kernel source with the daq_gert.diff patch file
  * patch -p1 <daq_gert.diff
  * 
- *  make -j4 for a RPi 2
- *  select SPI_COMEDI=y in SPI MASTERS to enable the SPI side of the driver (SPI_SPIDEV must be deselected )
- *  select DAQ_GERT=m to select the Comedi protocol part of the driver
- *  make modules_install
- *  to recompile the Linux kernel with the Comedi SPI link and to make the needed daq_gert module
- *  then copy the Image file to the /boot directory with a new kernel image name
- *  and modify the boot file to use that image
- *  after the reboot: daq_gert should auto-load to device /dev/comedi0
+ *  make menuconfig or xconfig
+ *  select SPI_COMEDI=m in SPI MASTERS to enable the SPI side of the driver 
+ *  select DAQ_GERT=m to select the Comedi protocol part of the driver in the 
+ *  staging daq comedi misc drivers section.
+ *  make -j4 for a RPi 2 to compile a new kernel and driver in much less time
+ *  use the instructions here to build the new kernel, modules, device-trees and overlays.
+ *  https://www.raspberrypi.org/documentation/linux/kernel/building.md
+ *
+ *  after the reboot: daq_gert should auto-load to device /dev/comedi0*
  *  if the legacy option is set in /etc/modprobe.d/comedi.conf the new device will be created after those
  *  dmesg should see the kernel module messages from daq_gert
  *  run the test program: bmc_test_program to see if it's working
  * 
- * Module parameters are found in the /sys/modules/daq_gert/parameters directory
  * 
 The input  range is 0 to 1023/4095 for 0.0 to 3.3(Vdd) onboard devices or 2.048 volts/Vdd for PIC slaves 
 The output range is 0 to 4095 for 0.0 to 2.048 onboard devices (output resolution depends on the device)
