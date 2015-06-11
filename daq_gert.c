@@ -23,7 +23,7 @@
 /*
  * TODO:	Refactor sample put get code to reduce the amount of build up/down time
  * 
-Driver: "experimental" daq_gert in progress ... for 4.+ kernels with DT
+Driver: "experimental" daq_gert in progress ... for 4.+ kernels with device-tree enabled
  * see README.md for install instructions
  * 
 Description: GERTBOARD daq_gert
@@ -1183,7 +1183,6 @@ static void daqgert_handle_ao_eoc(struct comedi_device *dev,
 	uint32_t chan = s->async->cur_chan;
 
 	if (!comedi_buf_read_samples(s, &sampl_val, 1)) {
-		dev_err(dev->class_dev, "buffer underflow\n");
 		s->async->events |= COMEDI_CB_OVERFLOW;
 		return;
 	}
@@ -1236,7 +1235,7 @@ static void transfer_from_hunk_buf(struct comedi_device *dev,
  * uses the Comedi cmd info to construct a transfers buffer to 
  * improve sample timing
  */
-static void transfer_to_hunk_buf(struct comedi_device *dev,
+static int32_t transfer_to_hunk_buf(struct comedi_device *dev,
 	struct comedi_subdevice *s,
 	uint8_t *bufptr,
 	uint32_t bufpos, uint32_t hunk_len, uint32_t offset,
@@ -1249,6 +1248,7 @@ static void transfer_to_hunk_buf(struct comedi_device *dev,
 	uint32_t i, len, delay_usecs = pdata->delay_usecs;
 	uint32_t chan;
 	uint8_t *tx_buff, *rx_buff;
+	int32_t ret = 0;
 
 	chan = devpriv->ai_chan;
 	memset(&pdata->t, 0, sizeof(pdata->t));
@@ -1258,8 +1258,7 @@ static void transfer_to_hunk_buf(struct comedi_device *dev,
 	rx_buff = pdata->rx_buff;
 
 	if (unlikely(hunk_len > hunk_len)) {
-		dev_err(dev->class_dev, "scan transfer too large %i>%i\n",
-			hunk_len, hunk_len);
+		ret = -E2BIG;
 		hunk_len = hunk_len;
 	}
 
@@ -1288,6 +1287,7 @@ static void transfer_to_hunk_buf(struct comedi_device *dev,
 		tx_buff += len; /* move the buffer pointers to the next transfer slot in the buffer memory */
 		rx_buff += len;
 	}
+	return ret;
 }
 
 static void daqgert_handle_ai_hunk(struct comedi_device *dev,
@@ -1318,6 +1318,7 @@ static void daqgert_handle_ai_hunk(struct comedi_device *dev,
 
 	devpriv->ai_count += len;
 	transfer_from_hunk_buf(dev, s, bufptr, bufpos, len, daqgert_device_offset(spi_data->device_type));
+	/* debug comment */
 	if (cmd->stop_src == TRIG_COUNT)
 		dev_info(dev->class_dev, "From hunk %i %i\n", s->async->scans_done, cmd->stop_arg);
 }
@@ -1325,7 +1326,7 @@ static void daqgert_handle_ai_hunk(struct comedi_device *dev,
 /*
  * test for conditions that allow for the hunk_len transfer buffer
  */
-static void daqgert_ai_setup_hunk(struct comedi_device *dev,
+static int32_t daqgert_ai_setup_hunk(struct comedi_device *dev,
 	struct comedi_subdevice *s, bool mix_mode)
 {
 	struct daqgert_private *devpriv = dev->private;
@@ -1349,7 +1350,7 @@ static void daqgert_ai_setup_hunk(struct comedi_device *dev,
 	offset = daqgert_device_offset(spi_data->device_type);
 
 	/* load the message for the ADC conversions in to the tx buffer */
-	transfer_to_hunk_buf(dev, s, bufptr, bufpos, len, offset, mix_mode);
+	return transfer_to_hunk_buf(dev, s, bufptr, bufpos, len, offset, mix_mode);
 }
 
 /*
@@ -1581,7 +1582,7 @@ static int32_t daqgert_ai_cmd(struct comedi_device *dev, struct comedi_subdevice
 	}
 
 	if (devpriv->ai_hunk) /* run batch conversions in background */
-		daqgert_ai_setup_hunk(dev, s, true);
+		ret = daqgert_ai_setup_hunk(dev, s, true);
 	else
 		daqgert_ai_setup_eoc(dev, s);
 
@@ -2259,13 +2260,13 @@ static int32_t daqgert_auto_attach(struct comedi_device *dev, unsigned long unus
 	 * PIN mode for all 
 	 */
 	if (wiringpi) {
-		dev_info(dev->class_dev, "%s WiringPiSetup\n", thisboard->name);
+		dev_info(dev->class_dev, "%s WiringPi pins setup\n", thisboard->name);
 		if (wiringPiSetup(dev) < 0) {
 			dev_err(dev->class_dev, "board gpio detection failed!\n");
 			return -EINVAL;
 		}
 	} else {
-		dev_info(dev->class_dev, "%s GpioPiSetup\n", thisboard->name);
+		dev_info(dev->class_dev, "%s GpioPi pins setup\n", thisboard->name);
 		if (wiringPiSetupGpio(dev) < 0) {
 			dev_err(dev->class_dev, "board gpio detection failed!\n");
 			return -EINVAL;
@@ -2294,20 +2295,19 @@ static int32_t daqgert_auto_attach(struct comedi_device *dev, unsigned long unus
 	/* 
 	 * assume we have DON"T have a Gertboard 
 	 */
-	dev_info(dev->class_dev, "%s detection started\n", thisboard->name);
+	dev_info(dev->class_dev, "%s spi slave device detection started\n", thisboard->name);
 	devpriv->num_subdev = 1;
 	if (daqgert_spi_probe(dev, slave_spi_adc, slave_spi_dac))
 		devpriv->num_subdev += 2;
 	/* 
 	 * add AI and AO channels 
 	 */
-	dev_info(dev->class_dev, "%s detection completed\n", thisboard->name);
 	ret = comedi_alloc_subdevices(dev, devpriv->num_subdev);
 	if (ret) {
 		dev_err(dev->class_dev, "alloc subdevice(s) failed!\n");
 		return ret;
 	}
-	dev_info(dev->class_dev, "%i subdevices\n", dev->n_subdevices);
+
 	/* daq_gert dio */
 	s = &dev->subdevices[0];
 	s->type = COMEDI_SUBD_DIO;
@@ -2504,12 +2504,12 @@ static int32_t spigert_spi_probe(struct spi_device * spi)
 	if (spi->chip_select == CSnA) {
 		ret = comedi_driver_register(&daqgert_driver);
 		if (ret < 0)
-			return ret;
+			goto kfree_rx_exit;
 
 		if (gert_autoload)
 			ret = comedi_auto_config(&spi->master->dev, &daqgert_driver, 0);
 		if (ret < 0)
-			return ret;
+			goto kfree_rx_exit;
 	}
 	return 0;
 
