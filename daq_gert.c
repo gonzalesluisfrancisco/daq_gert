@@ -24,35 +24,7 @@
  * TODO:	Refactor sample put get code to reduce the amount of build up/down time
  * 
 Driver: "experimental" daq_gert in progress ... for 4.+ kernels with DT
- * 
- * This driver requires a kernel patch to gain direct SPI access at the kernel.
- * 
- * git clone https://github.com/nsaspook/daq_gert.git
- * 
- * Test program executable: bmc_test_program
- * 
- * git clone https://github.com/raspberrypi/linux.git in /usr/src for the latest
- * linux kernel source tree
- * 
- * cd to the linux kernel source directory: /usr/src/linux etc...
- * copy the daq_gert.diff patch file from the daq_gert directory to here
- * copy RPI2.config, RPi.confg or RPI2.config_4.0.y the from the daq_gert directory to .config 
- * in the Linux source directory
- * 
- * patch the kernel source with the daq_gert.diff patch file
- * patch -p1 <daq_gert.diff
- * 
- *  make -j4 for a RPi 2
- *  select SPI_COMEDI=y in SPI MASTERS to enable the SPI side of the driver (SPI_SPIDEV must be deselected )
- *  select DAQ_GERT=m to select the Comedi protocol part of the driver
- *  make modules_install
- *  to recompile the Linux kernel with the Comedi SPI module link
- *  and to make the needed daq_gert module
- *  then copy the Image file to the /boot directory with a new kernel image name
- *  and modify the boot file to use that image
- *  after the reboot: daq_gert should auto-load to device /dev/comedi0
- *  dmesg should the the kernel module messages
- *  run the test program: bmc_test_program to see if it's working
+ * see README.md for install instructions
  * 
 Description: GERTBOARD daq_gert
 Author: Fred Brooks <spam@sma2.rain.com>
@@ -62,20 +34,20 @@ Most of the actual GPIO setup code was copied from
 WiringPI 
  *      https://projects.drogon.net/raspberry-pi/wiringpi/
  *
- * Driver for Broadcom BCM2708 SPI Controllers
+ * Driver for Broadcom BCM2708, BCM2835 SPI Controller masters
  *
  Also many other Comedi drivers
  * 
 
 Devices: [] GERTBOARD (daq_gert)
 Status: inprogress (DIO 95%) (AI 90%) AO (95%) (My code cleanup 90%)
-Updated: May 2015 12:07:20 +0000
+Updated: Jun 2015 12:07:20 +0000
 
 The DAQ-GERT appears in Comedi as a  digital I/O subdevice (0) with
 17 or 21 or 30 channels, 
 a analog input subdevice (1) with 2 single-ended channels with onboard adc, OR
 a analog input subdevice (1) with single-ended channels set by the SPI slave device
-a analog output subdevice(2) with 2 channels with onboard dac
+and a analog output subdevice(2) with 2 channels with onboard dac
  * 
  * Caveats:
  * 
@@ -177,7 +149,6 @@ The output range is 0 to 4095 for 0.0 to 2.048 onboard devices (output resolutio
  * this is the Comedi SPI device queue 
  */
 static LIST_HEAD(device_list);
-static DEFINE_MUTEX(device_list_lock);
 
 /* 
  * SPI link setup 
@@ -2494,7 +2465,6 @@ static int32_t spigert_spi_probe(struct spi_device * spi)
 		INIT_LIST_HEAD(&pdata->device_entry); /* create entry into the Comedi device list */
 		pdata->slave.spi = spi;
 		list_add_tail(&pdata->device_entry, &device_list); /* put entry into the Comedi device list */
-		dev_info(&spi->dev, "setup: daq_gert adc spi device");
 	}
 	if (spi->chip_select == CSnB) {
 		/* 
@@ -2503,7 +2473,6 @@ static int32_t spigert_spi_probe(struct spi_device * spi)
 		INIT_LIST_HEAD(&pdata->device_entry);
 		pdata->slave.spi = spi;
 		list_add_tail(&pdata->device_entry, &device_list);
-		dev_info(&spi->dev, "setup: daq_gert dac spi device");
 	}
 	spi->bits_per_word = SPI_BPW;
 	spi->mode = SPI_MODE;
@@ -2691,6 +2660,6 @@ module_exit(daqgert_exit);
 
 MODULE_AUTHOR("Fred Brooks <spam@sma2.rain.com>");
 MODULE_DESCRIPTION("RPi DIO/AI/AO Driver");
-MODULE_VERSION("0.0.30");
+MODULE_VERSION("0.0.31");
 MODULE_LICENSE("GPL");
 MODULE_ALIAS("spi:spigert");
