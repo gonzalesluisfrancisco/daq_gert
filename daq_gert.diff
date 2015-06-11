@@ -1,3 +1,80 @@
+diff --git a/arch/arm/boot/dts/overlays/Makefile b/arch/arm/boot/dts/overlays/Makefile
+index 6947556..dba0adf 100644
+--- a/arch/arm/boot/dts/overlays/Makefile
++++ b/arch/arm/boot/dts/overlays/Makefile
+@@ -36,6 +36,7 @@ dtb-$(RPI_DT_OVERLAYS) += pps-gpio-overlay.dtb
+ dtb-$(RPI_DT_OVERLAYS) += rpi-dac-overlay.dtb
+ dtb-$(RPI_DT_OVERLAYS) += rpi-display-overlay.dtb
+ dtb-$(RPI_DT_OVERLAYS) += rpi-proto-overlay.dtb
++dtb-$(RPI_DT_OVERLAYS) += rpi-spigert-overlay.dtb
+ dtb-$(RPI_DT_OVERLAYS) += sdhost-overlay.dtb
+ dtb-$(RPI_DT_OVERLAYS) += spi-bcm2708-overlay.dtb
+ dtb-$(RPI_DT_OVERLAYS) += spi-bcm2835-overlay.dtb
+diff --git a/arch/arm/boot/dts/overlays/rpi-spigert-overlay.dts b/arch/arm/boot/dts/overlays/rpi-spigert-overlay.dts
+new file mode 100755
+index 0000000..c5bd7e7
+--- /dev/null
++++ b/arch/arm/boot/dts/overlays/rpi-spigert-overlay.dts
+@@ -0,0 +1,59 @@
++/*
++ * Device Tree overlay for the spigert module used by Comedi daq_gert analog devices
++ *
++ */
++
++/dts-v1/;
++/plugin/;
++
++/ {
++    compatible = "brcm,bcm2835", "brcm,bcm2708", "brcm,bcm2709";
++    /* disable spi-dev for spi0.0 & spi0.1 */
++    fragment@0 {
++	target = <&spi0>;
++	__overlay__ {
++		status = "okay";
++
++		spidev@0{
++			status = "disabled";
++		};
++		spidev@1{
++			status = "disabled";
++		};
++	};
++    };
++
++    fragment@1 {
++	target = <&gpio>;
++	__overlay__ {
++            spi0_pins: spi0_pins {
++            brcm,pins = <7 8 9 10 11>;
++            brcm,function = <4>; /* alt0 */
++            };
++	};
++    };
++
++    fragment@2 {
++	target = <&spi0>;
++	__overlay__ {
++            #address-cells = <1>;
++            #size-cells = <0>;
++            pinctrl-names = "default";
++            pinctrl-0 = <&spi0_pins>;
++
++            spigert@0 {
++                compatible = "spigert";
++                reg = <0>;      /* CE0 */
++                spi-max-frequency = <500000>;
++		status = "okay";
++            };
++
++            spigert@1 {
++                compatible = "spigert";
++                reg = <1>;      /* CE1 */
++                spi-max-frequency = <500000>;
++		status = "okay";
++            };
++	};
++    };
++};
 diff --git a/arch/arm/mach-bcm2708/bcm2708.c b/arch/arm/mach-bcm2708/bcm2708.c
 index 00fc5d6..c994689 100644
 --- a/arch/arm/mach-bcm2708/bcm2708.c
@@ -51,16 +128,15 @@ index a5cac5b..8159f5b 100644
  #endif
  
 diff --git a/drivers/spi/Kconfig b/drivers/spi/Kconfig
-index 113bf64..7b2e7ba 100644
+index 113bf64..61d2708 100644
 --- a/drivers/spi/Kconfig
 +++ b/drivers/spi/Kconfig
-@@ -660,6 +660,15 @@ config SPI_SPIDEV
+@@ -660,6 +660,14 @@ config SPI_SPIDEV
  	  Note that this application programming interface is EXPERIMENTAL
  	  and hence SUBJECT TO CHANGE WITHOUT NOTICE while it stabilizes.
  
 +config SPI_COMEDI
 +        tristate "Comedi mode SPI device driver support for daq_gert"
-+	depends on !SPI_SPIDEV
 +        help
 +          This supports the daq_gert Comedi mode SPI protocol driver.
 +
