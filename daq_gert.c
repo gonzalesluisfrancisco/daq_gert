@@ -1265,9 +1265,10 @@ static int32_t transfer_to_hunk_buf(struct comedi_device *dev,
 	for (i = 0; i < hunk_len; i++) {
 		/* format the tx_buffer */
 		if (mix_mode) {
-			if (i & 0x01) { /* use a even/odd mix of adc devices */
+			if (i % 2) { /* use an even/odd mix of adc devices */
 				chan = devpriv->mix_chan;
 				delay_usecs = pdata->mix_delay_usecs;
+//				delay_usecs = 50;
 			} else {
 				chan = devpriv->ai_chan;
 				delay_usecs = 0;
@@ -1278,8 +1279,13 @@ static int32_t transfer_to_hunk_buf(struct comedi_device *dev,
 
 		bufptr[bufpos] = 0b11010000 | ((chan & 0x01) << 5); /* set the channel and config data */
 		bufpos += offset;
-		/* format the transfer array */
-		pdata->t[i].cs_change = 1;
+		/*
+		 *  format the transfer array 
+		 *  use cs_change to start the ADC on every transfer
+		 *  the spec says a brief toggle but we get it's too
+		 *  long at the default of 10us
+		 */
+		pdata->t[i].cs_change = true;
 		pdata->t[i].len = len;
 		pdata->t[i].tx_buf = tx_buff;
 		pdata->t[i].rx_buf = rx_buff;
@@ -1287,6 +1293,12 @@ static int32_t transfer_to_hunk_buf(struct comedi_device *dev,
 		tx_buff += len; /* move the buffer pointers to the next transfer slot in the buffer memory */
 		rx_buff += len;
 	}
+	/* 
+	 * the spi-bcm2835 driver needs this, it switches cs to false after
+	 * every transfer in a msg but the last one
+	 * turn off cs on last transfer
+	 */
+	pdata->t[i - 1].cs_change = false;
 	return ret;
 }
 
@@ -1573,8 +1585,10 @@ static int32_t daqgert_ai_cmd(struct comedi_device *dev, struct comedi_subdevice
 	/* don't we want wake up every scan? */
 	if (cmd->flags & CMDF_WAKE_EOS) {
 		/* HUNK is useless for this situation */
-		if (cmd->chanlist_len == 1)
+		if (cmd->chanlist_len == 1) {
 			devpriv->ai_hunk = false;
+			dev_info(dev->class_dev, "all hunk ai mode transfers disabled from channel list length %d\n", cmd->chanlist_len);
+		}
 	}
 	if (devpriv->timing_lockout) {
 		devpriv->ai_hunk = false;
