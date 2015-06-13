@@ -187,9 +187,9 @@ static const uint32_t PICSL12 = 0;
 
 static const uint32_t SPI_BUFF_SIZE = 3072;
 static const uint32_t MAX_CHANLIST_LEN = 256;
-static const uint32_t CONV_SPEED = 5000; /* 10s of nsecs: the true rate is ~4883/5000 so we need a fixup,  two conversions per mix scan */
-static const uint32_t CONV_SPEED_FIX = 5; /* usecs: round it up to ~50usecs total with this */
-static const uint32_t CONV_SPEED_FIX_FAST = 16; /* used for the MCP3002 ADC */
+static const uint32_t CONV_SPEED = 5000; /* 10s of nsecs: the true rate is ~3000/5000 so we need a fixup,  two conversions per mix scan */
+static const uint32_t CONV_SPEED_FIX = 20; /* usecs: round it up to ~50usecs total with this */
+static const uint32_t CONV_SPEED_FIX_FAST = 9; /* used for the MCP3002 ADC */
 static const uint32_t MAX_BOARD_RATE = 1000000000;
 
 static const uint8_t CSnA = 0; /* GPIO 8  Gertboard ADC */
@@ -1268,7 +1268,7 @@ static int32_t transfer_to_hunk_buf(struct comedi_device *dev,
 			if (i % 2) { /* use an even/odd mix of adc devices */
 				chan = devpriv->mix_chan;
 				delay_usecs = pdata->mix_delay_usecs;
-//				delay_usecs = 50;
+				//				delay_usecs = 50;
 			} else {
 				chan = devpriv->ai_chan;
 				delay_usecs = 0;
@@ -1792,7 +1792,7 @@ static int32_t daqgert_ai_delay_rate(struct comedi_device *dev, int32_t rate, in
 	spacing_usecs += CONV_SPEED_FIX;
 	if (device_type == MCP3002)
 		spacing_usecs += CONV_SPEED_FIX_FAST;
-	//	dev_info(dev->class_dev, "ai rate %i, spacing usecs %i\n", rate, spacing_usecs);
+	dev_info(dev->class_dev, "ai rate %i, spacing usecs %i\n", rate, spacing_usecs);
 	return spacing_usecs;
 }
 
@@ -1820,7 +1820,7 @@ static int32_t daqgert_ai_cmdtest(struct comedi_device *dev,
 
 	err |= cfc_check_trigger_src(&cmd->start_src, TRIG_NOW | TRIG_INT);
 	err |= cfc_check_trigger_src(&cmd->scan_begin_src, TRIG_FOLLOW | TRIG_TIMER);
-	//	err |= cfc_check_trigger_src(&cmd->convert_src, TRIG_TIMER | TRIG_NOW);
+	/* err |= cfc_check_trigger_src(&cmd->convert_src, TRIG_TIMER | TRIG_NOW); */
 	err |= cfc_check_trigger_src(&cmd->convert_src, TRIG_TIMER);
 	err |= cfc_check_trigger_src(&cmd->scan_end_src, TRIG_COUNT);
 	err |= cfc_check_trigger_src(&cmd->stop_src, TRIG_NONE | TRIG_COUNT);
@@ -1855,7 +1855,7 @@ static int32_t daqgert_ai_cmdtest(struct comedi_device *dev,
 		 * rounding errors */
 		tmp_timer = ((uint32_t) (cmd->scan_begin_arg / board->ai_ns_min)) * board->ai_ns_min;
 		pdata->delay_usecs_calc = daqgert_ai_delay_rate(dev, tmp_timer, spi_data->device_type, speed_test);
-		pdata->mix_delay_usecs_calc = pdata->delay_usecs_calc < 2; /* double delay with zero for the first scan chan */
+		pdata->mix_delay_usecs_calc = pdata->delay_usecs_calc * 2; /* double delay with zero for the first scan chan */
 		//		dev_info(dev->class_dev, "ai cmd spacing usecs %i, mix %i\n", pdata->delay_usecs, pdata->mix_delay_usecs);
 		err |= cfc_check_trigger_arg_is(&cmd->scan_begin_arg, tmp_timer);
 	}
@@ -1877,9 +1877,13 @@ static int32_t daqgert_ai_cmdtest(struct comedi_device *dev,
 		return 3;
 
 	/* step 4: fix up any arguments */
+	
+	/*
+	 * Not currently used 
+	 */
 	if (cmd->convert_src == TRIG_NOW) {
 		pdata->delay_usecs_calc = 0;
-		pdata->mix_delay_usecs_calc = pdata->delay_usecs_calc < 2; /* double delay with zero for the first scan chan */
+		pdata->mix_delay_usecs_calc =  CONV_SPEED_FIX * 2; /* double delay with zero for the first scan chan */
 	}
 
 	if (cmd->convert_src == TRIG_TIMER) {
@@ -1889,7 +1893,7 @@ static int32_t daqgert_ai_cmdtest(struct comedi_device *dev,
 			&divisor2,
 			&arg, cmd->flags);
 		pdata->delay_usecs_calc = daqgert_ai_delay_rate(dev, arg, spi_data->device_type, speed_test);
-		pdata->mix_delay_usecs_calc = pdata->delay_usecs_calc < 2; /* double delay with zero for the first scan chan */
+		pdata->mix_delay_usecs_calc = pdata->delay_usecs_calc * 2; /* double delay with zero for the first scan chan */
 		//		dev_info(dev->class_dev, "ai cmd spacing usecs %i, mix %i\n", pdata->delay_usecs, pdata->mix_delay_usecs);
 		err |= cfc_check_trigger_arg_is(&cmd->convert_arg, arg);
 	}
