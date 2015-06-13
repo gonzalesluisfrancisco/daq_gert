@@ -1792,7 +1792,7 @@ static int32_t daqgert_ai_delay_rate(struct comedi_device *dev, int32_t rate, in
 	spacing_usecs += CONV_SPEED_FIX;
 	if (device_type == MCP3002)
 		spacing_usecs += CONV_SPEED_FIX_FAST;
-	dev_info(dev->class_dev, "ai rate %i, spacing usecs %i\n", rate, spacing_usecs);
+	//dev_info(dev->class_dev, "ai rate %i, spacing usecs %i\n", rate, spacing_usecs);
 	return spacing_usecs;
 }
 
@@ -1877,13 +1877,13 @@ static int32_t daqgert_ai_cmdtest(struct comedi_device *dev,
 		return 3;
 
 	/* step 4: fix up any arguments */
-	
+
 	/*
 	 * Not currently used 
 	 */
 	if (cmd->convert_src == TRIG_NOW) {
 		pdata->delay_usecs_calc = 0;
-		pdata->mix_delay_usecs_calc =  CONV_SPEED_FIX * 2; /* double delay with zero for the first scan chan */
+		pdata->mix_delay_usecs_calc = CONV_SPEED_FIX * 2; /* double delay with zero for the first scan chan */
 	}
 
 	if (cmd->convert_src == TRIG_TIMER) {
