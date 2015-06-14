@@ -1290,6 +1290,10 @@ static int32_t transfer_to_hunk_buf(struct comedi_device *dev,
 		pdata->t[i].tx_buf = tx_buff;
 		pdata->t[i].rx_buf = rx_buff;
 		pdata->t[i].delay_usecs = delay_usecs;
+		/*
+		 * cs_change_usecs is a local addition to spi.h and spi.c
+		 */
+		pdata->t[i].cs_change_usecs = 1;
 		tx_buff += len; /* move the buffer pointers to the next transfer slot in the buffer memory */
 		rx_buff += len;
 	}
