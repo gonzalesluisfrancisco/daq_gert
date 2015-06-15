@@ -191,14 +191,14 @@ index 7d1fbd5..2bf504f 100644
  # Comedi ISA drivers
  obj-$(CONFIG_COMEDI_AMPLC_DIO200_ISA)	+= amplc_dio200.o
 diff --git a/include/linux/spi/spi.h b/include/linux/spi/spi.h
-index 856d34d..131f145 100644
+index 856d34d..1edd3ce 100644
 --- a/include/linux/spi/spi.h
 +++ b/include/linux/spi/spi.h
-@@ -622,6 +622,7 @@ struct spi_transfer {
- #define	SPI_NBITS_DUAL		0x02 /* 2bits transfer */
- #define	SPI_NBITS_QUAD		0x04 /* 4bits transfer */
- 	u8		bits_per_word;
-+	u8		cs_change_usecs;
- 	u16		delay_usecs;
+@@ -626,6 +626,7 @@ struct spi_transfer {
  	u32		speed_hz;
  
+ 	struct list_head transfer_list;
++        u8              cs_change_usecs;
+ };
+ 
+ /**
