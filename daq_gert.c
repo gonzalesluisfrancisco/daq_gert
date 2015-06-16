@@ -987,7 +987,6 @@ static int32_t daqgert_ao_thread_function(void *data)
 			set_bit(SPI_AO_RUN, &devpriv->state_bits);
 			smp_mb__after_atomic();
 			daqgert_handle_ao_eoc(dev, s);
-			devpriv->ao_count++;
 			__set_current_state(TASK_UNINTERRUPTIBLE);
 			pdata->kmin = ktime_set(0, pdata->delay_nsecs);
 			schedule_hrtimeout_range(&pdata->kmin, 0, HRTIMER_MODE_REL_PINNED);
@@ -1021,12 +1020,12 @@ static void daqgert_ai_set_chan_range(struct comedi_device *dev,
 	uint32_t chanspec, char wait)
 {
 	struct daqgert_private *devpriv = dev->private;
-	mutex_lock(&devpriv->drvdata_lock);
+	//	mutex_lock(&devpriv->drvdata_lock);
 	devpriv->ai_chan = CR_CHAN(chanspec);
 
 	if (wait)
 		udelay(1);
-	mutex_unlock(&devpriv->drvdata_lock);
+	//	mutex_unlock(&devpriv->drvdata_lock);
 }
 
 /*
@@ -1036,12 +1035,12 @@ static void daqgert_ao_set_chan_range(struct comedi_device *dev,
 	uint32_t chanspec, char wait)
 {
 	struct daqgert_private *devpriv = dev->private;
-	mutex_lock(&devpriv->drvdata_lock);
+	//	mutex_lock(&devpriv->drvdata_lock);
 	devpriv->ao_chan = CR_CHAN(chanspec);
 
 	if (wait)
 		udelay(1);
-	mutex_unlock(&devpriv->drvdata_lock);
+	//	mutex_unlock(&devpriv->drvdata_lock);
 }
 
 /*
@@ -1063,6 +1062,7 @@ static void daqgert_ao_put_sample(struct comedi_device *dev,
 	pdata->tx_buff[0] = (0b00110000 | ((chan & 0x01) << 7) | (val_tmp >> 8));
 	spi_write_then_read(spi_data->spi, pdata->tx_buff, 2, pdata->rx_buff, 2); /* Load DAC channel, send two bytes */
 	s->readback[chan] = val;
+	devpriv->ao_count++;
 	mutex_unlock(&devpriv->drvdata_lock);
 	clear_bit(SPI_AO_RUN, &devpriv->state_bits);
 	smp_mb__after_atomic();
@@ -1101,6 +1101,7 @@ static uint32_t daqgert_ai_get_sample(struct comedi_device *dev,
 		pdata->tx_buff[0] = CMD_ZERO;
 		spi_write_then_read(spi_data->spi, pdata->tx_buff, 1, pdata->rx_buff, 1);
 		val += pdata->rx_buff[0] << 8;
+		devpriv->ai_count++;
 	} else { /* Gertboard onboard ADC device */
 		if (devpriv->ai_hunk) { /* for single channel command scans with pre-formatted tx_buffer & transfer array */
 			spi_message_init_with_transfers(&m, &pdata->t[0], hunk_len); /* make the proper message with the transfers */
@@ -1122,6 +1123,7 @@ static uint32_t daqgert_ai_get_sample(struct comedi_device *dev,
 				val += pdata->rx_buff[1] << 1;
 				val += (pdata->rx_buff[0]&0x0f) << 9;
 			}
+			devpriv->ai_count++;
 		}
 	}
 	mutex_unlock(&devpriv->drvdata_lock);
@@ -1192,11 +1194,9 @@ static void daqgert_handle_ao_eoc(struct comedi_device *dev,
 	/* possible munge of data */
 	val = sampl_val;
 	daqgert_ao_put_sample(dev, s, val);
-
 	next_chan = s->async->cur_chan;
 	if (cmd->chanlist[chan] != cmd->chanlist[next_chan])
 		daqgert_ao_set_chan_range(dev, cmd->chanlist[next_chan], 1);
-
 	daqgert_ao_next_chan(dev, s);
 }
 
@@ -2100,14 +2100,15 @@ static int32_t daqgert_ai_rinsn(struct comedi_device *dev,
 	if (unlikely(test_bit(AI_CMD_RUNNING, &devpriv->state_bits)))
 		goto ai_read_exit;
 
-	mutex_lock(&devpriv->drvdata_lock);
+	//	mutex_lock(&devpriv->drvdata_lock);
 	devpriv->ai_hunk = false;
 	devpriv->ai_chan = CR_CHAN(insn->chanspec);
 	/* convert n samples */
 	for (n = 0; n < insn->n; n++) {
 		data[n] = daqgert_ai_get_sample(dev, s);
 	}
-	mutex_unlock(&devpriv->drvdata_lock);
+	//	mutex_unlock(&devpriv->drvdata_lock);
+	ai_count = devpriv->ai_count;
 	ret = 0;
 ai_read_exit:
 	mutex_unlock(&devpriv->cmd_lock);
@@ -2121,6 +2122,7 @@ static int32_t daqgert_ao_winsn(struct comedi_device *dev,
 	struct comedi_subdevice *s,
 	struct comedi_insn *insn, uint32_t * data)
 {
+	struct daqgert_private *devpriv = dev->private;
 	uint32_t chan = CR_CHAN(insn->chanspec);
 	uint32_t n, val = s->readback[chan];
 
@@ -2129,6 +2131,7 @@ static int32_t daqgert_ao_winsn(struct comedi_device *dev,
 		val = data[n];
 		daqgert_ao_put_sample(dev, s, val);
 	}
+	ao_count = devpriv->ao_count;
 	return insn->n;
 }
 
@@ -2691,6 +2694,6 @@ module_exit(daqgert_exit);
 
 MODULE_AUTHOR("Fred Brooks <spam@sma2.rain.com>");
 MODULE_DESCRIPTION("RPi DIO/AI/AO Driver");
-MODULE_VERSION("0.0.32");
+MODULE_VERSION("0.0.33");
 MODULE_LICENSE("GPL");
 MODULE_ALIAS("spi:spigert");
