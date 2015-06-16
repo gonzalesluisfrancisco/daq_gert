@@ -40,7 +40,7 @@ WiringPI
  * 
 
 Devices: [] GERTBOARD (daq_gert)
-Status: inprogress (DIO 95%) (AI 90%) AO (95%) (My code cleanup 90%)
+Status: inprogress (DIO 95%) (AI 95%) AO (95%) (My code cleanup 95%)
 Updated: Jun 2015 12:07:20 +0000
 
 The DAQ-GERT appears in Comedi as a  digital I/O subdevice (0) with
@@ -194,6 +194,7 @@ static const uint32_t SPI_BUFF_SIZE = 3072;
 static const uint32_t MAX_CHANLIST_LEN = 256;
 static const uint32_t CONV_SPEED = 5000; /* 10s of nsecs: the true rate is ~3000/5000 so we need a fixup,  two conversions per mix scan */
 static const uint32_t CONV_SPEED_FIX = 19; /* usecs: round it up to ~50usecs total with this */
+static const uint32_t CONV_SPEED_FIX_FREERUN = 1; /* usecs: round it up to ~50usecs total with this */
 static const uint32_t CONV_SPEED_FIX_FAST = 9; /* used for the MCP3002 ADC */
 static const uint32_t MAX_BOARD_RATE = 1000000000;
 static const uint8_t CS_CHANGE_DELAY_USECS = 1;
@@ -375,6 +376,7 @@ struct comedi_spigert {
 	uint8_t *rx_buff;
 	struct spi_transfer t[HUNK_LEN];
 	uint32_t delay_usecs;
+	uint32_t delay_usecs_freerun;
 	uint32_t mix_delay_usecs;
 	uint32_t delay_usecs_calc;
 	uint32_t mix_delay_usecs_calc;
@@ -1007,7 +1009,7 @@ static int32_t daqgert_ao_thread_function(void *data)
 }
 
 /*
- * AI async thread 
+ * AI async thread timer
  * 
  */
 static void daqgert_ai_start_pacer(struct comedi_device *dev, bool load_timers)
@@ -1046,7 +1048,7 @@ static void daqgert_ao_set_chan_range(struct comedi_device *dev,
 }
 
 /*
- * transfers on value to the DAC device
+ * transfers one value to the DAC device
  */
 static void daqgert_ao_put_sample(struct comedi_device *dev,
 	struct comedi_subdevice *s, uint32_t val)
@@ -1716,7 +1718,6 @@ static int32_t daqgert_ao_cmdtest(struct comedi_device *dev,
 	if (cmd->scan_begin_src == TRIG_FOLLOW) /* internal trigger */
 		err |= cfc_check_trigger_arg_is(&cmd->scan_begin_arg, 0);
 
-
 	if (cmd->scan_begin_src == TRIG_TIMER) {
 		i = 1;
 		/* find a power of 2 for the number of channels */
@@ -1796,7 +1797,10 @@ static int32_t daqgert_ai_delay_rate(struct comedi_device *dev, int32_t rate, in
 	} else {
 		spacing_usecs = 0;
 	}
-	spacing_usecs += CONV_SPEED_FIX;
+	if (devpriv->ai_hunk)
+		spacing_usecs += CONV_SPEED_FIX;
+	else
+		spacing_usecs += CONV_SPEED_FIX_FREERUN;
 	if (device_type == MCP3002)
 		spacing_usecs += CONV_SPEED_FIX_FAST;
 	//dev_info(dev->class_dev, "ai rate %i, spacing usecs %i\n", rate, spacing_usecs);
@@ -1912,7 +1916,7 @@ static int32_t daqgert_ai_cmdtest(struct comedi_device *dev,
 }
 
 /*
- * DMA timer that's not currently useful
+ * Possible DMA timer that's not currently useful except for speed benchmarks
  */
 static void my_timer_ai_callback(unsigned long data)
 {
@@ -1927,8 +1931,10 @@ static void my_timer_ai_callback(unsigned long data)
 	daqgert_ai_start_pacer(dev, true);
 	if (speed_test) {
 		if (!(time_marks++ % 1000))
-			dev_info(dev->class_dev, "speed testing %i: count %i, hunk %i, length %i\n",
-			time_marks, ai_count, hunk_count, hunk_len);
+			dev_info(dev->class_dev, "speed testing %i: count %i, hunk %i, length %i 1Mhz timer value 0x%x:0x%x\n",
+			time_marks, ai_count, hunk_count, hunk_len,
+			(uint32_t) ioread32(devpriv->timer_1mhz + 2),
+			(uint32_t) ioread32(devpriv->timer_1mhz + 1));
 	}
 }
 

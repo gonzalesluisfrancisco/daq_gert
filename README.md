@@ -2,7 +2,8 @@ daq_gert
 ========
 Comedi driver for RPi ai, ao gpio for the  gertboard daq_gert.c
 Driver: "experimental" daq_gert in progress ... for 4.+ kernels with DT
-on the RPi2 with the bcm2835 SPI master
+on the RPi2 with the bcm2835 SPI master with async Comedi commands and triggers
+The single processor version for the RPi has only the sync analog sample capability
 **********
 Device-tree operation is now working:  Use overlay rpi-spigert-overlay.dtb
 to load the device module in /boot/config.txt: 
@@ -24,7 +25,10 @@ on ADC samples is limited to about 20,000 S/sec on a RPi2
 
 
 Notes:
-This driver currently requires a kernel patch to gain direct SPI access at the kernel level. 
+This driver currently requires a kernel patch to gain direct SPI access at the kernel level
+with an optional cs_change_usecs patch to spi.c and spi.h 
+needed to reduce delays in cs_change=true transfers
+comment out #define CS_CHANGE_USECS in the daq_gert.c source if you don't use this patch
 
  * git clone https://github.com/raspberrypi/linux.git in /usr/src for the latest
  * linux kernel source tree
@@ -33,6 +37,8 @@ This driver currently requires a kernel patch to gain direct SPI access at the k
  * copy the daq_gert.diff patch file from the daq_gert directory to the source
  * directory 
  * copy RPi2.config_4.0.y from the daq_gert directory to .config in the Linux source directory
+ * or
+ * copy RPi.config_4.0.y from the daq_gert directory to .config in the Linux source directory
  * 
  * patch the kernel source with the daq_gert.diff patch file
  * patch -p1 <daq_gert.diff
@@ -71,21 +77,18 @@ gert_autolocal options:
 0 = don't autoload (mainly for testing)
 1 = load and configure daq_gert on boot (default)
 
+All modules parameters can read in  /sys/module/daq_gert/parameters
+
 
 Comments:
 Things are looking pretty good for the MCP3X02 ADC driver section of the code. 
-I can get a 50usec per sample avg over a 1 second burst period using xoscope 
-with 25usecs for wire-speed and ~25 for CPU overhead without DMA. 
+I can get a 30usec per sample avg over a 1 second burst period using xoscope 
+with 26usecs for wire-speed and ~5 for CPU overhead without DMA for 12bit reads. 
 Without DMA the output data stream is not totally continuous at full speed as I 
-have to stop the SPI transfer to process and copy data but that can be improved  
-with a double-buffer on the SPI side by using another thread and core. 
+have to stop the SPI transfer to process and copy data.
 With a driver request for less than full speed sample rates the software inserts 
 calculated delays between samples (or groups of samples during a two channel scan) 
-to adjust the sample to the correct time-splice. I'm thinking about having the 
-option to always run a full speed and then integrate the extra samples 
-(costing more CPU cycles) into one per the requested time-splice. 
-(runs at 20,000 S/sec, requests for 1000 S/sec, driver integrates every 
-20 samples to 1 for output to the data consumer) 
+to adjust the sample to the correct time-splice.
 
 *  PIC Slave Info:
 Currently on runs in a slow polled mode with the PIC18 but the plan is to offload 
