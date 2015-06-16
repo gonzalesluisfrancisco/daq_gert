@@ -145,6 +145,11 @@ The output range is 0 to 4095 for 0.0 to 2.048 onboard devices (output resolutio
 #include <linux/list.h>
 #include "8253.h"
 
+/*
+ * for optional SPI framework patch
+ */
+#define CS_CHANGE_USECS
+
 /* 
  * this is the Comedi SPI device queue 
  */
@@ -191,6 +196,7 @@ static const uint32_t CONV_SPEED = 5000; /* 10s of nsecs: the true rate is ~3000
 static const uint32_t CONV_SPEED_FIX = 19; /* usecs: round it up to ~50usecs total with this */
 static const uint32_t CONV_SPEED_FIX_FAST = 9; /* used for the MCP3002 ADC */
 static const uint32_t MAX_BOARD_RATE = 1000000000;
+static const uint8_t CS_CHANGE_DELAY_USECS = 1;
 
 static const uint8_t CSnA = 0; /* GPIO 8  Gertboard ADC */
 static const uint8_t CSnB = 1; /* GPIO 7  Gertboard DAC */
@@ -1020,12 +1026,10 @@ static void daqgert_ai_set_chan_range(struct comedi_device *dev,
 	uint32_t chanspec, char wait)
 {
 	struct daqgert_private *devpriv = dev->private;
-	//	mutex_lock(&devpriv->drvdata_lock);
 	devpriv->ai_chan = CR_CHAN(chanspec);
 
 	if (wait)
 		udelay(1);
-	//	mutex_unlock(&devpriv->drvdata_lock);
 }
 
 /*
@@ -1035,12 +1039,10 @@ static void daqgert_ao_set_chan_range(struct comedi_device *dev,
 	uint32_t chanspec, char wait)
 {
 	struct daqgert_private *devpriv = dev->private;
-	//	mutex_lock(&devpriv->drvdata_lock);
 	devpriv->ao_chan = CR_CHAN(chanspec);
 
 	if (wait)
 		udelay(1);
-	//	mutex_unlock(&devpriv->drvdata_lock);
 }
 
 /*
@@ -1270,7 +1272,6 @@ static int32_t transfer_to_hunk_buf(struct comedi_device *dev,
 			if (i % 2) { /* use an even/odd mix of adc devices */
 				chan = devpriv->mix_chan;
 				delay_usecs = pdata->mix_delay_usecs;
-				//				delay_usecs = 50;
 			} else {
 				chan = devpriv->ai_chan;
 				delay_usecs = 0;
@@ -1291,11 +1292,13 @@ static int32_t transfer_to_hunk_buf(struct comedi_device *dev,
 		pdata->t[i].len = len;
 		pdata->t[i].tx_buf = tx_buff;
 		pdata->t[i].rx_buf = rx_buff;
-		pdata->t[i].delay_usecs = delay_usecs;
 		/*
-		 * cs_change_usecs is a local addition to spi.h and spi.c
+		 * cs_change_usecs is a optional addition to spi.h and spi.c
 		 */
-		pdata->t[i].cs_change_usecs = 1;
+#ifdef	CS_CHANGE_USECS
+		pdata->t[i].delay_usecs = delay_usecs;
+		pdata->t[i].cs_change_usecs = CS_CHANGE_DELAY_USECS;
+#endif
 		tx_buff += len; /* move the buffer pointers to the next transfer slot in the buffer memory */
 		rx_buff += len;
 	}
@@ -2100,14 +2103,12 @@ static int32_t daqgert_ai_rinsn(struct comedi_device *dev,
 	if (unlikely(test_bit(AI_CMD_RUNNING, &devpriv->state_bits)))
 		goto ai_read_exit;
 
-	//	mutex_lock(&devpriv->drvdata_lock);
 	devpriv->ai_hunk = false;
 	devpriv->ai_chan = CR_CHAN(insn->chanspec);
 	/* convert n samples */
 	for (n = 0; n < insn->n; n++) {
 		data[n] = daqgert_ai_get_sample(dev, s);
 	}
-	//	mutex_unlock(&devpriv->drvdata_lock);
 	ai_count = devpriv->ai_count;
 	ret = 0;
 ai_read_exit:
