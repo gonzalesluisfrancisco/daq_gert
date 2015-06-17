@@ -1569,12 +1569,10 @@ static int32_t daqgert_ai_cmd(struct comedi_device *dev, struct comedi_subdevice
 	if (devpriv->hunk && !spi_data->pic18) { /* check if we can use HUNK transfer */
 		devpriv->ai_hunk = true;
 		devpriv->ai_mix = false;
-		devpriv->mix_chan = CR_CHAN(cmd->chanlist[0]); /* set single channel hunk chan */
 		for (i = 1; i < cmd->chanlist_len; i++) {
 			if (cmd->chanlist[0] != cmd->chanlist[i]) {
-				/* we can't use HUNK :-( */
+				/* we might not be able to use HUNK :-( */
 				devpriv->ai_hunk = false;
-				dev_info(dev->class_dev, "hunk ai mode transfers disabled\n");
 				break;
 			}
 		}
@@ -1583,11 +1581,14 @@ static int32_t daqgert_ai_cmd(struct comedi_device *dev, struct comedi_subdevice
 			devpriv->ai_hunk = true;
 			devpriv->ai_mix = true;
 			devpriv->mix_chan = CR_CHAN(cmd->chanlist[1]);
-			dev_info(dev->class_dev, "hunk ai mix_mode transfers enabled\n");
+			dev_info(dev->class_dev, "hunk mix_mode ai transfers enabled\n");
 		}
 	} else {
 		devpriv->ai_hunk = false;
 	}
+
+	if (!devpriv->ai_hunk)
+		dev_info(dev->class_dev, "hunk ai mode transfers disabled\n");
 
 	s->async->cur_chan = 0;
 	daqgert_ai_set_chan_range(dev, cmd->chanlist[s->async->cur_chan], 1);
