@@ -401,18 +401,18 @@ struct daqgert_private {
 	unsigned long state_bits;
 	uint32_t ai_rate_max, ao_rate_max, ao_timer, ao_counter;
 	uint32_t ai_conv_delay_usecs, ai_conv_delay_10nsecs, ai_cmd_delay_usecs;
-	int32_t ai_chan, ao_chan, ai_count,
-	ao_count, hunk_count, ai_cmd_canceled,
-	ao_cmd_canceled;
+	int32_t ai_chan, ao_chan, ai_count, ao_count, hunk_count;
 	struct mutex drvdata_lock, cmd_lock;
 	uint32_t val;
-	uint16_t hunk : 1;
-	uint16_t ai_hunk : 1;
+	uint16_t use_hunking : 1;
+	uint32_t ai_hunk;
 	uint16_t ai_mix : 1;
 	uint16_t ai_neverending : 1;
 	uint16_t ao_neverending : 1;
 	uint16_t timer : 1;
 	uint16_t run : 1;
+	uint16_t ai_cmd_canceled : 1;
+	uint16_t ao_cmd_canceled : 1;
 	int32_t mix_chan;
 	uint32_t ai_scans; /*  length of scanlist */
 	int32_t ai_scans_left; /*  number left to finish */
@@ -950,7 +950,7 @@ static int32_t daqgert_ai_thread_function(void *data)
 				return 0;
 		}
 		if (likely(test_bit(AI_CMD_RUNNING, &devpriv->state_bits))) {
-			if (devpriv->ai_hunk) {
+			if (likely(devpriv->ai_hunk)) {
 				smp_mb__before_atomic();
 				set_bit(SPI_AI_RUN, &devpriv->state_bits);
 				smp_mb__after_atomic();
@@ -1206,31 +1206,53 @@ static void daqgert_handle_ao_eoc(struct comedi_device *dev,
 	daqgert_ao_next_chan(dev, s);
 }
 
+
 /*
- * moves the data from the SPI buffers into the Comedi buffer
+ * moves the data from the SPI buffers into the Comedi buffer 10bit
  */
-static void transfer_from_hunk_buf(struct comedi_device *dev,
+static void transfer_from_hunk_buf_3002(struct comedi_device *dev,
 	struct comedi_subdevice *s, uint8_t *bufptr,
-	uint32_t bufpos, uint32_t len, uint32_t offset)
+	uint32_t bufpos, uint32_t len)
 {
 	struct comedi_cmd *cmd = &s->async->cmd;
-	struct spi_param_type *spi_data = s->private;
 	uint32_t i, val;
 
 	s->async->cur_chan = 0; /* reset the hunk start chan */
 	for (i = 0; i < len; i++) { /* count up from zero to access the buffer */
-		if (spi_data->device_type == MCP3002) {
-			val = ((bufptr[0 + bufpos] << 7) | (bufptr[1 + bufpos] >> 1)) & 0x3FF;
-		} else {
-			val = (bufptr[2 + bufpos]&0x80) >> 7;
-			val += bufptr[1 + bufpos] << 1;
-			val += (bufptr[0 + bufpos]&0x0f) << 9;
-		}
+		val = ((bufptr[0 + bufpos] << 7) | (bufptr[1 + bufpos] >> 1)) & 0x3FF;
 		comedi_buf_write_samples(s, &val, 1);
-		bufpos += offset;
+		bufpos += 2;
 
-		if (cmd->stop_src == TRIG_COUNT &&
-			s->async->scans_done >= cmd->stop_arg) {
+		if (unlikely(cmd->stop_src == TRIG_COUNT &&
+			s->async->scans_done >= cmd->stop_arg)) {
+			daqgert_ai_cancel(dev, s);
+			s->async->events |= COMEDI_CB_EOA;
+			comedi_handle_events(dev, s);
+			break;
+		}
+	}
+}
+
+/*
+ * moves the data from the SPI buffers into the Comedi buffer 12bit
+ */
+static void transfer_from_hunk_buf_3202(struct comedi_device *dev,
+	struct comedi_subdevice *s, uint8_t *bufptr,
+	uint32_t bufpos, uint32_t len)
+{
+	struct comedi_cmd *cmd = &s->async->cmd;
+	uint32_t i, val;
+
+	s->async->cur_chan = 0; /* reset the hunk start chan */
+	for (i = 0; i < len; i++) { /* count up from zero to access the buffer */
+		val = (bufptr[2 + bufpos]&0x80) >> 7;
+		val += bufptr[1 + bufpos] << 1;
+		val += (bufptr[0 + bufpos]&0x0f) << 9;
+		comedi_buf_write_samples(s, &val, 1);
+		bufpos += 3;
+
+		if (unlikely(cmd->stop_src == TRIG_COUNT &&
+			s->async->scans_done >= cmd->stop_arg)) {
 			daqgert_ai_cancel(dev, s);
 			s->async->events |= COMEDI_CB_EOA;
 			comedi_handle_events(dev, s);
@@ -1276,7 +1298,6 @@ static int32_t transfer_to_hunk_buf(struct comedi_device *dev,
 			if (i % 2) { /* use an even/odd mix of adc devices */
 				chan = devpriv->mix_chan;
 				delay_usecs = pdata->mix_delay_usecs;
-				////				delay_usecs = 19;
 			} else {
 				chan = devpriv->ai_chan;
 				delay_usecs = 0;
@@ -1343,7 +1364,13 @@ static void daqgert_handle_ai_hunk(struct comedi_device *dev,
 	}
 
 	devpriv->ai_count += len;
-	transfer_from_hunk_buf(dev, s, bufptr, bufpos, len, daqgert_device_offset(spi_data->device_type));
+	/*
+	 * two routines to optimize speed in each
+	 */
+	if (spi_data->device_type == MCP3202)
+		transfer_from_hunk_buf_3202(dev, s, bufptr, bufpos, len);
+	else
+		transfer_from_hunk_buf_3002(dev, s, bufptr, bufpos, len);
 	/* debug comment */
 	if (cmd->stop_src == TRIG_COUNT)
 		dev_info(dev->class_dev, "From hunk %i %i\n", s->async->scans_done, cmd->stop_arg);
@@ -1568,7 +1595,7 @@ static int32_t daqgert_ai_cmd(struct comedi_device *dev, struct comedi_subdevice
 	}
 	devpriv->ai_scans_left = devpriv->ai_scans; /* a count down */
 
-	if (devpriv->hunk && !spi_data->pic18) { /* check if we can use HUNK transfer */
+	if (devpriv->use_hunking && !spi_data->pic18) { /* check if we can use HUNK transfer */
 		devpriv->ai_hunk = true;
 		devpriv->ai_mix = false;
 		devpriv->mix_chan = CR_CHAN(cmd->chanlist[0]); /* set single channel hunk chan */
@@ -1800,7 +1827,7 @@ static int32_t daqgert_ai_delay_rate(struct comedi_device *dev, int32_t rate, in
 	} else {
 		spacing_usecs = 0;
 	}
-	if (devpriv->hunk)
+	if (devpriv->use_hunking)
 		spacing_usecs += CONV_SPEED_FIX;
 	else
 		spacing_usecs += CONV_SPEED_FIX_FREERUN;
@@ -2171,7 +2198,7 @@ static int32_t daqgert_create_thread(struct comedi_device *dev, struct daqgert_p
 	const char hunk_thread_name[] = "daqgerth", thread_name[] = "daqgert";
 	const char *name_ptr;
 
-	if (devpriv->hunk)
+	if (devpriv->use_hunking)
 		name_ptr = hunk_thread_name;
 	else
 		name_ptr = thread_name;
@@ -2225,7 +2252,7 @@ static int32_t daqgert_auto_attach(struct comedi_device *dev, unsigned long unus
 		devpriv->smp = true;
 	} else
 		use_hunking = false;
-	devpriv->hunk = use_hunking;
+	devpriv->use_hunking = use_hunking;
 
 	/*
 	 * loop the spi device queue for needed devices
@@ -2238,7 +2265,7 @@ static int32_t daqgert_auto_attach(struct comedi_device *dev, unsigned long unus
 		/*
 		 * use smaller SPI buffers if we can't hunk
 		 */
-		if (!devpriv->hunk) {
+		if (!devpriv->use_hunking) {
 			if (pdata->rx_buff)
 				kfree(pdata->rx_buff);
 			if (pdata->tx_buff)
@@ -2387,7 +2414,7 @@ static int32_t daqgert_auto_attach(struct comedi_device *dev, unsigned long unus
 
 	if (devpriv->num_subdev > 1) { /* we have the SPI ADC DAC on board */
 		/* daq_gert ai */
-		if (devpriv->hunk)
+		if (devpriv->use_hunking)
 			dev_info(dev->class_dev, "hunk ai transfers enabled, length: %i\n", hunk_len);
 		s = &dev->subdevices[1];
 		s->private = devpriv->ai_spi; /* SPI adc comedi state */
