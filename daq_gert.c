@@ -1091,7 +1091,7 @@ static uint32_t daqgert_ai_get_sample(struct comedi_device *dev,
 	chan = CR_CHAN(devpriv->ai_chan);
 	/* Make SPI messages for the type of ADC are we talking to */
 	/* The PIC Slave needs 8 bit transfers only */
-	if (spi_data->pic18) { /*  PIC18 SPI slave device. NO MULTI_MODE ever */
+	if (unlikely(spi_data->pic18)) { /*  PIC18 SPI slave device. NO MULTI_MODE ever */
 		udelay(devpriv->ai_cmd_delay_usecs); /* ADC conversion delay */
 		pdata->tx_buff[0] = CMD_ADC_GO + chan;
 		spi_write_then_read(spi_data->spi, pdata->tx_buff, 1, pdata->rx_buff, 1); /* rx buffer has old data */
@@ -1108,7 +1108,7 @@ static uint32_t daqgert_ai_get_sample(struct comedi_device *dev,
 		val += pdata->rx_buff[0] << 8;
 		devpriv->ai_count++;
 	} else { /* Gertboard onboard ADC device */
-		if (devpriv->ai_hunk) { /* for single channel command scans with pre-formatted tx_buffer & transfer array */
+		if (likely(devpriv->ai_hunk)) { /* for single channel command scans with pre-formatted tx_buffer & transfer array */
 			spi_message_init_with_transfers(&m, &pdata->t[0], hunk_len); /* make the proper message with the transfers */
 		} else {
 			pdata->one_t.len = daqgert_device_offset(spi_data->device_type);
@@ -1119,7 +1119,7 @@ static uint32_t daqgert_ai_get_sample(struct comedi_device *dev,
 		spi_sync_locked(spi_data->spi, &m); /* exchange SPI data */
 		spi_bus_unlock(spi_data->spi->master);
 		/* ADC type code result munging */
-		if (devpriv->ai_hunk) { /* for single channel command scans */
+		if (likely(devpriv->ai_hunk)) { /* for single channel command scans */
 			val = 0; /* data in the buffers will be sent to comedi buffers later */
 		} else {
 			if (spi_data->device_type == MCP3002) {
@@ -1276,6 +1276,7 @@ static int32_t transfer_to_hunk_buf(struct comedi_device *dev,
 			if (i % 2) { /* use an even/odd mix of adc devices */
 				chan = devpriv->mix_chan;
 				delay_usecs = pdata->mix_delay_usecs;
+				////				delay_usecs = 19;
 			} else {
 				chan = devpriv->ai_chan;
 				delay_usecs = 0;
@@ -1570,6 +1571,7 @@ static int32_t daqgert_ai_cmd(struct comedi_device *dev, struct comedi_subdevice
 	if (devpriv->hunk && !spi_data->pic18) { /* check if we can use HUNK transfer */
 		devpriv->ai_hunk = true;
 		devpriv->ai_mix = false;
+		devpriv->mix_chan = CR_CHAN(cmd->chanlist[0]); /* set single channel hunk chan */
 		for (i = 1; i < cmd->chanlist_len; i++) {
 			if (cmd->chanlist[0] != cmd->chanlist[i]) {
 				/* we might not be able to use HUNK :-( */
@@ -1798,13 +1800,13 @@ static int32_t daqgert_ai_delay_rate(struct comedi_device *dev, int32_t rate, in
 	} else {
 		spacing_usecs = 0;
 	}
-	if (devpriv->ai_hunk)
+	if (devpriv->hunk)
 		spacing_usecs += CONV_SPEED_FIX;
 	else
 		spacing_usecs += CONV_SPEED_FIX_FREERUN;
 	if (device_type == MCP3002)
 		spacing_usecs += CONV_SPEED_FIX_FAST;
-	//dev_info(dev->class_dev, "ai rate %i, spacing usecs %i\n", rate, spacing_usecs);
+	//	dev_info(dev->class_dev, "ai rate %i, spacing usecs %i\n", rate, spacing_usecs);
 	return spacing_usecs;
 }
 
@@ -1868,7 +1870,7 @@ static int32_t daqgert_ai_cmdtest(struct comedi_device *dev,
 		tmp_timer = ((uint32_t) (cmd->scan_begin_arg / board->ai_ns_min)) * board->ai_ns_min;
 		pdata->delay_usecs_calc = daqgert_ai_delay_rate(dev, tmp_timer, spi_data->device_type, speed_test);
 		pdata->mix_delay_usecs_calc = pdata->delay_usecs_calc * 2; /* double delay with zero for the first scan chan */
-		//		dev_info(dev->class_dev, "ai cmd spacing usecs %i, mix %i\n", pdata->delay_usecs, pdata->mix_delay_usecs);
+		//				dev_info(dev->class_dev, "ai cmd spacing usecs %i, mix %i\n", pdata->delay_usecs, pdata->mix_delay_usecs);
 		err |= cfc_check_trigger_arg_is(&cmd->scan_begin_arg, tmp_timer);
 	}
 
@@ -1906,7 +1908,7 @@ static int32_t daqgert_ai_cmdtest(struct comedi_device *dev,
 			&arg, cmd->flags);
 		pdata->delay_usecs_calc = daqgert_ai_delay_rate(dev, arg, spi_data->device_type, speed_test);
 		pdata->mix_delay_usecs_calc = pdata->delay_usecs_calc * 2; /* double delay with zero for the first scan chan */
-		//		dev_info(dev->class_dev, "ai cmd spacing usecs %i, mix %i\n", pdata->delay_usecs, pdata->mix_delay_usecs);
+		//				dev_info(dev->class_dev, "ai cmd spacing usecs %i, mix %i\n", pdata->delay_usecs, pdata->mix_delay_usecs);
 		err |= cfc_check_trigger_arg_is(&cmd->convert_arg, arg);
 	}
 
@@ -2289,7 +2291,7 @@ static int32_t daqgert_auto_attach(struct comedi_device *dev, unsigned long unus
 	devpriv->ai_spi = slave_spi_adc;
 	devpriv->ao_spi = slave_spi_dac;
 	devpriv->ai_conv_delay_10nsecs = CONV_SPEED;
-	devpriv->timing_lockout = 0;
+	devpriv->timing_lockout = false;
 	devpriv->ai_rate_max = MAX_BOARD_RATE; /* lowest samples per second */
 	devpriv->ao_rate_max = MAX_BOARD_RATE;
 
