@@ -85,7 +85,7 @@ Things are looking pretty good for the MCP3X02 ADC driver section of the code.
 I can get a 30usec per sample avg over a 1 second burst period using xoscope 
 with 26usecs for wire-speed and ~5 for CPU overhead without DMA for 12bit reads. 
 Without DMA the output data stream is not totally continuous at full speed as I 
-have to stop the SPI transfer to process and copy data.
+have to stop the SPI transfer to process and copy data (about 500us to process 1000 samples).
 With a driver request for less than full speed sample rates the software inserts 
 calculated delays between samples (or groups of samples during a two channel scan) 
 to adjust the sample to the correct time-splice.
