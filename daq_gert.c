@@ -1110,6 +1110,11 @@ static uint32_t daqgert_ai_get_sample(struct comedi_device *dev,
 		if (devpriv->ai_hunk) { /* for single channel command scans with pre-formatted tx_buffer & transfer array */
 			spi_message_init_with_transfers(&m, &pdata->t[0], hunk_len); /* make the proper message with the transfers */
 		} else {
+			pdata->t[0].cs_change = false;
+			pdata->t[0].delay_usecs = 0;
+			pdata->t[0].len = daqgert_device_offset(spi_data->device_type);
+			pdata->t[0].tx_buf = pdata->tx_buff;
+			pdata->t[0].rx_buf = pdata->rx_buff;
 			pdata->tx_buff[0] = 0b11010000 | ((chan & 0x01) << 5);
 			spi_message_init_with_transfers(&m, &pdata->t[0], 1); /* make the proper message with the transfer */
 		}
@@ -1294,11 +1299,11 @@ static int32_t transfer_to_hunk_buf(struct comedi_device *dev,
 		pdata->t[i].len = len;
 		pdata->t[i].tx_buf = tx_buff;
 		pdata->t[i].rx_buf = rx_buff;
+		pdata->t[i].delay_usecs = delay_usecs;
 		/*
 		 * cs_change_usecs is a optional addition to spi.h and spi.c
 		 */
 #ifdef	CS_CHANGE_USECS
-		pdata->t[i].delay_usecs = delay_usecs;
 		pdata->t[i].cs_change_usecs = CS_CHANGE_DELAY_USECS;
 #endif
 		tx_buff += len; /* move the buffer pointers to the next transfer slot in the buffer memory */
