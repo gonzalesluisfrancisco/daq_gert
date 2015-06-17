@@ -191,6 +191,7 @@ static const uint32_t PICSL10 = 2;
 static const uint32_t PICSL12 = 0;
 
 static const uint32_t SPI_BUFF_SIZE = 3072;
+static const uint32_t SPI_BUFF_SIZE_NOHUNK = 16;
 static const uint32_t MAX_CHANLIST_LEN = 256;
 static const uint32_t CONV_SPEED = 5000; /* 10s of nsecs: the true rate is ~3000/5000 so we need a fixup,  two conversions per mix scan */
 static const uint32_t CONV_SPEED_FIX = 19; /* usecs: round it up to ~50usecs total with this */
@@ -2214,6 +2215,16 @@ static int32_t daqgert_auto_attach(struct comedi_device *dev, unsigned long unus
 
 	dev->board_ptr = thisboard;
 
+	devpriv->cpu_nodes = num_online_cpus();
+	if (devpriv->cpu_nodes >= 4) {
+		dev_info(dev->class_dev, "%d cpu(s) online for threads\n", devpriv->cpu_nodes);
+		devpriv->ai_node = thisboard->ai_node;
+		devpriv->ao_node = thisboard->ao_node;
+		devpriv->smp = true;
+	} else
+		use_hunking = false;
+	devpriv->hunk = use_hunking;
+
 	/*
 	 * loop the spi device queue for needed devices
 	 */
@@ -2222,6 +2233,25 @@ static int32_t daqgert_auto_attach(struct comedi_device *dev, unsigned long unus
 
 	list_for_each_entry(pdata, &device_list, device_entry)
 	{
+		/*
+		 * use smaller SPI buffers if we can't hunk
+		 */
+		if (!devpriv->hunk) {
+			if (pdata->rx_buff)
+				kfree(pdata->rx_buff);
+			if (pdata->tx_buff)
+				kfree(pdata->tx_buff);
+			pdata->tx_buff = kzalloc(SPI_BUFF_SIZE_NOHUNK, GFP_KERNEL | GFP_DMA);
+			if (!pdata->tx_buff) {
+				ret = -ENOMEM;
+				goto daqgert_kfree_exit;
+			}
+			pdata->rx_buff = kzalloc(SPI_BUFF_SIZE_NOHUNK, GFP_KERNEL | GFP_DMA);
+			if (!pdata->rx_buff) {
+				ret = -ENOMEM;
+				goto daqgert_kfree_tx_exit;
+			}
+		}
 		if (pdata->slave.spi->chip_select == thisboard->ai_cs) {
 			slave_spi_adc = &pdata->slave;
 			pdata->slave.spi->max_speed_hz = thisboard->ai_max_speed_hz;
@@ -2287,16 +2317,6 @@ static int32_t daqgert_auto_attach(struct comedi_device *dev, unsigned long unus
 		dev_err(dev->class_dev, "invalid 1mhz timer base address!\n");
 		return -EINVAL;
 	}
-
-	devpriv->cpu_nodes = num_online_cpus();
-	if (devpriv->cpu_nodes >= 4) {
-		dev_info(dev->class_dev, "%d cpu(s) online for threads\n", devpriv->cpu_nodes);
-		devpriv->ai_node = thisboard->ai_node;
-		devpriv->ao_node = thisboard->ao_node;
-		devpriv->smp = true;
-	} else
-		use_hunking = false;
-	devpriv->hunk = use_hunking;
 
 	/* 
 	 * setup the pins in a static matter for now
@@ -2441,6 +2461,11 @@ static int32_t daqgert_auto_attach(struct comedi_device *dev, unsigned long unus
 		(uint32_t) ioread32(devpriv->timer_1mhz + 1));
 
 	return 0;
+
+daqgert_kfree_tx_exit:
+	kfree(pdata->tx_buff);
+daqgert_kfree_exit:
+	return ret;
 }
 
 static void daqgert_detach(struct comedi_device * dev)
@@ -2705,6 +2730,6 @@ module_exit(daqgert_exit);
 
 MODULE_AUTHOR("Fred Brooks <spam@sma2.rain.com>");
 MODULE_DESCRIPTION("RPi DIO/AI/AO Driver");
-MODULE_VERSION("0.0.33");
+MODULE_VERSION("0.0.34");
 MODULE_LICENSE("GPL");
 MODULE_ALIAS("spi:spigert");
