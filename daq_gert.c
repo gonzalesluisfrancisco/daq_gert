@@ -1593,13 +1593,11 @@ static int32_t daqgert_ai_cmd(struct comedi_device *dev, struct comedi_subdevice
 	s->async->cur_chan = 0;
 	daqgert_ai_set_chan_range(dev, cmd->chanlist[s->async->cur_chan], 1);
 
-	/* don't we want wake up every scan? */
+	/* want wake up every scan? */
 	if (cmd->flags & CMDF_WAKE_EOS) {
 		/* HUNK is useless for this situation */
-		if (cmd->chanlist_len == 1) {
-			devpriv->ai_hunk = false;
-			dev_info(dev->class_dev, "all hunk ai mode transfers disabled from channel list length %d\n", cmd->chanlist_len);
-		}
+		devpriv->ai_hunk = false;
+		dev_info(dev->class_dev, "all hunk ai mode transfers disabled from CMDF_WAKE_EOS\n");
 	}
 	if (devpriv->timing_lockout) {
 		devpriv->ai_hunk = false;
