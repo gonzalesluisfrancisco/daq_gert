@@ -374,7 +374,7 @@ struct spi_param_type {
 struct comedi_spigert {
 	uint8_t *tx_buff;
 	uint8_t *rx_buff;
-	struct spi_transfer t[HUNK_LEN];
+	struct spi_transfer t[HUNK_LEN], one_t;
 	uint32_t delay_usecs;
 	uint32_t delay_usecs_freerun;
 	uint32_t mix_delay_usecs;
@@ -1110,13 +1110,9 @@ static uint32_t daqgert_ai_get_sample(struct comedi_device *dev,
 		if (devpriv->ai_hunk) { /* for single channel command scans with pre-formatted tx_buffer & transfer array */
 			spi_message_init_with_transfers(&m, &pdata->t[0], hunk_len); /* make the proper message with the transfers */
 		} else {
-			pdata->t[0].cs_change = false;
-			pdata->t[0].delay_usecs = 0;
-			pdata->t[0].len = daqgert_device_offset(spi_data->device_type);
-			pdata->t[0].tx_buf = pdata->tx_buff;
-			pdata->t[0].rx_buf = pdata->rx_buff;
+			pdata->one_t.len = daqgert_device_offset(spi_data->device_type);
 			pdata->tx_buff[0] = 0b11010000 | ((chan & 0x01) << 5);
-			spi_message_init_with_transfers(&m, &pdata->t[0], 1); /* make the proper message with the transfer */
+			spi_message_init_with_transfers(&m, &pdata->one_t, 1); /* make the proper message with the transfer */
 		}
 		spi_bus_lock(spi_data->spi->master);
 		spi_sync_locked(spi_data->spi, &m); /* exchange SPI data */
@@ -2233,12 +2229,16 @@ static int32_t daqgert_auto_attach(struct comedi_device *dev, unsigned long unus
 			spi_setup(pdata->slave.spi);
 			dev_info(dev->class_dev, "setup: spi cd %d: %d Hz: assigned to adc devices\n",
 				pdata->slave.spi->chip_select, pdata->slave.spi->max_speed_hz);
+			pdata->one_t.tx_buf = pdata->tx_buff;
+			pdata->one_t.rx_buf = pdata->rx_buff;
 		} else {
 			slave_spi_dac = &pdata->slave;
 			pdata->slave.spi->max_speed_hz = thisboard->ao_max_speed_hz;
 			spi_setup(pdata->slave.spi);
 			dev_info(dev->class_dev, "setup: spi cd %d: %d Hz: assigned to dac devices\n",
 				pdata->slave.spi->chip_select, pdata->slave.spi->max_speed_hz);
+			pdata->one_t.tx_buf = pdata->tx_buff;
+			pdata->one_t.rx_buf = pdata->rx_buff;
 		}
 	}
 
