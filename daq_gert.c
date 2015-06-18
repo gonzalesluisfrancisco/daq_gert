@@ -132,7 +132,6 @@ The output range is 0 to 4095 for 0.0 to 2.048 onboard devices (output resolutio
  */
 
 #include "../comedidev.h"
-//#include "comedi_fc.h"
 #include <linux/interrupt.h>
 #include <linux/kernel.h>
 #include <linux/module.h>
@@ -143,7 +142,7 @@ The output range is 0 to 4095 for 0.0 to 2.048 onboard devices (output resolutio
 #include <linux/device.h>
 #include <linux/timer.h>
 #include <linux/list.h>
-#include "8253.h"
+#include "comedi_8254.h"
 
 /*
  * for optional SPI framework patch
@@ -429,6 +428,7 @@ struct daqgert_private {
 	int32_t ao_node;
 	uint32_t cpu_nodes;
 	bool smp;
+	struct comedi_8254 pacer;
 };
 
 static int32_t daqgert_spi_probe(struct comedi_device *, struct spi_param_type *, struct spi_param_type *);
@@ -1206,7 +1206,6 @@ static void daqgert_handle_ao_eoc(struct comedi_device *dev,
 	daqgert_ao_next_chan(dev, s);
 }
 
-
 /*
  * moves the data from the SPI buffers into the Comedi buffer 10bit
  */
@@ -1850,7 +1849,6 @@ static int32_t daqgert_ai_cmdtest(struct comedi_device *dev,
 	struct spi_device *spi = spi_data->spi;
 	struct comedi_spigert *pdata = spi->dev.platform_data;
 	int32_t i, err = 0;
-	uint32_t divisor1 = 0, divisor2 = 0;
 	uint32_t arg;
 	uint32_t tmp_timer;
 
@@ -1929,10 +1927,8 @@ static int32_t daqgert_ai_cmdtest(struct comedi_device *dev,
 
 	if (cmd->convert_src == TRIG_TIMER) {
 		arg = cmd->convert_arg;
-		i8253_cascade_ns_to_timer(devpriv->ai_conv_delay_10nsecs,
-			&divisor1,
-			&divisor2,
-			&arg, cmd->flags);
+		devpriv->pacer.osc_base = devpriv->ai_conv_delay_10nsecs;
+		comedi_8254_cascade_ns_to_timer(&devpriv->pacer, &arg, cmd->flags);
 		pdata->delay_usecs_calc = daqgert_ai_delay_rate(dev, arg, spi_data->device_type, speed_test);
 		pdata->mix_delay_usecs_calc = pdata->delay_usecs_calc * 2; /* double delay with zero for the first scan chan */
 		//				dev_info(dev->class_dev, "ai cmd spacing usecs %i, mix %i\n", pdata->delay_usecs, pdata->mix_delay_usecs);
