@@ -132,7 +132,7 @@ The output range is 0 to 4095 for 0.0 to 2.048 onboard devices (output resolutio
  */
 
 #include "../comedidev.h"
-#include "comedi_fc.h"
+//#include "comedi_fc.h"
 #include <linux/interrupt.h>
 #include <linux/kernel.h>
 #include <linux/module.h>
@@ -1711,30 +1711,30 @@ static int32_t daqgert_ao_cmdtest(struct comedi_device *dev,
 
 	/* Step 1 : check if triggers are trivially valid */
 
-	err |= cfc_check_trigger_src(&cmd->start_src, TRIG_NOW | TRIG_INT);
+	err |= comedi_check_trigger_src(&cmd->start_src, TRIG_NOW | TRIG_INT);
 
 	/*
 	 * all conversion events happen simultaneously with
 	 * a rate of 1kHz/n
 	 */
 	flags = TRIG_NOW;
-	err |= cfc_check_trigger_src(&cmd->convert_src, flags);
+	err |= comedi_check_trigger_src(&cmd->convert_src, flags);
 
 	/* start a new scan (output at once) with a timer */
 	flags = TRIG_TIMER;
-	err |= cfc_check_trigger_src(&cmd->scan_begin_src, flags);
+	err |= comedi_check_trigger_src(&cmd->scan_begin_src, flags);
 
 
-	err |= cfc_check_trigger_src(&cmd->scan_end_src, TRIG_COUNT);
-	err |= cfc_check_trigger_src(&cmd->stop_src, TRIG_COUNT | TRIG_NONE);
+	err |= comedi_check_trigger_src(&cmd->scan_end_src, TRIG_COUNT);
+	err |= comedi_check_trigger_src(&cmd->stop_src, TRIG_COUNT | TRIG_NONE);
 
 	if (err)
 		return 1;
 
 	/* Step 2a : make sure trigger sources are unique */
 
-	err |= cfc_check_trigger_is_unique(cmd->start_src);
-	err |= cfc_check_trigger_is_unique(cmd->stop_src);
+	err |= comedi_check_trigger_is_unique(cmd->start_src);
+	err |= comedi_check_trigger_is_unique(cmd->stop_src);
 
 	/* Step 2b : and mutually compatible */
 
@@ -1743,10 +1743,10 @@ static int32_t daqgert_ao_cmdtest(struct comedi_device *dev,
 
 	/* Step 3: check if arguments are trivially valid */
 
-	err |= cfc_check_trigger_arg_is(&cmd->start_arg, 0);
+	err |= comedi_check_trigger_arg_is(&cmd->start_arg, 0);
 
 	if (cmd->scan_begin_src == TRIG_FOLLOW) /* internal trigger */
-		err |= cfc_check_trigger_arg_is(&cmd->scan_begin_arg, 0);
+		err |= comedi_check_trigger_arg_is(&cmd->scan_begin_arg, 0);
 
 	if (cmd->scan_begin_src == TRIG_TIMER) {
 		i = 1;
@@ -1754,22 +1754,22 @@ static int32_t daqgert_ao_cmdtest(struct comedi_device *dev,
 		while (i < (cmd->chanlist_len))
 			i = i * 2;
 		tmp_timer = (board->ao_ns_min_calc / 2) * i; /* 2 is num of channels */
-		err |= cfc_check_trigger_arg_min(&cmd->scan_begin_arg, tmp_timer); /* fastest */
+		err |= comedi_check_trigger_arg_min(&cmd->scan_begin_arg, tmp_timer); /* fastest */
 		/* now calc the real sampling rate with all the
 		 * rounding errors */
 		tmp_timer = ((uint32_t) (cmd->scan_begin_arg / board->ao_ns_min)) * board->ao_ns_min;
 		pdata->delay_usecs_calc = daqgert_ao_delay_rate(dev, tmp_timer, spi_data->device_type, speed_test);
-		err |= cfc_check_trigger_arg_max(&cmd->scan_begin_arg, devpriv->ao_rate_max); /* slowest */
+		err |= comedi_check_trigger_arg_max(&cmd->scan_begin_arg, devpriv->ao_rate_max); /* slowest */
 	} else {
 		pdata->delay_usecs_calc = 0;
 	}
 
-	err |= cfc_check_trigger_arg_is(&cmd->scan_end_arg, cmd->chanlist_len);
+	err |= comedi_check_trigger_arg_is(&cmd->scan_end_arg, cmd->chanlist_len);
 
 	if (cmd->stop_src == TRIG_COUNT)
-		err |= cfc_check_trigger_arg_min(&cmd->stop_arg, 1);
+		err |= comedi_check_trigger_arg_min(&cmd->stop_arg, 1);
 	else /* TRIG_NONE */
-		err |= cfc_check_trigger_arg_is(&cmd->stop_arg, 0);
+		err |= comedi_check_trigger_arg_is(&cmd->stop_arg, 0);
 
 	if (err)
 		return 3;
@@ -1859,20 +1859,20 @@ static int32_t daqgert_ai_cmdtest(struct comedi_device *dev,
 
 	/* Step 1 : check if triggers are trivially valid */
 
-	err |= cfc_check_trigger_src(&cmd->start_src, TRIG_NOW | TRIG_INT);
-	err |= cfc_check_trigger_src(&cmd->scan_begin_src, TRIG_FOLLOW | TRIG_TIMER);
-	/* err |= cfc_check_trigger_src(&cmd->convert_src, TRIG_TIMER | TRIG_NOW); */
-	err |= cfc_check_trigger_src(&cmd->convert_src, TRIG_TIMER);
-	err |= cfc_check_trigger_src(&cmd->scan_end_src, TRIG_COUNT);
-	err |= cfc_check_trigger_src(&cmd->stop_src, TRIG_NONE | TRIG_COUNT);
+	err |= comedi_check_trigger_src(&cmd->start_src, TRIG_NOW | TRIG_INT);
+	err |= comedi_check_trigger_src(&cmd->scan_begin_src, TRIG_FOLLOW | TRIG_TIMER);
+	/* err |= comedi_check_trigger_src(&cmd->convert_src, TRIG_TIMER | TRIG_NOW); */
+	err |= comedi_check_trigger_src(&cmd->convert_src, TRIG_TIMER);
+	err |= comedi_check_trigger_src(&cmd->scan_end_src, TRIG_COUNT);
+	err |= comedi_check_trigger_src(&cmd->stop_src, TRIG_NONE | TRIG_COUNT);
 
 	if (err)
 		return 1;
 
 	/* Step 2a : make sure trigger sources are unique */
 
-	err |= cfc_check_trigger_is_unique(cmd->start_src);
-	err |= cfc_check_trigger_is_unique(cmd->stop_src);
+	err |= comedi_check_trigger_is_unique(cmd->start_src);
+	err |= comedi_check_trigger_is_unique(cmd->stop_src);
 
 	/* Step 2b : and mutually compatible */
 
@@ -1881,38 +1881,38 @@ static int32_t daqgert_ai_cmdtest(struct comedi_device *dev,
 
 	/* Step 3: check if arguments are trivially valid */
 
-	err |= cfc_check_trigger_arg_is(&cmd->start_arg, 0);
+	err |= comedi_check_trigger_arg_is(&cmd->start_arg, 0);
 
 	if (cmd->scan_begin_src == TRIG_FOLLOW) /* internal trigger */
-		err |= cfc_check_trigger_arg_is(&cmd->scan_begin_arg, 0);
+		err |= comedi_check_trigger_arg_is(&cmd->scan_begin_arg, 0);
 
 	if (cmd->scan_begin_src == TRIG_TIMER) {
 		i = 1;
 		/* find a power of 2 for the number of channels */
 		while (i < (cmd->chanlist_len))
 			i = i * 2;
-		err |= cfc_check_trigger_arg_min(&cmd->scan_begin_arg, board->ai_ns_min_calc / 2 * i); /* 2 is num of channels */
+		err |= comedi_check_trigger_arg_min(&cmd->scan_begin_arg, board->ai_ns_min_calc / 2 * i); /* 2 is num of channels */
 		/* now calc the real sampling rate with all the
 		 * rounding errors */
 		tmp_timer = ((uint32_t) (cmd->scan_begin_arg / board->ai_ns_min)) * board->ai_ns_min;
 		pdata->delay_usecs_calc = daqgert_ai_delay_rate(dev, tmp_timer, spi_data->device_type, speed_test);
 		pdata->mix_delay_usecs_calc = pdata->delay_usecs_calc * 2; /* double delay with zero for the first scan chan */
 		//				dev_info(dev->class_dev, "ai cmd spacing usecs %i, mix %i\n", pdata->delay_usecs, pdata->mix_delay_usecs);
-		err |= cfc_check_trigger_arg_is(&cmd->scan_begin_arg, tmp_timer);
+		err |= comedi_check_trigger_arg_is(&cmd->scan_begin_arg, tmp_timer);
 	}
 
 	if (cmd->convert_src == TRIG_TIMER)
-		err |= cfc_check_trigger_arg_min(&cmd->convert_arg,
+		err |= comedi_check_trigger_arg_min(&cmd->convert_arg,
 		board->ai_ns_min);
 
-	err |= cfc_check_trigger_arg_min(&cmd->chanlist_len, 1);
-	err |= cfc_check_trigger_arg_is(&cmd->scan_end_arg, cmd->chanlist_len);
+	err |= comedi_check_trigger_arg_min(&cmd->chanlist_len, 1);
+	err |= comedi_check_trigger_arg_is(&cmd->scan_end_arg, cmd->chanlist_len);
 
 
 	if (cmd->stop_src == TRIG_COUNT)
-		err |= cfc_check_trigger_arg_min(&cmd->stop_arg, 1);
+		err |= comedi_check_trigger_arg_min(&cmd->stop_arg, 1);
 	else /* TRIG_NONE */
-		err |= cfc_check_trigger_arg_is(&cmd->stop_arg, 0);
+		err |= comedi_check_trigger_arg_is(&cmd->stop_arg, 0);
 
 	if (err)
 		return 3;
@@ -1936,7 +1936,7 @@ static int32_t daqgert_ai_cmdtest(struct comedi_device *dev,
 		pdata->delay_usecs_calc = daqgert_ai_delay_rate(dev, arg, spi_data->device_type, speed_test);
 		pdata->mix_delay_usecs_calc = pdata->delay_usecs_calc * 2; /* double delay with zero for the first scan chan */
 		//				dev_info(dev->class_dev, "ai cmd spacing usecs %i, mix %i\n", pdata->delay_usecs, pdata->mix_delay_usecs);
-		err |= cfc_check_trigger_arg_is(&cmd->convert_arg, arg);
+		err |= comedi_check_trigger_arg_is(&cmd->convert_arg, arg);
 	}
 
 	if (err)
