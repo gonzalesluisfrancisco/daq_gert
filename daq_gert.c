@@ -408,14 +408,13 @@ struct daqgert_private {
 	uint16_t ai_neverending : 1;
 	uint16_t ao_neverending : 1;
 	uint16_t timer : 1;
-	uint16_t run : 1;
+	uint32_t run;
 	uint16_t ai_cmd_canceled : 1;
 	uint16_t ao_cmd_canceled : 1;
 	int32_t mix_chan;
 	uint32_t ai_scans; /*  length of scanlist */
 	int32_t ai_scans_left; /*  number left to finish */
 	uint32_t ao_scans; /*  length of scanlist */
-	uint32_t ai_poll_ptr;
 	struct spi_param_type *ai_spi;
 	struct spi_param_type *ao_spi;
 	void (*pinMode) (struct comedi_device *dev, int32_t pin, int32_t mode);
@@ -2224,7 +2223,7 @@ static int32_t daqgert_auto_attach(struct comedi_device *dev, unsigned long unus
 {
 	const struct daqgert_board *thisboard = &daqgert_boards[gert_type];
 	struct comedi_subdevice *s;
-	int32_t ret, i; 
+	int32_t ret, i;
 	unsigned long spi_device_missing = 0;
 	int32_t num_ai_chan, num_ao_chan, num_dio_chan = NUM_DIO_CHAN;
 	struct daqgert_private *devpriv;
