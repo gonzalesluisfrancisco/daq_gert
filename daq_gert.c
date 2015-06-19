@@ -380,7 +380,6 @@ struct comedi_spigert {
 	uint32_t mix_delay_usecs;
 	uint32_t delay_usecs_calc;
 	uint32_t mix_delay_usecs_calc;
-	struct mutex daqgert_platform_lock;
 	struct list_head device_entry;
 	struct spi_param_type slave;
 	ktime_t kmin;
@@ -2225,11 +2224,10 @@ static int32_t daqgert_auto_attach(struct comedi_device *dev, unsigned long unus
 {
 	const struct daqgert_board *thisboard = &daqgert_boards[gert_type];
 	struct comedi_subdevice *s;
-	int32_t ret, i;
+	int32_t ret, i, spi_device_missing = CSnA | CSnB;
 	int32_t num_ai_chan, num_ao_chan, num_dio_chan = NUM_DIO_CHAN;
 	struct daqgert_private *devpriv;
 	struct comedi_spigert *pdata;
-	struct spi_param_type *slave_spi_adc = NULL, *slave_spi_dac = NULL;
 
 	/* 
 	 * auto free on exit of comedi
@@ -2277,29 +2275,34 @@ static int32_t daqgert_auto_attach(struct comedi_device *dev, unsigned long unus
 				goto daqgert_kfree_tx_exit;
 			}
 		}
+		/*
+		 * we have a valid device pointer, see which one
+		 */
 		if (pdata->slave.spi->chip_select == thisboard->ai_cs) {
-			slave_spi_adc = &pdata->slave;
+			devpriv->ai_spi = &pdata->slave;
 			pdata->slave.spi->max_speed_hz = thisboard->ai_max_speed_hz;
 			spi_setup(pdata->slave.spi);
 			dev_info(dev->class_dev, "setup: spi cd %d: %d Hz: assigned to adc devices\n",
 				pdata->slave.spi->chip_select, pdata->slave.spi->max_speed_hz);
 			pdata->one_t.tx_buf = pdata->tx_buff;
 			pdata->one_t.rx_buf = pdata->rx_buff;
+			clear_bit(CSnA, &spi_device_missing);
 		} else {
-			slave_spi_dac = &pdata->slave;
+			devpriv->ao_spi = &pdata->slave;
 			pdata->slave.spi->max_speed_hz = thisboard->ao_max_speed_hz;
 			spi_setup(pdata->slave.spi);
 			dev_info(dev->class_dev, "setup: spi cd %d: %d Hz: assigned to dac devices\n",
 				pdata->slave.spi->chip_select, pdata->slave.spi->max_speed_hz);
 			pdata->one_t.tx_buf = pdata->tx_buff;
 			pdata->one_t.rx_buf = pdata->rx_buff;
+			clear_bit(CSnB, &spi_device_missing);
 		}
 	}
 
 	/*
-	 * check for possible bad spigert table entry
+	 * check for possible bad spigert table entry (dupe)
 	 */
-	if (!slave_spi_adc || !slave_spi_dac)
+	if (spi_device_missing)
 		return -ENODEV;
 
 	mutex_init(&devpriv->cmd_lock);
@@ -2311,8 +2314,6 @@ static int32_t daqgert_auto_attach(struct comedi_device *dev, unsigned long unus
 	devpriv->ai_conv_delay_usecs = 30;
 	devpriv->ai_neverending = true;
 	devpriv->ai_mix = false;
-	devpriv->ai_spi = slave_spi_adc;
-	devpriv->ao_spi = slave_spi_dac;
 	devpriv->ai_conv_delay_10nsecs = CONV_SPEED;
 	devpriv->timing_lockout = false;
 	devpriv->ai_rate_max = MAX_BOARD_RATE; /* lowest samples per second */
@@ -2385,7 +2386,7 @@ static int32_t daqgert_auto_attach(struct comedi_device *dev, unsigned long unus
 	 */
 	dev_info(dev->class_dev, "%s spi slave device detection started\n", thisboard->name);
 	devpriv->num_subdev = 1;
-	if (daqgert_spi_probe(dev, slave_spi_adc, slave_spi_dac))
+	if (daqgert_spi_probe(dev, devpriv->ai_spi, devpriv->ao_spi))
 		devpriv->num_subdev += 2;
 	/* 
 	 * add AI and AO channels 
@@ -2535,7 +2536,6 @@ static int32_t spigert_spi_probe(struct spi_device * spi)
 	pdata = kzalloc(sizeof(struct comedi_spigert), GFP_KERNEL);
 	if (!pdata)
 		return -ENOMEM;
-	mutex_init(&pdata->daqgert_platform_lock);
 
 	spi->dev.platform_data = pdata;
 	pdata->tx_buff = kzalloc(SPI_BUFF_SIZE, GFP_KERNEL | GFP_DMA);
