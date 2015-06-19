@@ -1,7 +1,7 @@
 daq_gert
 ========
 Comedi driver for RPi ai, ao gpio for the  gertboard daq_gert.c
-Driver: "experimental" daq_gert in progress ... for 4.+ kernels with DT
+Driver: "experimental" daq_gert in progress ... for 4.1+ kernels with DT
 on the RPi2 with the bcm2835 SPI master with async Comedi commands and triggers
 The single processor version for the RPi has only the sync analog sample capability
 **********
@@ -36,9 +36,9 @@ comment out #define CS_CHANGE_USECS in the daq_gert.c source if you don't use th
  * cd to the linux kernel source directory: /usr/src/linux etc...
  * copy the daq_gert.diff patch file from the daq_gert directory to the source
  * directory 
- * copy RPi2.config_4.0.y from the daq_gert directory to .config in the Linux source directory
+ * copy RPi2.config_4.1.y from the daq_gert directory to .config in the Linux source directory
  * or
- * copy RPi.config_4.0.y from the daq_gert directory to .config in the Linux source directory
+ * copy RPi.config_4.1.y from the daq_gert directory to .config in the Linux source directory
  * 
  * patch the kernel source with the daq_gert.diff patch file
  * patch -p1 <daq_gert.diff

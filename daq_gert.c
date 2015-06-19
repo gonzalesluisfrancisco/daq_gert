@@ -23,7 +23,7 @@
 /*
  * TODO:	Refactor sample put get code to reduce the amount of build up/down time
  * 
-Driver: "experimental" daq_gert in progress ... for 4.+ kernels with device-tree enabled
+Driver: "experimental" daq_gert in progress ... for 4.1+ kernels with device-tree enabled
  * see README.md for install instructions
  * 
 Description: GERTBOARD daq_gert
