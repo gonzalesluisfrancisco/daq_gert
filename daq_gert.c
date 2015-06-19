@@ -2224,7 +2224,8 @@ static int32_t daqgert_auto_attach(struct comedi_device *dev, unsigned long unus
 {
 	const struct daqgert_board *thisboard = &daqgert_boards[gert_type];
 	struct comedi_subdevice *s;
-	int32_t ret, i, spi_device_missing = CSnA | CSnB;
+	int32_t ret, i; 
+	unsigned long spi_device_missing = 0;
 	int32_t num_ai_chan, num_ao_chan, num_dio_chan = NUM_DIO_CHAN;
 	struct daqgert_private *devpriv;
 	struct comedi_spigert *pdata;
@@ -2253,6 +2254,12 @@ static int32_t daqgert_auto_attach(struct comedi_device *dev, unsigned long unus
 	 */
 	if (list_empty(&device_list))
 		return -ENODEV;
+
+	/*
+	 * set the wanted device bits
+	 */
+	set_bit(CSnA, &spi_device_missing);
+	set_bit(CSnB, &spi_device_missing);
 
 	list_for_each_entry(pdata, &device_list, device_entry)
 	{
