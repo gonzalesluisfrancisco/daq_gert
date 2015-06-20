@@ -460,22 +460,23 @@ static void daqgert_handle_ai_hunk(struct comedi_device *,
 static int32_t wpi_pin_safe(struct comedi_device *dev, int32_t pin)
 {
 	struct daqgert_private *devpriv = dev->private;
-	uint32_t pin_bit = (0x01 << pin);
+	uint32_t pin_bit = (0x01 << pin), ret = true;
 
 	if (!gpiosafe)
-		return true;
+		return ret;
 	if (wiringpi) {
 		if (pin_bit & PIN_SAFE_MASK_WPI)
-			return false;
+			ret = false;
 	} else {
-		if (devpriv->board_rev == 1)
+		if (devpriv->board_rev == 1) {
 			if (pin_bit & PIN_SAFE_MASK_GPIO1)
-				return false;
-			else
-				if (pin_bit & PIN_SAFE_MASK_GPIO2)
-				return false;
+				ret = false;
+		} else {
+			if (pin_bit & PIN_SAFE_MASK_GPIO2)
+				ret = false;
+		}
 	}
-	return true;
+	return ret;
 }
 
 /* 
