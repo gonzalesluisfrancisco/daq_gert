@@ -450,14 +450,16 @@ static void daqgert_ai_set_chan_range(struct comedi_device *,
 static uint32_t daqgert_ai_get_sample(struct comedi_device *,
 				      struct comedi_subdevice *);
 static void daqgert_ao_put_sample(struct comedi_device *,
-				  struct comedi_subdevice *, uint32_t);
+				  struct comedi_subdevice *,
+				  uint32_t);
 static void daqgert_handle_ai_hunk(struct comedi_device *,
 				   struct comedi_subdevice *);
 
 /* 
  * pin exclude list 
  */
-static int32_t wpi_pin_safe(struct comedi_device *dev, int32_t pin)
+static int32_t wpi_pin_safe(struct comedi_device *dev,
+			    int32_t pin)
 {
 	struct daqgert_private *devpriv = dev->private;
 	uint32_t pin_bit = (0x01 << pin), ret = true;
