@@ -151,17 +151,6 @@ The output range is 0 to 4095 for 0.0 to 2.048 onboard devices (output resolutio
 #define CS_CHANGE_USECS
 
 /* 
- * this is the Comedi SPI device queue 
- */
-static LIST_HEAD(device_list);
-
-/* 
- * SPI link setup 
- */
-static const uint16_t SPI_MODE = SPI_MODE_3; /* mode 3 for ADC & DAC*/
-static const uint8_t SPI_BPW = 8; /* 8 bit SPI words */
-
-/* 
  * SPI transfer buffer size 
  */
 #define HUNK_LEN 1000
@@ -172,6 +161,9 @@ static const uint8_t SPI_BPW = 8; /* 8 bit SPI words */
 #define likely(x)      __builtin_expect(!!(x), 1)
 #define unlikely(x)    __builtin_expect(!!(x), 0)
 
+/*
+ * core node state bits
+ */
 enum daqgert_state_bits {
 	AI_CMD_RUNNING = 0,
 	AO_CMD_RUNNING,
@@ -181,6 +173,17 @@ enum daqgert_state_bits {
 	CMD_RUN,
 };
 
+/* 
+ * this is the Comedi SPI device queue 
+ */
+static LIST_HEAD(device_list);
+
+/* 
+ * SPI link setup 
+ */
+static const uint16_t SPI_MODE = SPI_MODE_3; /* mode 3 for ADC & DAC*/
+static const uint8_t SPI_BPW = 8; /* 8 bit SPI words */
+
 /* analog chip types (type - 12 bits) */
 static const uint32_t MCP3002 = 2; /* 10 bit ADC */
 static const uint32_t MCP3202 = 0;
@@ -189,7 +192,6 @@ static const uint32_t MCP4812 = 2;
 static const uint32_t MCP4822 = 0;
 static const uint32_t PICSL10 = 2;
 static const uint32_t PICSL12 = 0;
-
 static const uint32_t SPI_BUFF_SIZE = 3072;
 static const uint32_t SPI_BUFF_SIZE_NOHUNK = 16;
 static const uint32_t MAX_CHANLIST_LEN = 256;
@@ -199,33 +201,33 @@ static const uint32_t CONV_SPEED_FIX_FREERUN = 1; /* usecs: round it up to ~50us
 static const uint32_t CONV_SPEED_FIX_FAST = 9; /* used for the MCP3002 ADC */
 static const uint32_t MAX_BOARD_RATE = 1000000000;
 static const uint8_t CS_CHANGE_DELAY_USECS = 1;
-
 static const uint8_t CSnA = 0; /* GPIO 8  Gertboard ADC */
 static const uint8_t CSnB = 1; /* GPIO 7  Gertboard DAC */
 
 /* 
  * PIC Slave commands 
  */
-static const uint8_t CMD_ZERO = 0b00000000;
-static const uint8_t CMD_ADC_GO = 0b10000000;
-static const uint8_t CMD_PORT_GO = 0b10100000; /* send data LO_NIBBLE to port buffer */
-static const uint8_t CMD_CHAR_GO = 0b10110000; /* send data LO_NIBBLE to TX buffer */
-static const uint8_t CMD_ADC_DATA = 0b11000000;
-static const uint8_t CMD_PORT_DATA = 0b11010000; /* send data HI_NIBBLE to port buffer ->PORT and return input PORT data in received SPI data byte */
-static const uint8_t CMD_CHAR_DATA = 0b11100000; /* send data HI_NIBBLE to TX buffer and return RX buffer in received SPI data byte */
-static const uint8_t CMD_XXXX = 0b11110000; /* ??? */
-static const uint8_t CMD_CHAR_RX = 0b00010000; /* Get RX buffer */
-static const uint8_t CMD_DUMMY_CFG = 0b01000000; /* stuff config data in SPI buffer */
-static const uint8_t CMD_DEAD = 0b11111111; /* This is usually a bad response */
+static const uint8_t CMD_ZERO = 0x0;
+static const uint8_t CMD_ADC_GO = 0x80;
+static const uint8_t CMD_PORT_GO = 0xa0; /* send data LO_NIBBLE to port buffer */
+static const uint8_t CMD_CHAR_GO = 0xb0; /* send data LO_NIBBLE to TX buffer */
+static const uint8_t CMD_ADC_DATA = 0xc0;
+static const uint8_t CMD_PORT_DATA = 0xd0; /* send data HI_NIBBLE to port buffer ->PORT and return input PORT data in received SPI data byte */
+static const uint8_t CMD_CHAR_DATA = 0xe0; /* send data HI_NIBBLE to TX buffer and return RX buffer in received SPI data byte */
+static const uint8_t CMD_XXXX = 0xf0; /* ??? */
+static const uint8_t CMD_CHAR_RX = 0x10; /* Get RX buffer */
+static const uint8_t CMD_DUMMY_CFG = 0x40; /* stuff config data in SPI buffer */
+static const uint8_t CMD_DEAD = 0xff; /* This is usually a bad response */
 
-static const uint32_t PIN_SAFE_MASK_WPI = 0b00000000000000000111111100000000;
-static const uint32_t PIN_SAFE_MASK_GPIO1 = 0b00000000000000000000111110000011;
-static const uint32_t PIN_SAFE_MASK_GPIO2 = 0b00000000000000000000111110001100;
-
+/*
+ * WPI constants
+ */
+static const uint32_t PIN_SAFE_MASK_WPI = 0x7f00;
+static const uint32_t PIN_SAFE_MASK_GPIO1 = 0xf83;
+static const uint32_t PIN_SAFE_MASK_GPIO2 = 0xf8c;
 static const uint32_t INPUT = 0;
 static const uint32_t OUTPUT = 1;
 static const uint32_t PWM_OUTPUT = 2;
-
 static const uint32_t LOW = 0;
 static const uint32_t HIGH = 1;
 
@@ -253,7 +255,10 @@ extern uint32_t system_rev; /* from the kernel symbol table exports */
 extern uint32_t system_serial_low;
 extern uint32_t system_serial_high;
 
-/* found at /sys/modules/daq_gert/parameters */
+/* 
+ * module configuration and data variables
+ * found at /sys/modules/daq_gert/parameters 
+ */
 static int32_t daqgert_conf = 1;
 module_param(daqgert_conf, int, S_IRUGO);
 static int32_t pullups = 2;
@@ -1108,7 +1113,7 @@ static void daqgert_ao_put_sample(struct comedi_device *dev,
 	chan = CR_CHAN(devpriv->ao_chan);
 	val_tmp = val & 0xfff; /* strip to 12 bits */
 	pdata->tx_buff[1] = val_tmp & 0xff;
-	pdata->tx_buff[0] = (0b00110000 | ((chan & 0x01) << 7)
+	pdata->tx_buff[0] = (0x30 | ((chan & 0x01) << 7)
 		| (val_tmp >> 8));
 	spi_write_then_read(spi_data->spi, pdata->tx_buff, 2,
 			pdata->rx_buff, 2);
@@ -1163,7 +1168,7 @@ static uint32_t daqgert_ai_get_sample(struct comedi_device *dev,
 							&pdata->t[0], hunk_len);
 		} else {
 			pdata->one_t.len = daqgert_device_offset(spi_data->device_type);
-			pdata->tx_buff[0] = 0b11010000 | ((chan & 0x01) << 5);
+			pdata->tx_buff[0] = 0xd0 | ((chan & 0x01) << 5);
 			spi_message_init_with_transfers(&m,
 							&pdata->one_t, 1);
 		}
@@ -1366,7 +1371,7 @@ static int32_t transfer_to_hunk_buf(struct comedi_device *dev,
 			chan = devpriv->mix_chan; /* for single channel hunks */
 		}
 
-		bufptr[bufpos] = 0b11010000 | ((chan & 0x01) << 5);
+		bufptr[bufpos] = 0xd0 | ((chan & 0x01) << 5);
 		bufpos += offset;
 		/*
 		 *  format the transfer array 
@@ -2870,9 +2875,9 @@ static int32_t daqgert_spi_probe(struct comedi_device * dev,
 		"daqgert_conf option value %i\n",
 		thisboard->name, ret, daqgert_conf);
 	if ((ret != 76) && (ret != 110)) { /* PIC slave adc codes */
-		 /*
-		  * check for channel 0 SE 
-		  */
+		/*
+		 * check for channel 0 SE 
+		 */
 		ret = spi_w8r8(spi_adc->spi, 0x60);
 		if (1) { /* FIXME need to add another probe test */
 			spi_adc->pic18 = 0; /* MCP3X02 mode */
