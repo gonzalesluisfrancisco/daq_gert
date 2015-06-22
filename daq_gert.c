@@ -2609,7 +2609,7 @@ static int32_t daqgert_auto_attach(struct comedi_device *dev,
 		/* we support single-ended (ground)  */
 		s->n_chan = num_ao_chan;
 		s->len_chanlist = num_ao_chan;
-		/* the actual analog resolution depends on the DAC chip 8,10,12 */
+		/* analog resolution depends on the DAC chip 8,10,12 bits */
 		s->maxdata = (1 << 12) - 1;
 		s->range_table = &daqgert_ao_range;
 		s->insn_write = daqgert_ao_winsn;
@@ -2870,7 +2870,10 @@ static int32_t daqgert_spi_probe(struct comedi_device * dev,
 		"daqgert_conf option value %i\n",
 		thisboard->name, ret, daqgert_conf);
 	if ((ret != 76) && (ret != 110)) { /* PIC slave adc codes */
-		ret = spi_w8r8(spi_adc->spi, 0b01100000); /* check for channel 0 SE */
+		 /*
+		  * check for channel 0 SE 
+		  */
+		ret = spi_w8r8(spi_adc->spi, 0x60);
 		if (1) { /* FIXME need to add another probe test */
 			spi_adc->pic18 = 0; /* MCP3X02 mode */
 			spi_adc->chan = thisboard->n_aichan;
@@ -2895,8 +2898,8 @@ static int32_t daqgert_spi_probe(struct comedi_device * dev,
 		spi_adc->pic18 = 1; /* PIC18 single-end mode 10 bits */
 		spi_adc->device_type = PICSL10;
 		spi_adc->chan = ret & 0x0f;
-		spi_adc->range = (ret & 0b00100000) >> 5;
-		spi_adc->bits = (ret & 0b00010000) >> 4;
+		spi_adc->range = (ret & 0x20) >> 5;
+		spi_adc->bits = (ret & 0x10) >> 4;
 		if (spi_adc->bits) {
 			spi_adc->pic18 = 2; /* PIC24 mode 12 bits */
 			spi_adc->device_type = PICSL12;
