@@ -11,7 +11,7 @@ index 6947556..dba0adf 100644
  dtb-$(RPI_DT_OVERLAYS) += spi-bcm2708-overlay.dtb
  dtb-$(RPI_DT_OVERLAYS) += spi-bcm2835-overlay.dtb
 diff --git a/arch/arm/boot/dts/overlays/rpi-spigert-overlay.dts b/arch/arm/boot/dts/overlays/rpi-spigert-overlay.dts
-new file mode 100755
+new file mode 100644
 index 0000000..c5bd7e7
 --- /dev/null
 +++ b/arch/arm/boot/dts/overlays/rpi-spigert-overlay.dts
@@ -76,7 +76,7 @@ index 0000000..c5bd7e7
 +    };
 +};
 diff --git a/arch/arm/mach-bcm2708/bcm2708.c b/arch/arm/mach-bcm2708/bcm2708.c
-index 00fc5d6..c994689 100644
+index 937c2d3..8d6344e 100644
 --- a/arch/arm/mach-bcm2708/bcm2708.c
 +++ b/arch/arm/mach-bcm2708/bcm2708.c
 @@ -585,6 +585,21 @@ static struct spi_board_info bcm2708_spi_devices[] = {
@@ -102,10 +102,10 @@ index 00fc5d6..c994689 100644
  #endif
  
 diff --git a/arch/arm/mach-bcm2709/bcm2709.c b/arch/arm/mach-bcm2709/bcm2709.c
-index a5cac5b..8159f5b 100644
+index fe71c50..6fc0719 100644
 --- a/arch/arm/mach-bcm2709/bcm2709.c
 +++ b/arch/arm/mach-bcm2709/bcm2709.c
-@@ -605,6 +605,21 @@ static struct spi_board_info bcm2708_spi_devices[] = {
+@@ -606,6 +606,21 @@ static struct spi_board_info bcm2708_spi_devices[] = {
  		.mode = SPI_MODE_0,
  	}
  #endif
@@ -128,7 +128,7 @@ index a5cac5b..8159f5b 100644
  #endif
  
 diff --git a/drivers/spi/Kconfig b/drivers/spi/Kconfig
-index 113bf64..61d2708 100644
+index ea5e5de..7632af1 100644
 --- a/drivers/spi/Kconfig
 +++ b/drivers/spi/Kconfig
 @@ -660,6 +660,14 @@ config SPI_SPIDEV
@@ -147,10 +147,10 @@ index 113bf64..61d2708 100644
  	tristate "Infineon TLE62X0 (for power switching)"
  	depends on SYSFS
 diff --git a/drivers/spi/spi.c b/drivers/spi/spi.c
-index 57a1950..3f784df 100644
+index 50910d8..57c2a77 100644
 --- a/drivers/spi/spi.c
 +++ b/drivers/spi/spi.c
-@@ -836,7 +836,7 @@ static int spi_transfer_one_message(struct spi_master *master,
+@@ -730,7 +730,7 @@ static int spi_transfer_one_message(struct spi_master *master,
  				keep_cs = true;
  			} else {
  				spi_set_cs(msg->spi, false);
@@ -160,15 +160,16 @@ index 57a1950..3f784df 100644
  			}
  		}
 diff --git a/drivers/staging/comedi/Kconfig b/drivers/staging/comedi/Kconfig
-index 593fcb1..703eba4 100644
+index 61c6351..6687b5f 100644
 --- a/drivers/staging/comedi/Kconfig
 +++ b/drivers/staging/comedi/Kconfig
-@@ -84,6 +84,14 @@ config COMEDI_SERIAL2002
+@@ -84,6 +84,15 @@ config COMEDI_SERIAL2002
  	  To compile this driver as a module, choose M here: the module will be
  	  called serial2002.
  
 +config COMEDI_DAQ_GERT
 +        tristate "Driver for RPi GPIO and SPI connected hardware"
++        select COMEDI_8254
 +        ---help---
 +          Enable support for RPi GPIO and SPI connected hardware
 +
@@ -179,10 +180,10 @@ index 593fcb1..703eba4 100644
  	tristate "SSV Embedded Systems DIL/Net-PC support"
  	depends on X86_32 || COMPILE_TEST
 diff --git a/drivers/staging/comedi/drivers/Makefile b/drivers/staging/comedi/drivers/Makefile
-index 7d1fbd5..2bf504f 100644
+index d6d8340..6904ea7 100644
 --- a/drivers/staging/comedi/drivers/Makefile
 +++ b/drivers/staging/comedi/drivers/Makefile
-@@ -10,6 +10,7 @@ obj-$(CONFIG_COMEDI_BOND)		+= comedi_bond.o
+@@ -11,6 +11,7 @@ obj-$(CONFIG_COMEDI_BOND)		+= comedi_bond.o
  obj-$(CONFIG_COMEDI_TEST)		+= comedi_test.o
  obj-$(CONFIG_COMEDI_PARPORT)		+= comedi_parport.o
  obj-$(CONFIG_COMEDI_SERIAL2002)		+= serial2002.o
@@ -191,7 +192,7 @@ index 7d1fbd5..2bf504f 100644
  # Comedi ISA drivers
  obj-$(CONFIG_COMEDI_AMPLC_DIO200_ISA)	+= amplc_dio200.o
 diff --git a/include/linux/spi/spi.h b/include/linux/spi/spi.h
-index 856d34d..1edd3ce 100644
+index d673072..eae3f9c 100644
 --- a/include/linux/spi/spi.h
 +++ b/include/linux/spi/spi.h
 @@ -626,6 +626,7 @@ struct spi_transfer {

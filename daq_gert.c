@@ -2328,11 +2328,12 @@ static int32_t daqgert_create_thread(struct comedi_device *dev,
 	else
 		name_ptr = thread_name;
 
-	devpriv->ai_spi->daqgert_task = kthread_create_on_node(&daqgert_ai_thread_function,
-							(void *) dev,
-							cpu_to_node(devpriv->ai_node),
-							"%s_a/%d", name_ptr,
-							devpriv->ai_node);
+	devpriv->ai_spi->daqgert_task =
+		kthread_create_on_node(&daqgert_ai_thread_function,
+				(void *) dev,
+				cpu_to_node(devpriv->ai_node),
+				"%s_a/%d", name_ptr,
+				devpriv->ai_node);
 	if (!IS_ERR(devpriv->ai_spi->daqgert_task)) {
 		kthread_bind(devpriv->ai_spi->daqgert_task, devpriv->ai_node);
 		wake_up_process(devpriv->ai_spi->daqgert_task);
@@ -2340,11 +2341,12 @@ static int32_t daqgert_create_thread(struct comedi_device *dev,
 		return PTR_ERR(devpriv->ai_spi->daqgert_task);
 	}
 
-	devpriv->ao_spi->daqgert_task = kthread_create_on_node(&daqgert_ao_thread_function,
-							(void *) dev,
-							cpu_to_node(devpriv->ao_node),
-							"%s_d/%d", name_ptr,
-							devpriv->ao_node);
+	devpriv->ao_spi->daqgert_task =
+		kthread_create_on_node(&daqgert_ao_thread_function,
+				(void *) dev,
+				cpu_to_node(devpriv->ao_node),
+				"%s_d/%d", name_ptr,
+				devpriv->ao_node);
 	if (!IS_ERR(devpriv->ao_spi->daqgert_task)) {
 		kthread_bind(devpriv->ao_spi->daqgert_task, devpriv->ao_node);
 		wake_up_process(devpriv->ao_spi->daqgert_task);
