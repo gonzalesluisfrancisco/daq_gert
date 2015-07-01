@@ -2770,14 +2770,6 @@ static int32_t spigert_spi_probe(struct spi_device * spi)
 		ret = -EIO;
 		goto kfree_rx_exit;
 	}
-	if (!(spi->mode & SPI_NO_CS) &&
-	(spi->chip_select > spi->master->num_chipselect)) {
-		dev_err(&spi->dev,
-			"setup: invalid chipselect %u (%u defined)\n",
-			spi->chip_select, spi->master->num_chipselect);
-		ret = -EINVAL;
-		goto kfree_rx_exit;
-	}
 
 	/* setup comedi part of driver */
 	if (spi->chip_select == CSnA) {
