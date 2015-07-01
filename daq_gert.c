@@ -2791,7 +2791,6 @@ kfree_tx_exit:
 	kfree(pdata->tx_buff);
 kfree_exit:
 	kfree(pdata);
-
 	return ret;
 }
 
@@ -2808,7 +2807,6 @@ static int32_t spigert_spi_remove(struct spi_device * spi)
 	if (pdata)
 		kfree(pdata);
 	dev_info(&spi->dev, "released\n");
-
 	return 0;
 }
 
@@ -2946,6 +2944,6 @@ module_exit(daqgert_exit);
 
 MODULE_AUTHOR("Fred Brooks <spam@sma2.rain.com>");
 MODULE_DESCRIPTION("RPi DIO/AI/AO Driver");
-MODULE_VERSION("4.1.2");
+MODULE_VERSION("4.1.3");
 MODULE_LICENSE("GPL");
 MODULE_ALIAS("spi:spigert");
