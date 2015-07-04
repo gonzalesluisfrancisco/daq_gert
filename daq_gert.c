@@ -1436,10 +1436,12 @@ static void daqgert_handle_ai_hunk(struct comedi_device *dev,
 		transfer_from_hunk_buf_3202(dev, s, bufptr, bufpos, len);
 	else
 		transfer_from_hunk_buf_3002(dev, s, bufptr, bufpos, len);
-	/* debug comment */
+	/* 
+	 * debug comment
 	if (cmd->stop_src == TRIG_COUNT)
 		dev_info(dev->class_dev, "From hunk %i %i\n",
 			s->async->scans_done, cmd->stop_arg);
+	 */
 }
 
 /*
