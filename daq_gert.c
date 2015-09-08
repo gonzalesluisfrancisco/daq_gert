@@ -1,5 +1,36 @@
 /*
- *     comedi/drivers/daq_gert.c
+ *     comedi/drivers/supermoon.c
+ * 
+ *	A special version for the TI ADS1220 SD ADC converter chip (and MCP3911 later) for low voltage sensing and
+ *	solar panel panel light detection. +- 2.048, 1.024 and 0.512 voltage ranges @ 20 bits of usable resolution
+ *	ADC is in single-shot conversion mode @20SPS, PGA disabled and gain from 1, 2 and 4 in differential
+ *	signal detection mode, 50/60Hz rejection enabled. 500kHz SPI clock with direct RPi2 connection
+ *	Analog +- 2.5VDC from Zener regulators for the bipolar input stage with external 2.5VDC Zener input
+ *	signal protection.
+ * 
+ *	LEDs: + supply, - supply, DRDY__ LOW
+ * 
+ *	Board jumpers J1 Left to Right
+ *	1 3.3VDC digital supply for direct connection to RPi2 board
+ *	2 5.0VDC digital supply for optical interconnects for 5VDC or 3.3VDC SPI interfaces
+ *	3 Enable 5VDC power
+ * 
+ * DIP8 Pins for MCP3002 header
+ * 25K22	RPi DIP8 header		IDC 10 pin connector header	ADS1220
+ * Pin 21   RB0	SPI Chip-Select	Pin 1		8	CS		2
+ * Pin 22   RB1	SPI Clock	Pin 7		7	SCK		1
+ * Pin 23   RB2	SPI Data In	Pin 5		6	SDI		16
+ * Pin 24   RB3	SPI Data Out	Pin 6		5	SDO		15
+ * Pin 8    Vss			Pin 4		10	GND		4
+ * Pin 20   Vdd			Pin 8		9	Vdd 3.3/5.0VDC	13
+ * Pin 2    RA0	ANA0		Pin 2		1	nc
+ * Pin 3    RA1	ANA1		Pin 3		2	nc
+ * 
+ *	PIC 8722 SPI slave connect
+ *	TRISDbits.TRISD6 = 1; // SCK SSP2 pins in SLAVE mode
+ *	TRISDbits.TRISD5 = 1; // SDI
+ *	TRISDbits.TRISD4 = 0; // SDO
+ *	TRISDbits.TRISD7 = 1; // SS2
  *
  *     COMEDI - Linux Control and Measurement Device Interface
  *     Copyright (C) 1998 David A. Schleef <ds@schleef.org>
@@ -42,10 +73,14 @@ WiringPI
 
 Devices: [] GERTBOARD (daq_gert)
 Status: inprogress (DIO 95%) (AI 95%) AO (95%) (My code cleanup 95%)
-Updated: Jun 2015 12:07:20 +0000
+Updated: Sept 2015 12:07:20 +0000
 
 The DAQ-GERT appears in Comedi as a  digital I/O subdevice (0) with
 17 or 21 or 30 channels, 
+a analog input subdevice (1) with a Mux for bipolar input voltages
+2 differential-ended channels: (0) inputs 0-1, (1) inputs 2-3
+2 single-ended channels: (2) (3) for inputs 2 or 3 
+a internal short of inputs for a offset reading: (4) with the ADC1220 adc, OR
 a analog input subdevice (1) with 2 single-ended channels with onboard adc, OR
 a analog input subdevice (1) with single-ended channels set by the SPI slave device
 and a analog output subdevice(2) with 2 channels with onboard dac
@@ -102,11 +137,13 @@ by the module option variable daqgert_conf in the /etc/modprobe.d directory
 1 = MCP3202 ADC and MCP4822 DAC: 12bit in/12bit out 
 2 = MCP3002 ADC and MCP4822 DAC: 10bit in/12bit out
 3 = MCP3202 ADC and MCP4802 DAC: 12bit in/8bit out
+4 = ADS1220 ADC and MCP4822 DAC: 24bit in/12bit out
  * 
  * Module parameters are found in the /sys/modules/daq_gert/parameters directory
  * 
-The input  range is 0 to 1023/4095 for 0.0 to 3.3(Vdd) onboard devices or 2.048 volts/Vdd for PIC slaves 
-The output range is 0 to 4095 for 0.0 to 2.048 onboard devices (output resolution depends on the device)
+ * The input  range is 0 to 1023/4095 for 0.0 to 3.3(Vdd) onboard devices, 2.048 volts/Vdd for PIC slaves 
+ * or +-0.512, +-1.024, +-2.048 for the ADS1220 device with usable range in double %2.6fV format for output
+ * The output range is 0 to 4095 for 0.0 to 2.048 onboard devices (output resolution depends on the device)
  * In the async command mode transfers can be handled in HUNK mode by creating a SPI message
  * of many conversion sequences into one message, this allows for close to native driver wire-speed 
  * An optimized DMA driver is in the works
@@ -132,18 +169,158 @@ The output range is 0 to 4095 for 0.0 to 2.048 onboard devices (output resolutio
  * 
  */
 
-#include "../comedidev.h"
-#include <linux/interrupt.h>
+#include "../comedidev.h" 
+#include <linux/interrupt.h> 
 #include <linux/kernel.h>
-#include <linux/module.h>
-#include <linux/kthread.h>
+#include <linux/module.h> 
+#include <linux/kthread.h> 
 #include <linux/sched.h>
-#include <linux/spi/spi.h>
-#include <linux/delay.h>
-#include <linux/device.h>
-#include <linux/timer.h>
-#include <linux/list.h>
-#include "comedi_8254.h"
+#include <linux/spi/spi.h> 
+#include <linux/delay.h> 
+#include <linux/device.h> 
+#include <linux/timer.h> 
+#include <linux/list.h>  
+#include "comedi_8254.h"  
+
+/* Error Return Values */
+#define ADS1220_NO_ERROR           0
+#define ADS1220_ERROR			
+
+/* Command Definitions */
+#define ADS1220_CMD_RDATA    	0x10
+#define ADS1220_CMD_RREG     	0x20
+#define ADS1220_CMD_WREG     	0x40
+#define ADS1220_CMD_SYNC    	0x08
+#define ADS1220_CMD_SHUTDOWN    0x02
+#define ADS1220_CMD_RESET    	0x06
+
+/* ADS1220 Register Definitions */
+#define ADS1220_0_REGISTER   	0x00
+#define ADS1220_1_REGISTER     	0x01
+#define ADS1220_2_REGISTER     	0x02
+#define ADS1220_3_REGISTER    	0x03
+
+/* ADS1220 Register 0 Definition */
+//   Bit 7   |   Bit 6   |   Bit 5   |   Bit 4   |   Bit 3   |   Bit 2   |   Bit 1   |   Bit 0 
+//--------------------------------------------------------------------------------------------
+//                     MUX [3:0]                 |             GAIN[2:0]             | PGA_BYPASS
+//
+// Define MUX
+#define ADS1220_MUX_0_1   	0x00
+#define ADS1220_MUX_0_2   	0x10
+#define ADS1220_MUX_0_3   	0x20
+#define ADS1220_MUX_1_2   	0x30
+#define ADS1220_MUX_1_3   	0x40
+#define ADS1220_MUX_2_3   	0x50
+#define ADS1220_MUX_1_0   	0x60
+#define ADS1220_MUX_3_2   	0x70
+#define ADS1220_MUX_0_G		0x80
+#define ADS1220_MUX_1_G   	0x90
+#define ADS1220_MUX_2_G   	0xa0
+#define ADS1220_MUX_3_G   	0xb0
+#define ADS1220_MUX_EX_VREF	0xc0
+#define ADS1220_MUX_AVDD   	0xd0
+#define ADS1220_MUX_DIV2   	0xe0
+
+// Define GAIN
+#define ADS1220_GAIN_1      0x00
+#define ADS1220_GAIN_2      0x02
+#define ADS1220_GAIN_4      0x04
+#define ADS1220_GAIN_8      0x06
+#define ADS1220_GAIN_16     0x08
+#define ADS1220_GAIN_32     0x0a
+#define ADS1220_GAIN_64     0x0c
+#define ADS1220_GAIN_128    0x0e
+
+// Define PGA_BYPASS
+#define ADS1220_PGA_BYPASS 	0x01
+
+/* ADS1220 Register 1 Definition */
+//   Bit 7   |   Bit 6   |   Bit 5   |   Bit 4   |   Bit 3   |   Bit 2   |   Bit 1   |   Bit 0 
+//--------------------------------------------------------------------------------------------
+//                DR[2:0]            |      MODE[1:0]        |     CM    |     TS    |    BCS
+//
+// Define DR (data rate)
+#define ADS1220_DR_20		0x00
+#define ADS1220_DR_45		0x20
+#define ADS1220_DR_90		0x40
+#define ADS1220_DR_175		0x60
+#define ADS1220_DR_330		0x80
+#define ADS1220_DR_600		0xa0
+#define ADS1220_DR_1000		0xc0
+
+// Define MODE of Operation
+#define ADS1220_MODE_NORMAL	0x00
+#define ADS1220_MODE_DUTY	0x08
+#define ADS1220_MODE_TURBO 	0x10
+#define ADS1220_MODE_DCT	0x18
+
+// Define CM (conversion mode)
+#define ADS1220_CC			0x04
+
+// Define TS (temperature sensor)
+#define ADS1220_TEMP_SENSOR	0x02
+
+// Define BCS (burnout current source)
+#define ADS1220_BCS			0x01
+
+/* ADS1220 Register 2 Definition */
+//   Bit 7   |   Bit 6   |   Bit 5   |   Bit 4   |   Bit 3   |   Bit 2   |   Bit 1   |   Bit 0 
+//--------------------------------------------------------------------------------------------
+//         VREF[1:0]     |        50/60[1:0]     |    PSW    |             IDAC[2:0]
+//
+// Define VREF
+#define ADS1220_VREF_INT	0x00
+#define ADS1220_VREF_EX_DED	0x40
+#define ADS1220_VREF_EX_AIN	0x80
+#define ADS1220_VREF_SUPPLY	0xc0
+
+// Define 50/60 (filter response)
+#define ADS1220_REJECT_OFF	0x00
+#define ADS1220_REJECT_BOTH	0x10
+#define ADS1220_REJECT_50	0x20
+#define ADS1220_REJECT_60	0x30
+
+// Define PSW (low side power switch)
+#define ADS1220_PSW_SW		0x08
+
+// Define IDAC (IDAC current)
+#define ADS1220_IDAC_OFF	0x00
+#define ADS1220_IDAC_10		0x01
+#define ADS1220_IDAC_50		0x02
+#define ADS1220_IDAC_100	0x03
+#define ADS1220_IDAC_250	0x04
+#define ADS1220_IDAC_500	0x05
+#define ADS1220_IDAC_1000	0x06
+#define ADS1220_IDAC_2000	0x07
+
+/* ADS1220 Register 3 Definition */
+//   Bit 7   |   Bit 6   |   Bit 5   |   Bit 4   |   Bit 3   |   Bit 2   |   Bit 1   |   Bit 0 
+//--------------------------------------------------------------------------------------------
+//               I1MUX[2:0]          |               I2MUX[2:0]          |   DRDYM   | RESERVED
+//
+// Define I1MUX (current routing)
+#define ADS1220_IDAC1_OFF	0x00
+#define ADS1220_IDAC1_AIN0	0x20
+#define ADS1220_IDAC1_AIN1	0x40
+#define ADS1220_IDAC1_AIN2	0x60
+#define ADS1220_IDAC1_AIN3	0x80
+#define ADS1220_IDAC1_REFP0	0xa0
+#define ADS1220_IDAC1_REFN0	0xc0
+
+// Define I2MUX (current routing)
+#define ADS1220_IDAC2_OFF	0x00
+#define ADS1220_IDAC2_AIN0	0x04
+#define ADS1220_IDAC2_AIN1	0x08
+#define ADS1220_IDAC2_AIN2	0x0c
+#define ADS1220_IDAC2_AIN3	0x10
+#define ADS1220_IDAC2_REFP0	0x14
+#define ADS1220_IDAC2_REFN0	0x18
+
+/*
+ *  define DRDYM (DOUT/DRDY behaviour)
+ */
+#define ADS1220_DRDY_MODE	0x02
 
 /*
  * for optional SPI framework patch
@@ -152,6 +329,7 @@ The output range is 0 to 4095 for 0.0 to 2.048 onboard devices (output resolutio
 
 /* 
  * SPI transfer buffer size 
+ * must be a define to init buffer sizes
  */
 #define HUNK_LEN 1000
 
@@ -179,21 +357,33 @@ enum daqgert_state_bits {
 static LIST_HEAD(device_list);
 
 /* 
- * SPI link setup 
+ * Default SPI link setup 
  */
-static const uint16_t SPI_MODE = SPI_MODE_3; /* mode 3 for ADC & DAC*/
+static const uint8_t SPI_MODE = SPI_MODE_3; /* mode 3 for ADC & DAC*/
+static const uint32_t SPI_SPEED = 1000000; /* default clock speed */
+static const uint8_t SPI_MODE_ADS1220 = SPI_MODE_1; /* mode 1 for TI ADC */
+static const uint32_t SPI_SPEED_ADS1220 = 30000; /* default clock speed */
 static const uint8_t SPI_BPW = 8; /* 8 bit SPI words */
+/*
+ * ads1220 daq configuration
+ */
+static const uint8_t ads1220_r0 = ADS1220_MUX_0_1 | ADS1220_GAIN_1 | ADS1220_PGA_BYPASS;
+static const uint8_t ads1220_r0_for_mux_gain = ADS1220_PGA_BYPASS;
+static const uint8_t ads1220_r1 = ADS1220_DR_20 | ADS1220_MODE_TURBO;
+static const uint8_t ads1220_r2 = ADS1220_REJECT_OFF;
+static const uint8_t ads1220_r3 = ADS1220_IDAC_OFF | ADS1220_DRDY_MODE;
 
 /* analog chip types (type - 12 bits) */
 static const uint32_t MCP3002 = 2; /* 10 bit ADC */
 static const uint32_t MCP3202 = 0;
+static const uint32_t ADS1220 = 24;
 static const uint32_t MCP4802 = 4; /* 8 bit DAC output from 12 bit input data */
 static const uint32_t MCP4812 = 2;
 static const uint32_t MCP4822 = 0;
 static const uint32_t PICSL10 = 2;
 static const uint32_t PICSL12 = 0;
 static const uint32_t SPI_BUFF_SIZE = 3072;
-static const uint32_t SPI_BUFF_SIZE_NOHUNK = 16;
+static const uint32_t SPI_BUFF_SIZE_NOHUNK = 64;
 static const uint32_t MAX_CHANLIST_LEN = 256;
 static const uint32_t CONV_SPEED = 5000; /* 10s of nsecs: the true rate is ~3000/5000 so we need a fixup,  two conversions per mix scan */
 static const uint32_t CONV_SPEED_FIX = 19; /* usecs: round it up to ~50usecs total with this */
@@ -290,7 +480,9 @@ struct daqgert_board {
 	const char *name;
 	int32_t board_type;
 	int32_t n_aichan;
+	uint8_t n_aichan_bits;
 	int32_t n_aochan;
+	uint8_t n_aochan_bits;
 	uint32_t ai_ns_min;
 	uint32_t ai_ns_min_calc;
 	uint32_t ai_rate_min;
@@ -300,9 +492,15 @@ struct daqgert_board {
 	uint8_t ai_cs;
 	uint8_t ao_cs;
 	uint32_t ai_max_speed_hz;
+	uint32_t ai_max_speed_hz_ads1220;
 	uint32_t ao_max_speed_hz;
 	int32_t ai_node;
 	int32_t ao_node;
+	uint8_t spi_mode;
+	uint8_t spi_mode_ads1220;
+	uint8_t spi_bpw;
+	uint8_t n_aichan_ads1220;
+	uint8_t n_aichan_bits_ads1220;
 };
 
 static const struct daqgert_board daqgert_boards[] = {
@@ -310,7 +508,9 @@ static const struct daqgert_board daqgert_boards[] = {
 		.name = "Gertboard",
 		.board_type = 0,
 		.n_aichan = 2,
+		.n_aichan_bits = 12,
 		.n_aochan = 2,
+		.n_aochan_bits = 12,
 		.ai_ns_min = 50000, /* values plus software overhead */
 		.ai_ns_min_calc = 35000,
 		.ai_rate_min = 20000,
@@ -320,9 +520,15 @@ static const struct daqgert_board daqgert_boards[] = {
 		.ai_cs = 0,
 		.ao_cs = 1,
 		.ai_max_speed_hz = 1000000,
+		.ai_max_speed_hz_ads1220 = 500000,
 		.ao_max_speed_hz = 8000000,
 		.ai_node = 3,
 		.ao_node = 2,
+		.spi_mode = 3,
+		.spi_mode_ads1220 = 1,
+		.spi_bpw = 8,
+		.n_aichan_ads1220 = 5,
+		.n_aichan_bits_ads1220 = 24,
 	},
 	{
 		.name = "Fredboard",
@@ -358,11 +564,20 @@ static const struct comedi_lrange daqgert_ao_range = {1,
 		RANGE(0, 2.048),
 	}};
 
+static const struct comedi_lrange range_ads1220_ai = {
+	3,
+	{ /* gains 1,2,4 */
+		BIP_RANGE(2.048),
+		BIP_RANGE(1.024),
+		BIP_RANGE(0.512)
+	}
+};
+
 /* 
  * SPI attached devices used by Comedi for I/O 
  */
 struct spi_param_type {
-	uint32_t range : 1;
+	uint32_t range : 2;
 	uint32_t bits : 2;
 	uint32_t link : 1;
 	uint32_t pic18 : 2;
@@ -405,7 +620,7 @@ struct daqgert_private {
 	unsigned long state_bits;
 	uint32_t ai_rate_max, ao_rate_max, ao_timer, ao_counter;
 	uint32_t ai_conv_delay_usecs, ai_conv_delay_10nsecs, ai_cmd_delay_usecs;
-	int32_t ai_chan, ao_chan, ai_count, ao_count, hunk_count;
+	int32_t ai_chan, ao_chan, ai_count, ao_count, ai_range, hunk_count;
 	struct mutex drvdata_lock, cmd_lock;
 	uint32_t val;
 	uint16_t use_hunking : 1;
@@ -452,8 +667,8 @@ static void daqgert_handle_ao_eoc(struct comedi_device *,
 static void my_timer_ai_callback(unsigned long);
 static void daqgert_ai_set_chan_range(struct comedi_device *,
 				      uint32_t, char);
-static uint32_t daqgert_ai_get_sample(struct comedi_device *,
-				      struct comedi_subdevice *);
+static int32_t daqgert_ai_get_sample(struct comedi_device *,
+				     struct comedi_subdevice *);
 static void daqgert_ao_put_sample(struct comedi_device *,
 				  struct comedi_subdevice *,
 				  uint32_t);
@@ -948,6 +1163,35 @@ static int32_t wiringPiSetupGpio(struct comedi_device *dev)
 	return 0;
 }
 
+static void ADS1220WriteRegister(int StartAddress, int NumRegs, unsigned * pData, struct comedi_subdevice *s)
+{
+	const struct daqgert_board *thisboard = &daqgert_boards[gert_type];
+	int i;
+	struct spi_param_type *spi_data = s->private;
+	struct spi_device *spi = spi_data->spi;
+	struct comedi_spigert *pdata = spi->dev.platform_data;
+	struct spi_message m;
+
+	pdata->tx_buff[0] = ADS1220_CMD_WREG | (((StartAddress << 2) & 0x0c) | ((NumRegs - 1)&0x03));
+
+	for (i = 0; i < NumRegs; i++) {
+		pdata->tx_buff[i + 1] = *pData++;
+	}
+
+	pdata->one_t.len = NumRegs + 2;
+	pdata->one_t.cs_change = false;
+	pdata->one_t.delay_usecs = 0;
+	spi_message_init_with_transfers(&m, &pdata->one_t, 1);
+	spi->mode = SPI_MODE_ADS1220;
+	spi->max_speed_hz = thisboard->ai_max_speed_hz;
+	spi_setup(spi);
+	spi_bus_lock(pdata->slave.spi->master);
+	spi_sync_locked(pdata->slave.spi, &m); /* exchange SPI data */
+	spi_bus_unlock(pdata->slave.spi->master);
+
+	return;
+}
+
 /* 
  * chip byte offsets for arrays for 10 or 12 bit devices 
  */
@@ -1068,15 +1312,63 @@ static void daqgert_ai_start_pacer(struct comedi_device *dev,
 			+ msecs_to_jiffies(10));
 }
 
+static void daqgert_ai_set_chan_range_ads1220(struct comedi_device *dev,
+					      struct comedi_subdevice *s,
+					      uint32_t chanspec)
+{
+	struct daqgert_private *devpriv = dev->private;
+	uint32_t range = CR_RANGE(chanspec);
+	uint32_t chan = CR_CHAN(chanspec);
+	uint32_t cMux;
+
+	/*
+	 * convert chanspec to input MUX switches/gains if needed
+	 * we could just feed the raw bits to the Mux if needed
+	 */
+	switch (chan) {
+	case 0:
+		cMux = ADS1220_MUX_0_1;
+		break;
+	case 1:
+		cMux = ADS1220_MUX_2_3;
+		break;
+	case 2:
+		cMux = ADS1220_MUX_2_G;
+		break;
+	case 3:
+		cMux = ADS1220_MUX_3_G;
+		break;
+	case 4:
+		cMux = ADS1220_MUX_DIV2;
+		break;
+	default:
+		cMux = ADS1220_MUX_0_1;
+	}
+
+	if ((devpriv->ai_chan != chan) || (devpriv->ai_range != range)) {
+		cMux |= ((range & 0x03) << 1); /* setup the gain bits for range with NO pga*/
+		cMux |= ads1220_r0_for_mux_gain;
+		ADS1220WriteRegister(ADS1220_0_REGISTER, 0x01, &cMux, s);
+	}
+
+	devpriv->ai_chan = CR_CHAN(chanspec);
+	devpriv->ai_range = CR_RANGE(chanspec);
+}
+
 /*
- * Only one AI range so only the channel is set
+ * Only one AI range so only the channel is set unless ads1220
  */
 static void daqgert_ai_set_chan_range(struct comedi_device *dev,
 				      uint32_t chanspec,
 				      char wait)
 {
 	struct daqgert_private *devpriv = dev->private;
+
+	if (devpriv->ai_spi->device_type == ADS1220)
+		daqgert_ai_set_chan_range_ads1220(dev, &dev->subdevices[1], chanspec);
+
 	devpriv->ai_chan = CR_CHAN(chanspec);
+	devpriv->ai_range = CR_RANGE(chanspec);
 
 	if (wait)
 		udelay(1);
@@ -1103,6 +1395,7 @@ static void daqgert_ao_put_sample(struct comedi_device *dev,
 				  struct comedi_subdevice *s,
 				  uint32_t val)
 {
+	const struct daqgert_board *thisboard = &daqgert_boards[gert_type];
 	struct daqgert_private *devpriv = dev->private;
 	struct spi_param_type *spi_data = s->private;
 	struct spi_device *spi = spi_data->spi;
@@ -1115,7 +1408,10 @@ static void daqgert_ao_put_sample(struct comedi_device *dev,
 	pdata->tx_buff[1] = val_tmp & 0xff;
 	pdata->tx_buff[0] = (0x30 | ((chan & 0x01) << 7)
 		| (val_tmp >> 8));
-	spi_write_then_read(spi_data->spi, pdata->tx_buff, 2,
+	spi->mode = thisboard->spi_mode;
+	spi->max_speed_hz = thisboard->ao_max_speed_hz;
+	spi_setup(spi);
+	spi_write_then_read(spi, pdata->tx_buff, 2,
 			pdata->rx_buff, 2);
 	s->readback[chan] = val;
 	devpriv->ao_count++;
@@ -1127,40 +1423,74 @@ static void daqgert_ao_put_sample(struct comedi_device *dev,
 /*
  * returns one value from the ADC device
  */
-static uint32_t daqgert_ai_get_sample(struct comedi_device *dev,
-				      struct comedi_subdevice *s)
+static int32_t daqgert_ai_get_sample(struct comedi_device *dev,
+				     struct comedi_subdevice *s)
 {
+	const struct daqgert_board *thisboard = &daqgert_boards[gert_type];
 	struct daqgert_private *devpriv = dev->private;
 	struct spi_param_type *spi_data = s->private;
 	struct spi_device *spi = spi_data->spi;
 	struct comedi_spigert *pdata = spi->dev.platform_data;
 	struct spi_message m;
-	int32_t chan;
-	uint32_t val;
+	int32_t chan, sync;
+	int32_t val;
 
 	mutex_lock(&devpriv->drvdata_lock);
 	chan = CR_CHAN(devpriv->ai_chan);
 	/* Make SPI messages for the type of ADC are we talking to */
 	/* The PIC Slave needs 8 bit transfers only */
 	if (unlikely(spi_data->pic18)) { /*  PIC18 SPI slave device. NO MULTI_MODE ever */
-		udelay(devpriv->ai_cmd_delay_usecs); /* ADC conversion delay */
-		pdata->tx_buff[0] = CMD_ADC_GO + chan;
-		spi_write_then_read(spi_data->spi, pdata->tx_buff, 1,
-				pdata->rx_buff, 1); /* rx buffer has old data */
-		udelay(devpriv->ai_conv_delay_usecs); /* ADC conversion delay */
-		pdata->tx_buff[0] = CMD_ZERO;
-		spi_write_then_read(spi_data->spi, pdata->tx_buff, 1,
-				pdata->rx_buff, 1); /* rx buffer has old data */
-		udelay(devpriv->ai_cmd_delay_usecs); /* ADC conversion delay */
-		pdata->tx_buff[0] = CMD_ADC_DATA;
-		spi_write_then_read(spi_data->spi, pdata->tx_buff, 1,
-				pdata->rx_buff, 1);
-		val = pdata->rx_buff[0];
-		udelay(devpriv->ai_cmd_delay_usecs); /* ADC conversion delay */
-		pdata->tx_buff[0] = CMD_ZERO;
-		spi_write_then_read(spi_data->spi, pdata->tx_buff, 1,
-				pdata->rx_buff, 1);
-		val += pdata->rx_buff[0] << 8;
+		if (likely(devpriv->ai_spi->device_type != ADS1220)) {
+			spi->mode = thisboard->spi_mode;
+			spi->max_speed_hz = thisboard->ai_max_speed_hz;
+			spi_setup(spi);
+			udelay(devpriv->ai_cmd_delay_usecs); /* ADC conversion delay */
+			pdata->tx_buff[0] = CMD_ADC_GO + chan;
+			spi_write_then_read(spi, pdata->tx_buff, 1,
+					pdata->rx_buff, 1); /* rx buffer has old data */
+			udelay(devpriv->ai_conv_delay_usecs); /* ADC conversion delay */
+			pdata->tx_buff[0] = CMD_ZERO;
+			spi_write_then_read(spi, pdata->tx_buff, 1,
+					pdata->rx_buff, 1); /* rx buffer has old data */
+			udelay(devpriv->ai_cmd_delay_usecs); /* ADC conversion delay */
+			pdata->tx_buff[0] = CMD_ADC_DATA;
+			spi_write_then_read(spi, pdata->tx_buff, 1,
+					pdata->rx_buff, 1);
+			val = pdata->rx_buff[0];
+			udelay(devpriv->ai_cmd_delay_usecs); /* ADC conversion delay */
+			pdata->tx_buff[0] = CMD_ZERO;
+			spi_write_then_read(spi, pdata->tx_buff, 1,
+					pdata->rx_buff, 1);
+			val += pdata->rx_buff[0] << 8;
+		} else { /* read the ads1220 3 byte data result */
+			pdata->one_t.len = 4;
+			pdata->one_t.cs_change = false;
+			pdata->one_t.delay_usecs = 0;
+			pdata->tx_buff[0] = ADS1220_CMD_RDATA;
+			pdata->tx_buff[1] = 0;
+			pdata->tx_buff[2] = 0;
+			pdata->tx_buff[3] = 0;
+			pdata->tx_buff[4] = 0;
+			spi_message_init_with_transfers(&m,
+							&pdata->one_t, 1);
+			spi->mode = thisboard->spi_mode_ads1220;
+			spi->max_speed_hz = thisboard->ai_max_speed_hz_ads1220;
+			spi_setup(spi);
+			spi_bus_lock(spi->master);
+			spi_sync_locked(spi, &m); /* exchange SPI data */
+			spi_bus_unlock(spi->master);
+			val = pdata->rx_buff[1];
+			val = (val << 8) | pdata->rx_buff[2];
+			val = (val << 8) | pdata->rx_buff[3];
+
+			/* mangle the data as necessary */
+			/* Bipolar Offset Binary */
+			val &= 0x0ffffff;
+			val ^= 0x0800000;
+
+			sync = ADS1220_CMD_SYNC;
+			spi_write(spi, &sync, 1);
+		}
 		devpriv->ai_count++;
 	} else { /* Gertboard onboard ADC device */
 		if (likely(devpriv->ai_hunk)) {
@@ -1172,9 +1502,12 @@ static uint32_t daqgert_ai_get_sample(struct comedi_device *dev,
 			spi_message_init_with_transfers(&m,
 							&pdata->one_t, 1);
 		}
-		spi_bus_lock(spi_data->spi->master);
-		spi_sync_locked(spi_data->spi, &m); /* exchange SPI data */
-		spi_bus_unlock(spi_data->spi->master);
+		spi->mode = SPI_MODE;
+		spi->max_speed_hz = SPI_SPEED;
+		spi_setup(spi);
+		spi_bus_lock(spi->master);
+		spi_sync_locked(spi, &m); /* exchange SPI data */
+		spi_bus_unlock(spi->master);
 		/* ADC type code result munging */
 		if (likely(devpriv->ai_hunk)) {
 			/* data will be sent to comedi buffers later */
@@ -1194,6 +1527,7 @@ static uint32_t daqgert_ai_get_sample(struct comedi_device *dev,
 	mutex_unlock(&devpriv->drvdata_lock);
 	clear_bit(SPI_AI_RUN, &devpriv->state_bits);
 	smp_mb__after_atomic();
+	// return val & s->maxdata;
 	return val & s->maxdata;
 }
 
@@ -1205,7 +1539,8 @@ static void daqgert_handle_ai_eoc(struct comedi_device *dev,
 {
 	struct daqgert_private *devpriv = dev->private;
 	struct comedi_cmd *cmd = &s->async->cmd;
-	uint32_t next_chan, val;
+	uint32_t next_chan;
+	uint32_t val;
 	uint32_t chan = s->async->cur_chan;
 
 	val = daqgert_ai_get_sample(dev, s);
@@ -1941,6 +2276,90 @@ static int32_t daqgert_ai_delay_rate(struct comedi_device *dev,
 	return spacing_usecs;
 }
 
+/**
+ * comedi_8254_cascade_ns_to_timer - calculate the cascaded divisor values
+ * @i8254:	comedi_8254 struct for the timer
+ * @nanosec:	the desired ns time
+ * @flags:	comedi_cmd flags
+ */
+void comedi_8254_cascade_ns_to_timer(struct comedi_8254 *i8254,
+				     unsigned int *nanosec,
+				     unsigned int flags)
+{
+	unsigned int d1 = i8254->next_div1 ? i8254->next_div1 : I8254_MAX_COUNT;
+	unsigned int d2 = i8254->next_div2 ? i8254->next_div2 : I8254_MAX_COUNT;
+	unsigned int div = d1 * d2;
+	unsigned int ns_lub = 0xffffffff;
+	unsigned int ns_glb = 0;
+	unsigned int d1_lub = 0;
+	unsigned int d1_glb = 0;
+	unsigned int d2_lub = 0;
+	unsigned int d2_glb = 0;
+	unsigned int start;
+	unsigned int ns;
+	unsigned int ns_low;
+	unsigned int ns_high;
+
+	/* exit early if everything is already correct */
+	if (div * i8254->osc_base == *nanosec &&
+	d1 > 1 && d1 <= I8254_MAX_COUNT &&
+	d2 > 1 && d2 <= I8254_MAX_COUNT &&
+	/* check for overflow */
+	div > d1 && div > d2 &&
+	div * i8254->osc_base > div &&
+	div * i8254->osc_base > i8254->osc_base)
+		return;
+
+	div = *nanosec / i8254->osc_base;
+	d2 = I8254_MAX_COUNT;
+	start = div / d2;
+	if (start < 2)
+		start = 2;
+	for (d1 = start; d1 <= div / d1 + 1 && d1 <= I8254_MAX_COUNT; d1++) {
+		for (d2 = div / d1;
+		d1 * d2 <= div + d1 + 1 && d2 <= I8254_MAX_COUNT; d2++) {
+			ns = i8254->osc_base * d1 * d2;
+			if (ns <= *nanosec && ns > ns_glb) {
+				ns_glb = ns;
+				d1_glb = d1;
+				d2_glb = d2;
+			}
+			if (ns >= *nanosec && ns < ns_lub) {
+				ns_lub = ns;
+				d1_lub = d1;
+				d2_lub = d2;
+			}
+		}
+	}
+
+	switch (flags & CMDF_ROUND_MASK) {
+	case CMDF_ROUND_NEAREST:
+	default:
+		ns_high = d1_lub * d2_lub * i8254->osc_base;
+		ns_low = d1_glb * d2_glb * i8254->osc_base;
+		if (ns_high - *nanosec < *nanosec - ns_low) {
+			d1 = d1_lub;
+			d2 = d2_lub;
+		} else {
+			d1 = d1_glb;
+			d2 = d2_glb;
+		}
+		break;
+	case CMDF_ROUND_UP:
+		d1 = d1_lub;
+		d2 = d2_lub;
+		break;
+	case CMDF_ROUND_DOWN:
+		d1 = d1_glb;
+		d2 = d2_glb;
+		break;
+	}
+
+	*nanosec = d1 * d2 * i8254->osc_base;
+	i8254->next_div1 = d1;
+	i8254->next_div2 = d2;
+}
+
 /* 
  * For some scans we can do a quasi-DMA-like transfer that's much faster and
  * has better long term timing
@@ -2265,7 +2684,12 @@ static int32_t daqgert_ai_rinsn(struct comedi_device *dev,
 		goto ai_read_exit;
 
 	devpriv->ai_hunk = false;
+
+	if (devpriv->ai_spi->device_type == ADS1220)
+		daqgert_ai_set_chan_range_ads1220(dev, s, insn->chanspec);
+
 	devpriv->ai_chan = CR_CHAN(insn->chanspec);
+
 	/* convert n samples */
 	for (n = 0; n < insn->n; n++) {
 		data[n] = daqgert_ai_get_sample(dev, s);
@@ -2372,6 +2796,7 @@ static int32_t daqgert_auto_attach(struct comedi_device *dev,
 	int32_t num_ai_chan, num_ao_chan, num_dio_chan = NUM_DIO_CHAN;
 	struct daqgert_private *devpriv;
 	struct comedi_spigert *pdata;
+	struct spi_message m;
 
 	/* 
 	 * auto free on exit of comedi
@@ -2392,6 +2817,8 @@ static int32_t daqgert_auto_attach(struct comedi_device *dev,
 	} else {
 		use_hunking = false;
 	}
+	if (daqgert_conf == 4)
+		use_hunking = 0; /* single transfers, ADC is in continuous conversion mode */
 	devpriv->use_hunking = use_hunking;
 
 	/*
@@ -2435,24 +2862,78 @@ static int32_t daqgert_auto_attach(struct comedi_device *dev,
 		if (pdata->slave.spi->chip_select == thisboard->ai_cs) {
 			devpriv->ai_spi = &pdata->slave;
 			pdata->slave.spi->max_speed_hz = thisboard->ai_max_speed_hz;
+			pdata->slave.spi->mode = thisboard->spi_mode;
 			spi_setup(pdata->slave.spi);
-			dev_info(dev->class_dev,
-				"setup: spi cd %d: %d Hz: "
-				"assigned to adc devices\n",
-				pdata->slave.spi->chip_select,
-				pdata->slave.spi->max_speed_hz);
 			pdata->one_t.tx_buf = pdata->tx_buff;
 			pdata->one_t.rx_buf = pdata->rx_buff;
+			if (daqgert_conf == 4) { /* ads1220 mode */
+				/* 
+				 * setup ads1220 registers
+				 */
+				pdata->one_t.len = 5;
+				pdata->tx_buff[0] = ADS1220_CMD_WREG + 3; // 0..1 bytes
+				pdata->tx_buff[1] = ads1220_r0;
+				pdata->tx_buff[2] = ads1220_r1;
+				pdata->tx_buff[3] = ads1220_r2;
+				pdata->tx_buff[4] = ads1220_r3;
+				spi_message_init_with_transfers(&m,
+								&pdata->one_t, 1);
+				pdata->slave.spi->max_speed_hz = thisboard->ai_max_speed_hz_ads1220;
+				pdata->slave.spi->mode = thisboard->spi_mode_ads1220;
+				spi_setup(pdata->slave.spi);
+				spi_bus_lock(pdata->slave.spi->master);
+				spi_sync_locked(pdata->slave.spi, &m); /* exchange SPI data */
+				spi_bus_unlock(pdata->slave.spi->master);
+				usleep_range(40, 50);
+				pdata->one_t.len = 5;
+				pdata->tx_buff[0] = ADS1220_CMD_RREG + 3; // 0..3 bytes
+				pdata->tx_buff[1] = 0;
+				pdata->tx_buff[2] = 0;
+				pdata->tx_buff[3] = 0;
+				pdata->tx_buff[4] = 0;
+				spi_message_init_with_transfers(&m,
+								&pdata->one_t, 1);
+				spi_bus_lock(pdata->slave.spi->master);
+				spi_sync_locked(pdata->slave.spi, &m); /* exchange SPI data */
+				spi_bus_unlock(pdata->slave.spi->master);
+				usleep_range(40, 50);
+				/*
+				 * Check to be sure we have a device
+				 */
+				if ((pdata->rx_buff[1] != ads1220_r0) ||
+				(pdata->rx_buff[2] != ads1220_r1)) {
+					dev_info(dev->class_dev,
+						"ADS1220 configuration error: %x %x %x %x\n",
+						pdata->rx_buff[1], pdata->rx_buff[2],
+						pdata->rx_buff[3], pdata->rx_buff[4]);
+				}
+				usleep_range(50, 60);
+				pdata->one_t.len = 1;
+				pdata->tx_buff[0] = ADS1220_CMD_SYNC;
+				spi_message_init_with_transfers(&m,
+								&pdata->one_t, 1);
+				spi_bus_lock(pdata->slave.spi->master);
+				spi_sync_locked(pdata->slave.spi, &m); /* exchange SPI data */
+				spi_bus_unlock(pdata->slave.spi->master);
+			}
 			clear_bit(CSnA, &spi_device_missing);
+			dev_info(dev->class_dev,
+				"board setup: spi cd %d: %d Hz: mode 0x%x: "
+				"assigned to adc devices\n",
+				pdata->slave.spi->chip_select,
+				pdata->slave.spi->max_speed_hz,
+				pdata->slave.spi->mode);
 		} else {
 			devpriv->ao_spi = &pdata->slave;
 			pdata->slave.spi->max_speed_hz = thisboard->ao_max_speed_hz;
+			pdata->slave.spi->mode = thisboard->spi_mode;
 			spi_setup(pdata->slave.spi);
 			dev_info(dev->class_dev,
-				"setup: spi cd %d: %d Hz: "
+				"board setup: spi cd %d: %d Hz: mode 0x%x: "
 				"assigned to dac devices\n",
 				pdata->slave.spi->chip_select,
-				pdata->slave.spi->max_speed_hz);
+				pdata->slave.spi->max_speed_hz,
+				pdata->slave.spi->mode);
 			pdata->one_t.tx_buf = pdata->tx_buff;
 			pdata->one_t.rx_buf = pdata->rx_buff;
 			clear_bit(CSnB, &spi_device_missing);
@@ -2552,8 +3033,8 @@ static int32_t daqgert_auto_attach(struct comedi_device *dev,
 	 * assume we have DON"T have a Gertboard 
 	 */
 	dev_info(dev->class_dev,
-		"%s spi slave device detection started\n",
-		thisboard->name);
+		"%s spi slave device detection started, daqgert_conf option value %i\n",
+		thisboard->name, daqgert_conf);
 	devpriv->num_subdev = 1;
 	if (daqgert_spi_probe(dev, devpriv->ai_spi, devpriv->ao_spi))
 		devpriv->num_subdev += 2;
@@ -2591,7 +3072,7 @@ static int32_t daqgert_auto_attach(struct comedi_device *dev,
 		/* we support single-ended (ground)  */
 		s->n_chan = num_ai_chan;
 		s->len_chanlist = num_ai_chan;
-		s->maxdata = (1 << (12 - devpriv->ai_spi->device_type)) - 1;
+		s->maxdata = (1 << (thisboard->n_aichan_bits - devpriv->ai_spi->device_type)) - 1;
 		if (devpriv->ai_spi->range)
 			s->range_table = &daqgert_ai_range2_048;
 		else
@@ -2608,6 +3089,24 @@ static int32_t daqgert_auto_attach(struct comedi_device *dev,
 			s->subdev_flags = SDF_READABLE | SDF_GROUND
 				| SDF_COMMON;
 		}
+		if (devpriv->ai_spi->device_type == ADS1220) {
+			/* we support single-ended (ground) & diff bipolar  */
+			s->maxdata = (1 << thisboard->n_aichan_bits_ads1220) - 1;
+			s->range_table = &range_ads1220_ai;
+			s->n_chan = thisboard->n_aichan_ads1220;
+			s->len_chanlist = 1;
+			if (devpriv->smp) {
+				s->subdev_flags = SDF_READABLE | SDF_DIFF | SDF_GROUND
+					| SDF_CMD_READ | SDF_COMMON;
+				s->do_cmdtest = daqgert_ai_cmdtest;
+				s->do_cmd = daqgert_ai_cmd;
+				s->poll = daqgert_ai_poll;
+				s->cancel = daqgert_ai_cancel;
+			} else {
+				s->subdev_flags = SDF_READABLE | SDF_DIFF | SDF_GROUND
+					| SDF_COMMON;
+			}
+		}
 		dev->read_subdev = s;
 
 		/* daq-gert ao */
@@ -2619,7 +3118,7 @@ static int32_t daqgert_auto_attach(struct comedi_device *dev,
 		s->n_chan = num_ao_chan;
 		s->len_chanlist = num_ao_chan;
 		/* analog resolution depends on the DAC chip 8,10,12 bits */
-		s->maxdata = (1 << 12) - 1;
+		s->maxdata = (1 << thisboard->n_aochan_bits) - 1;
 		s->range_table = &daqgert_ao_range;
 		s->insn_write = daqgert_ao_winsn;
 		s->insn_read = comedi_readback_insn_read;
@@ -2708,6 +3207,7 @@ static struct comedi_driver daqgert_driver = {
 
 /* 
  * called for each listed spigert device in the bcm270*.c file 
+ * SO THIS RUNS FIRST, setup basic spi comm parameters here
  */
 static int32_t spigert_spi_probe(struct spi_device * spi)
 {
@@ -2746,6 +3246,12 @@ static int32_t spigert_spi_probe(struct spi_device * spi)
 		 * put entry into the Comedi device list 
 		 */
 		list_add_tail(&pdata->device_entry, &device_list);
+		if (daqgert_conf == 4) { /* ads1220 mode */
+			spi->mode = SPI_MODE_ADS1220;
+			spi->max_speed_hz = SPI_SPEED_ADS1220;
+		} else {
+			spi->mode = SPI_MODE;
+		}
 	}
 	if (spi->chip_select == CSnB) {
 		/* 
@@ -2754,13 +3260,14 @@ static int32_t spigert_spi_probe(struct spi_device * spi)
 		INIT_LIST_HEAD(&pdata->device_entry);
 		pdata->slave.spi = spi;
 		list_add_tail(&pdata->device_entry, &device_list);
+		spi->mode = SPI_MODE;
+		spi->max_speed_hz = SPI_SPEED;
 	}
 	spi->bits_per_word = SPI_BPW;
-	spi->mode = SPI_MODE;
 	spi_setup(spi);
 	dev_info(&spi->dev,
-		"setup: cd %d: bpw %u, mode 0x%x\n",
-		spi->chip_select, spi->bits_per_word,
+		"default setup: cd %d: %d Hz: bpw %u, mode 0x%x\n",
+		spi->chip_select, spi->max_speed_hz, spi->bits_per_word,
 		spi->mode);
 
 	/* 
@@ -2829,7 +3336,7 @@ static int32_t daqgert_spi_probe(struct comedi_device * dev,
 				 struct spi_param_type * spi_adc,
 				 struct spi_param_type * spi_dac)
 {
-	int32_t ret;
+	int32_t ret = 0, reset;
 	const struct daqgert_board *thisboard = dev->board_ptr;
 
 	if (!spi_adc->spi) {
@@ -2854,69 +3361,95 @@ static int32_t daqgert_spi_probe(struct comedi_device * dev,
 		spi_adc->device_type = MCP3202;
 		spi_dac->device_type = MCP4802;
 		break;
+	case 4:
+		spi_adc->device_type = ADS1220;
+		spi_dac->device_type = MCP4802;
+		break;
 	default:
 		spi_adc->device_type = MCP3002;
 		spi_dac->device_type = MCP4802;
 	}
-	/* 
-	 * SPI data transfers, send a few dummies for config info 
-	 */
-	spi_w8r8(spi_adc->spi, CMD_DUMMY_CFG);
-	spi_w8r8(spi_adc->spi, CMD_DUMMY_CFG);
-	ret = spi_w8r8(spi_adc->spi, CMD_DUMMY_CFG);
-	dev_info(dev->class_dev,
-		"%s adc board pre detect code %i, "
-		"daqgert_conf option value %i\n",
-		thisboard->name, ret, daqgert_conf);
-	if ((ret != 76) && (ret != 110)) { /* PIC slave adc codes */
-		/*
-		 * check for channel 0 SE 
+
+	if (spi_adc->device_type != ADS1220) {
+		/* 
+		 * SPI data transfers, send a few dummies for config info 
 		 */
-		ret = spi_w8r8(spi_adc->spi, 0x60);
-		if (1) { /* FIXME need to add another probe test */
-			spi_adc->pic18 = 0; /* MCP3X02 mode */
-			spi_adc->chan = thisboard->n_aichan;
-			spi_adc->range = 0; /* range 2.048 */
+		spi_adc->spi->mode = SPI_MODE;
+		spi_adc->spi->max_speed_hz = SPI_SPEED;
+		spi_setup(spi_adc->spi);
+		spi_w8r8(spi_adc->spi, CMD_DUMMY_CFG);
+		spi_w8r8(spi_adc->spi, CMD_DUMMY_CFG);
+		ret = spi_w8r8(spi_adc->spi, CMD_DUMMY_CFG);
+		dev_info(dev->class_dev,
+			"pre detect code %i\n", ret);
+		if ((ret != 76) && (ret != 110)) { /* PIC slave adc codes */
+			/*
+			 * check for channel 0 SE 
+			 */
+			ret = spi_w8r8(spi_adc->spi, 0x60);
+			if (1) { /* FIXME need to add another probe test */
+				spi_adc->pic18 = 0; /* MCP3X02 mode */
+				spi_adc->chan = thisboard->n_aichan;
+				spi_adc->range = 0; /* range 2.048 */
+				dev_info(dev->class_dev,
+					"onboard MCP3x02 adc chip detected, %i channels, "
+					"range code %i, device code %i, "
+					"PIC code %i, detect code %i\n",
+					spi_adc->chan,
+					spi_adc->range, spi_adc->device_type,
+					spi_adc->pic18, ret);
+				return spi_adc->chan;
+			}
+			spi_adc->pic18 = 0; /* SPI probes found nothing */
 			dev_info(dev->class_dev,
-				"%s adc chip board detected, %i channels, "
-				"range code %i, device code %i, "
-				"PIC code %i, detect code %i\n",
-				thisboard->name, spi_adc->chan,
-				spi_adc->range, spi_adc->device_type,
-				spi_adc->pic18, ret);
+				"no adc found, gpio pins only. detect code %i\n",
+				ret);
+			spi_adc->chan = 0;
 			return spi_adc->chan;
 		}
-		spi_adc->pic18 = 0; /* SPI probes found nothing */
-		dev_info(dev->class_dev,
-			"no %s adc found, gpio pins only. detect code %i\n",
-			thisboard->name, ret);
-		spi_adc->chan = 0;
-		return spi_adc->chan;
-	}
-	if (ret) {
-		spi_adc->pic18 = 1; /* PIC18 single-end mode 10 bits */
-		spi_adc->device_type = PICSL10;
-		spi_adc->chan = ret & 0x0f;
-		spi_adc->range = (ret & 0x20) >> 5;
-		spi_adc->bits = (ret & 0x10) >> 4;
-		if (spi_adc->bits) {
-			spi_adc->pic18 = 2; /* PIC24 mode 12 bits */
-			spi_adc->device_type = PICSL12;
+		if (ret) {
+			spi_adc->pic18 = 1; /* PIC18 single-end mode 10 bits */
+			spi_adc->device_type = PICSL10;
+			spi_adc->chan = ret & 0x0f;
+			spi_adc->range = (ret & 0x20) >> 5;
+			spi_adc->bits = (ret & 0x10) >> 4;
+			if (spi_adc->bits) {
+				spi_adc->pic18 = 2; /* PIC24 mode 12 bits */
+				spi_adc->device_type = PICSL12;
+			}
+			dev_info(dev->class_dev,
+				"PIC spi slave adc chip board detected, "
+				"%i channels, range code %i, device code %i, "
+				"bits code %i, PIC code %i, detect Code %i\n",
+				spi_adc->chan, spi_adc->range, spi_adc->device_type,
+				spi_adc->bits, spi_adc->pic18, ret);
+		} else {
+			spi_adc->pic18 = 0; /* SPI probes found nothing */
+			dev_info(dev->class_dev, "no PIC found, gpio pins only. "
+				"Detect code %i\n",
+				ret);
+			spi_adc->chan = 0;
 		}
+		return spi_adc->chan;
+	} else {
+		spi_adc->spi->mode = SPI_MODE_ADS1220;
+		spi_adc->spi->max_speed_hz = SPI_SPEED_ADS1220;
+		spi_setup(spi_adc->spi);
+		reset = ADS1220_CMD_RESET;
+		spi_write(spi_adc->spi, &reset, 1);
+		usleep_range(300, 350);
+		spi_adc->pic18 = 1; /* ACP1220 mode */
+		spi_adc->chan = thisboard->n_aichan_ads1220;
+		spi_adc->range = 0; /* N/A range 2.048 default */
+		spi_adc->bits = thisboard->n_aichan_bits_ads1220;
 		dev_info(dev->class_dev,
-			"PIC spi slave adc chip board detected, "
+			"ADS1220 spi adc chip board detected, "
 			"%i channels, range code %i, device code %i, "
 			"bits code %i, PIC code %i, detect Code %i\n",
 			spi_adc->chan, spi_adc->range, spi_adc->device_type,
 			spi_adc->bits, spi_adc->pic18, ret);
-	} else {
-		spi_adc->pic18 = 0; /* SPI probes found nothing */
-		dev_info(dev->class_dev, "no %s PIC found, gpio pins only. "
-			"Detect code %i\n",
-			thisboard->name, ret);
-		spi_adc->chan = 0;
+		return spi_adc->chan;
 	}
-	return spi_adc->chan;
 }
 
 static int32_t __init daqgert_init(void)
@@ -2946,6 +3479,7 @@ module_exit(daqgert_exit);
 
 MODULE_AUTHOR("Fred Brooks <spam@sma2.rain.com>");
 MODULE_DESCRIPTION("RPi DIO/AI/AO Driver");
-MODULE_VERSION("4.1.3");
+MODULE_VERSION("4.1.6");
 MODULE_LICENSE("GPL");
 MODULE_ALIAS("spi:spigert");
+
