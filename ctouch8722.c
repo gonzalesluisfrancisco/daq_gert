@@ -164,7 +164,7 @@ volatile uint16_t CATCH = FALSE, i = 0, y = 0, LED_UP = TRUE, z = 0, TOUCH = FAL
 	CATCH46 = FALSE, CATCH37 = FALSE, TSTATUS = FALSE, cdelay = 900, NEEDSETUP = FALSE,
 	CRTFIX_DEBUG = 1, DATA1 = FALSE, DATA2 = FALSE, speedup = 0, LEARN1 = FALSE,
 	LEARN2 = FALSE, CORNER1 = FALSE, CORNER2 = FALSE, CAM = FALSE;
-volatile uint8_t touch_good = 0, cam_time = 0, do_emu = SET_EMU;
+volatile uint8_t touch_good = 0, cam_time = 0, do_emu = SET_EMU, ACK = FALSE, INPACKET = FALSE;
 volatile int32_t j = 0, alive_led = 0, touch_count = 0, resync_count = 0, rawint_count = 0, status_count = 0;
 
 /*
@@ -233,13 +233,13 @@ uint8_t elocodes_e4[ELO_SIZE] = {
 	0x55, 'S', 'Y', 0x00, 0x00, 0x00, 0x59, 0x00, 0x00, 0x00, 0x00, 0x00
 };
 uint8_t elocodes_e5[ELO_SIZE] = {
-	0x55, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
+	0x55, 'a', 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
 };
 uint8_t elocodes_e6[ELO_SIZE] = {
 	0x55, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
 };
-uint8_t elocodes_e7[ELO_SIZE] = {
-	0x55, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
+uint8_t elocodes_e7[ELO_SIZE] = {// dummy packet
+	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
 };
 
 volatile uint16_t tchar, uchar, debug_port = 0, restart_delay = 0, touch_saved = 0, touch_sent = 0, touch_corner1 = 0,
@@ -268,6 +268,7 @@ void rx_handler(void)
 {
 	uint8_t c;
 	static uint16_t scrn_ptr = 0, host_ptr = 0, do_cap = DO_CAP, junk;
+	static uint8_t sum = 0;
 
 	if (INTCONbits.RBIF) {
 		junk = PORTB;
@@ -309,35 +310,53 @@ void rx_handler(void)
 			}
 		} else {
 			if (do_emu) {
+				if (i == 0 && c == 'U') { // look for start of packet
+					INPACKET = TRUE;
+					sum = 0xAA + 'U';
+				}
+
 				touch_good++; // chars received before a status report
 				LATEbits.LATE0 = 1; // flash external led
 				LATEbits.LATE7 = LATEbits.LATE0; // flash external led
 				DATA2 = TRUE; // usart is connected to data
-				if (TOUCH) {
-					elobuf[i++] = c;
+				if (TOUCH || ACK) {
+					ssbuf[i++] = c;
+					sum += c;
 					LATEbits.LATE0 = 1; // flash external led
 					LATEbits.LATE7 = LATEbits.LATE0; // flash external led
-					if (i== ELO_SEQ) { // end of report
-						CATCH = TRUE;
+					if (i == ELO_SEQ) { // end of report
+						if (sum == c) { //checksum match
+						}
+						i = 0;
+						INPACKET = FALSE;
 						restart_delay = 0;
+						if (TOUCH) {
+							CATCH = TRUE;
+							LATF = ssreport->x_cord;
+						}
 						TOUCH = FALSE; // stop buffering touchscreen data.
-						LATF=ssreport->x_cord;
+						ACK = FALSE;
+						sum = 0;
 					};
 				};
-				if (c == 'T' && (!CATCH)) { // looks like a touch report
+				if (c == 'T' && (!CATCH) && (!ACK)) { // looks like a touch report
 					TOUCH = TRUE;
 					TSTATUS = TRUE;
 					restart_delay = 0;
 					CATCH = FALSE;
-					i = 0;
+					i = 1;
+					ssbuf[i++] = c;
 					LATEbits.LATE0 = 1; // flash external led
 					LATEbits.LATE7 = LATEbits.LATE0; // flash external led
 				};
-				if (c == 0xF5) { // looks like a status report
+				if (c == 'A' && (!ACK) && (!TOUCH)) { // looks like a status report
+					ACK = TRUE;
 					TSTATUS = TRUE;
 					restart_delay = 0;
 					LATJbits.LATJ6 = 0; // led 6 touch-screen connected
 					speedup = -10000;
+					i = 1;
+					ssbuf[i++] = c;
 					LATEbits.LATE0 = 1; // flash external led
 					LATEbits.LATE7 = LATEbits.LATE0; // flash external led
 				};
@@ -345,13 +364,12 @@ void rx_handler(void)
 					i = 0; // stop buffer-overflow
 					TOUCH = FALSE;
 					CATCH = FALSE;
+					ACK = FALSE;
 				};
 				if (touch_good > GOOD_MAX) { // check for max count and no host to get touch data
 					LATEbits.LATE0 = 1; // LED off
 					LATEbits.LATE7 = LATEbits.LATE0;
-					while (TRUE) { // lockup for reboot
-						touch_good++;
-					};
+					touch_good = 0;
 				}
 			} else {
 				touch_good++; // chars received before a status report
@@ -511,7 +529,6 @@ void eloSScmdout(uint8_t *elostr)
 	while (Busy2USART()) {
 	}; // wait until the usart is clear
 	putc2USART(elostr[0]);
-	wdtdelay(30000);
 	while (Busy2USART()) {
 	}; // wait until the usart is clear
 }
@@ -530,6 +547,7 @@ void setup_lcd(void)
 	uint8_t single_t = SINGLE_TOUCH;
 
 	if (do_emu) {
+		elopacketout(elocodes_e7, ELO_SEQ); // dummy packet
 		elopacketout(elocodes_e0, ELO_SEQ);
 		elopacketout(elocodes_e2, ELO_SEQ);
 		elopacketout(elocodes_e3, ELO_SEQ);
@@ -793,9 +811,9 @@ void main(void)
 					rez_parm_v = ((float) (elobuf[1])) * rez_scale_v;
 					scaled_char = ((uint16_t) (rez_parm_v));
 					putc1(scaled_char); // send v scaled touch coord
+					i = 0;
 				}
 				putc1(0xFF); // send end of report
-				i = 0;
 				touch_count++;
 				CATCH = FALSE;
 				CATCH46 = FALSE;
@@ -813,7 +831,11 @@ void main(void)
 			Delay10KTCYx(75); // 75 ms
 			rez_scale_h = 1.0; // LCD touch screen real H/V rez
 			rez_scale_v = 1.0;
-			if (!do_emu) putc2(0x3D); // send clear buffer to touch
+			if (do_emu) {
+				elopacketout(elocodes_e5, ELO_SEQ); // send a ACk query
+			} else {
+				putc2(0x3D); // send clear buffer to touch
+			}
 			putc1(0xF4); // send status report
 			if (TS_TYPE == 0) { // CRT type screens
 				putc1(0x77); // touch parm
