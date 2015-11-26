@@ -224,7 +224,7 @@ uint8_t elocodes_e1[ELO_SIZE] = {
 	0x55, 'Q', 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
 };
 uint8_t elocodes_e2[ELO_SIZE] = {
-	0x55, 'M', 0b00000011, 0b01001000, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
+	0x55, 'M', 0x00, 0x87, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
 };
 uint8_t elocodes_e3[ELO_SIZE] = {
 	0x55, 'S', 'X', 0x00, 0x00, 0x00, 0x71, 0x00, 0x00, 0x00, 0x00, 0x00
@@ -233,10 +233,10 @@ uint8_t elocodes_e4[ELO_SIZE] = {
 	0x55, 'S', 'Y', 0x00, 0x00, 0x00, 0x59, 0x00, 0x00, 0x00, 0x00, 0x00
 };
 uint8_t elocodes_e5[ELO_SIZE] = {
-	0x55, 'a', 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
+	0x55, 'i', 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
 };
 uint8_t elocodes_e6[ELO_SIZE] = {
-	0x55, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
+	0x55, 'g', 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
 };
 uint8_t elocodes_e7[ELO_SIZE] = {// dummy packet
 	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
@@ -523,22 +523,23 @@ void elocmdout(uint8_t *elostr)
 	}; // wait until the usart is clear
 }
 
-void eloSScmdout(uint8_t *elostr)
+void eloSScmdout(uint8_t elostr)
 {
 	LATJbits.LATJ5 = !LATJbits.LATJ5; // touch screen commands led
 	while (Busy2USART()) {
 	}; // wait until the usart is clear
-	putc2USART(elostr[0]);
+	putc2USART(elostr);
 	while (Busy2USART()) {
 	}; // wait until the usart is clear
 }
 
-void elopacketout(uint8_t *strptr, uint8_t strcount)
+void elopacketout(uint8_t *strptr, uint8_t strcount, uint8_t slow)
 {
 	uint8_t i;
 	for (i = 0; i < strcount; i++) {
-		eloSScmdout(&strptr[i]);
+		eloSScmdout(strptr[i]);
 	};
+	if (slow) wdtdelay(30000);
 }
 
 void setup_lcd(void)
@@ -547,12 +548,12 @@ void setup_lcd(void)
 	uint8_t single_t = SINGLE_TOUCH;
 
 	if (do_emu) {
-		elopacketout(elocodes_e7, ELO_SEQ); // dummy packet
-		elopacketout(elocodes_e0, ELO_SEQ);
-		elopacketout(elocodes_e2, ELO_SEQ);
-		elopacketout(elocodes_e3, ELO_SEQ);
-		elopacketout(elocodes_e4, ELO_SEQ);
-		elopacketout(elocodes_e1, ELO_SEQ);
+//		elopacketout(elocodes_e5, ELO_SEQ, 0); // dummy packet
+		elopacketout(elocodes_e2, ELO_SEQ, 0);
+//		elopacketout(elocodes_e2, ELO_SEQ, 1);
+//		elopacketout(elocodes_e3, ELO_SEQ, 1);
+//		elopacketout(elocodes_e4, ELO_SEQ, 1);
+//		elopacketout(elocodes_e1, ELO_SEQ, 1);
 	} else {
 
 		if (TS_TYPE == 1) single_t = FALSE;
@@ -832,7 +833,7 @@ void main(void)
 			rez_scale_h = 1.0; // LCD touch screen real H/V rez
 			rez_scale_v = 1.0;
 			if (do_emu) {
-				elopacketout(elocodes_e5, ELO_SEQ); // send a ACk query
+				elopacketout(elocodes_e5, ELO_SEQ, 0); // send a ACk query
 			} else {
 				putc2(0x3D); // send clear buffer to touch
 			}
