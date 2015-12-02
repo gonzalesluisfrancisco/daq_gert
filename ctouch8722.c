@@ -228,7 +228,7 @@ uint8_t elocodes_s[ELO_SIZE] = {// same as above ex (0x25) enter point mode
 
 // SmartSet codes 0 command, 1 status, 2 low byte, 3 high byte, etc ...
 uint8_t elocodes_e0[ELO_SIZE] = {// emulate setup E271-2200 TOUCH BINARY
-	'U', 'Q', 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
+	'U', 'B', 0x01, 0x4, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
 };
 uint8_t elocodes_e1[ELO_SIZE] = {
 	'U', 'Q', 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
@@ -563,7 +563,7 @@ void setup_lcd(void)
 	uint8_t single_t = SINGLE_TOUCH;
 
 	if (do_emu) {
-		elopacketout(elocodes_e5, ELO_SEQ, 0); // info packet
+		elopacketout(elocodes_e0, ELO_SEQ, 0); // info packet
 		//		elopacketout(elocodes_e2, ELO_SEQ, 0);
 		//		elopacketout(elocodes_e2, ELO_SEQ, 1);
 		//elopacketout(elocodes_e3, ELO_SEQ, 0);
