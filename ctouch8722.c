@@ -16,7 +16,7 @@
 
 // CONFIG2H
 #pragma config WDT = ON         // Watchdog Timer (WDT enabled)
-#pragma config WDTPS = 512     // Watchdog Timer Postscale Select bits (1:1024)
+#pragma config WDTPS = 512      // Watchdog Timer Postscale Select bits (1:1024)
 
 // CONFIG3L
 #pragma config MODE = MC        // Processor Data Memory Mode Select bits (Microcontroller mode)
@@ -34,7 +34,7 @@
 #pragma config STVREN = ON      // Stack Full/Underflow Reset Enable bit (Stack full/underflow will cause Reset)
 #pragma config LVP = ON         // Single-Supply ICSP Enable bit (Single-Supply ICSP enabled)
 #pragma config BBSIZ = BB2K     // Boot Block Size Select bits (1K word (2 Kbytes) Boot Block size)
-#pragma config XINST = OFF       // Extended Instruction Set Enable bit (Instruction set extension and Indexed Addressing mode disabled (Legacy mode))
+#pragma config XINST = ON       // Extended Instruction Set Enable bit (Instruction set extension and Indexed Addressing mode
 
 // CONFIG5L
 #pragma config CP0 = OFF        // Code Protection bit Block 0 (Block 0 (000800, 001000 or 002000-003FFFh) not code-protected)
@@ -103,6 +103,37 @@
  * Male         2-3-rx
  *              3-2-tx
  */
+//				***
+//				E0.94		Clean up the code and comments
+//				E0.95		Add startup delay for remote service terminals
+//				E0.96		status reporting and monitor testing
+//				E0.97		port bit testing
+//				E0.98		fix cylon led roll.
+//				E0.99		debug 1,2 Screen size code results changed with portD bit 0,1
+//				E1.00
+//				E1.01		debug 8 on single/tracking touch modes portD bit 7
+//				E1.02		debug 7 on flash LCD while processing. portD bit 6
+//				E1.03		code fixes/updates
+//				E1.04		add delay in status/touched host send routines
+//				E1.05		add interlocks for touch input from screen
+//				E1.06		add WDT counter test switch input and checks for valid ts inputs.
+//				E1.07		screen connect restart code via WDT timeout.
+//				E1.08		Learn touchs and set with special touch sequence.
+//				E1.09		Code for 2 special touchs and remove the delay switch. bit3 learn1, bit2 learn2
+//				E1.10		External output to led/relay on PORTE, RE0,RE7 mirrors HA0 led
+//				E1.11		add JB define for switch board missing.
+//				E1.12-13	fix LCD display
+//				E1.14		fix rs-232 flags
+//				E1.15		Small coding  cleanups
+//				E1.16		remove WDT calls in ISR, check for proper comms with the touch screen and controller.
+//				E1.17		auto init touchscreen code.
+//				E1.18		Code for new LCD screens and debug capture.
+//				E1.19		recode ISR to remove library define functions
+//				E1.20		VGA/CAM switcher code.
+//				E1.21		Timed camera for left press, software smells
+//				E1.22		Support for SmartSet commands on newer touch panels
+//				E1.23		refactor
+//				***
 
 #include <usart.h>
 #include <delays.h>
@@ -127,7 +158,6 @@ typedef signed int int16_t;
 typedef signed long int32_t;
 typedef signed long long int64_t;
 #endif
-
 
 void rx_handler(void);
 
@@ -168,55 +198,26 @@ typedef struct reporttype {
 	uint8_t tohost;
 } volatile reporttype;
 
-volatile uint16_t CATCH = FALSE, i = 0, y = 0, LED_UP = TRUE, z = 0, TOUCH = FALSE, UNTOUCH = FALSE,
-	CATCH46 = FALSE, CATCH37 = FALSE, TSTATUS = FALSE, cdelay = 900, NEEDSETUP = FALSE,
-	CRTFIX_DEBUG = 1, DATA1 = FALSE, DATA2 = FALSE, speedup = 0, LEARN1 = FALSE,
-	LEARN2 = FALSE, CORNER1 = FALSE, CORNER2 = FALSE, CAM = FALSE;
-volatile uint8_t touch_good = 0, cam_time = 0, do_emu = SET_EMU, ACK = FALSE, INPACKET = FALSE;
-volatile int32_t j = 0, alive_led = 0, touch_count = 0, resync_count = 0, rawint_count = 0, status_count = 0;
+typedef struct statustype {
+	int32_t alive_led, touch_count, resync_count, rawint_count, status_count;
+} volatile statustype;
 
-/*
- * Step #1  The data is allocated into its own section.
- */
+volatile uint16_t c_idx = 0, speedup = 0;
+volatile uint8_t CATCH = FALSE, LED_UP = TRUE, TOUCH = FALSE, UNTOUCH = FALSE,
+	CATCH46 = FALSE, CATCH37 = FALSE, TSTATUS = FALSE, NEEDSETUP = FALSE,
+	DATA1 = FALSE, DATA2 = FALSE, LEARN1 = FALSE,
+	LEARN2 = FALSE, CORNER1 = FALSE, CORNER2 = FALSE, CAM = FALSE, do_emu = SET_EMU, ACK = FALSE, INPACKET = FALSE;
+volatile uint8_t touch_good = 0, cam_time = 0;
+volatile int32_t touch_count = 0, resync_count = 0, rawint_count = 0, status_count = 0;
+int32_t j = 0, alive_led = 0;
+
 #pragma idata bigdata
 
-//				***
-//				E0.94		Clean up the code and comments
-//				E0.95		Add startup delay for remote service terminals
-//				E0.96		status reporting and monitor testing
-//				E0.97		port bit testing
-//				E0.98		fix cylon led roll.
-//				E0.99		debug 1,2 Screen size code results changed with portD bit 0,1
-//				E1.00
-//				E1.01		debug 8 on single/tracking touch modes portD bit 7
-//				E1.02		debug 7 on flash LCD while processing. portD bit 6
-//				E1.03		code fixes/updates
-//				E1.04		add delay in status/touched host send routines
-//				E1.05		add interlocks for touch input from screen
-//				E1.06		add WDT counter test switch input and checks for valid ts inputs.
-//				E1.07		screen connect restart code via WDT timeout.
-//				E1.08		Learn touchs and set with special touch sequence.
-//				E1.09		Code for 2 special touchs and remove the delay switch. bit3 learn1, bit2 learn2
-//				E1.10		External output to led/relay on PORTE, RE0,RE7 mirrors HA0 led
-//				E1.11		add JB define for switch board missing.
-//				E1.12-13	fix LCD display
-//				E1.14		fix rs-232 flags
-//				E1.15		Small coding  cleanups
-//				E1.16		remove WDT calls in ISR, check for proper comms with the touch screen and controller.
-//				E1.17		auto init touchscreen code.
-//				E1.18		Code for new LCD screens and debug capture.
-//				E1.19		recode ISR to remove library define functions
-//				E1.20		VGA/CAM switcher code.
-//				E1.21		Timed camera for left press, software smells
-//				E1.22		Support for SmartSet commands on newer touch panels
-//				***
-
-char lcdstr[18] = "CRTFIX E1.22FB |", lcdstatus[18] = "D", lcdstatus_touched[18] = "Touched",
-	tmp_str[18] = "   ", debugstr[18] = "DEBUG jmpr#6   |", bootstr1[18] = "Power Up        ",
-	bootstr2[18] = "Status: OK     ";
-volatile uint8_t elobuf[BUF_SIZE], ssbuf[BUF_SIZE], spinchr, commchr = ' ';
+const rom int8_t *build_date = __DATE__, *build_time = __TIME__;
+volatile uint8_t elobuf[BUF_SIZE], ssbuf[BUF_SIZE];
 
 volatile struct reporttype ssreport;
+volatile struct statustype status;
 
 uint8_t elocodes_m[ELO_SIZE] = {// 5 char, soft-reset,touch scanning off, report transfer on, (0x26) tracking mode, report transfer on, clear touch buffer, touch scanning on
 	0x0d, 0x0d, 0x0d, 0x0d, 0x0d, 0x3c, 0x2b, 0x44, 0x26, 0x44, 0x3d, 0x2a
@@ -227,8 +228,8 @@ uint8_t elocodes_s[ELO_SIZE] = {// same as above ex (0x25) enter point mode
 
 
 // SmartSet codes 0 command, 1 status, 2 low byte, 3 high byte, etc ...
-uint8_t elocodes_e0[ELO_SIZE] = {// emulate setup E271-2200 TOUCH BINARY
-	'U', 'B', 0x01, 0x4, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
+uint8_t elocodes_e0[ELO_SIZE] = {
+	'U', 'B', 0x01, 0x4, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 // smartset timing and spacing setup
 };
 uint8_t elocodes_e1[ELO_SIZE] = {
 	'U', 'Q', 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
@@ -290,9 +291,8 @@ void rx_handler(void)
 		LATJbits.LATJ7 = 1; //  led off before checking serial ports
 		LATJbits.LATJ0 = 0;
 	}
-	commchr = '*';
 
-	/* Get the character received from the USARTs */
+	/* Get the characters received from the USARTs */
 
 	if (PIR3bits.RC2IF) { // is data from touchscreen
 		timer0.lt = TIMERPACKET; // set timer to charge rate time
@@ -306,11 +306,7 @@ void rx_handler(void)
 			CAM_RELAY = 0; // clear video switch
 			CAM = FALSE;
 		}
-		if (RCSTA2bits.OERR) {
-			RCSTA2bits.CREN = 0; //	clear overrun
-			RCSTA2bits.CREN = 1; // re-enable
-			LATEbits.LATE6 = !LATEbits.LATE6;
-		}
+
 		c = RCREG2; // read data from touchscreen
 		if (do_cap) {
 			if (scrn_ptr < CAP_SIZE) {
@@ -328,7 +324,7 @@ void rx_handler(void)
 			if (do_emu) {
 				ssbuf[idx] = c;
 				switch (idx++) {
-				case 0: // start of touch controller packet
+				case 0: // start of touch controller packet, save data and compute checksum
 					sum = 0xaa;
 					if (c != 'U') {
 						idx = 0;
@@ -368,7 +364,7 @@ void rx_handler(void)
 				LATEbits.LATE7 = LATEbits.LATE0; // flash external led
 				DATA2 = TRUE; // usart is connected to data
 				if (TOUCH) {
-					elobuf[i++] = c;
+					elobuf[c_idx++] = c;
 					LATEbits.LATE0 = 1; // flash external led
 					LATEbits.LATE7 = LATEbits.LATE0; // flash external led
 					if (c == 0xFF && TOUCH) { // end of report
@@ -382,7 +378,7 @@ void rx_handler(void)
 					TSTATUS = TRUE;
 					restart_delay = 0;
 					CATCH = FALSE;
-					i = 0;
+					c_idx = 0;
 					LATEbits.LATE0 = 1; // flash external led
 					LATEbits.LATE7 = LATEbits.LATE0; // flash external led
 				};
@@ -394,8 +390,8 @@ void rx_handler(void)
 					LATEbits.LATE0 = 1; // flash external led
 					LATEbits.LATE7 = LATEbits.LATE0; // flash external led
 				};
-				if (i > (BUF_SIZE - 2)) {
-					i = 0; // stop buffer-overflow
+				if (c_idx > (BUF_SIZE - 2)) {
+					c_idx = 0; // stop buffer-overflow
 					TOUCH = FALSE;
 					CATCH = FALSE;
 				};
@@ -410,8 +406,7 @@ void rx_handler(void)
 		}
 	};
 
-	if (INTCONbits.TMR0IF) { // check timer0 irq 
-		//		LATEbits.LATE4 = !LATEbits.LATE4;
+	if (INTCONbits.TMR0IF) { // check timer0
 		idx = 0; // reset packet char index counter
 		ssreport.tohost = FALSE; // when packets stop allow for next updates
 		timer0.lt = TIMERPACKET; // set timer to charge rate time
@@ -563,12 +558,12 @@ void setup_lcd(void)
 	uint8_t single_t = SINGLE_TOUCH;
 
 	if (do_emu) {
-		elopacketout(elocodes_e0, ELO_SEQ, 0); // info packet
-		//		elopacketout(elocodes_e2, ELO_SEQ, 0);
-		//		elopacketout(elocodes_e2, ELO_SEQ, 1);
+		elopacketout(elocodes_e0, ELO_SEQ, 0); // set touch packet spacing and timing
+		//elopacketout(elocodes_e2, ELO_SEQ, 0);
+		//elopacketout(elocodes_e2, ELO_SEQ, 1);
 		//elopacketout(elocodes_e3, ELO_SEQ, 0);
 		//elopacketout(elocodes_e4, ELO_SEQ, 0);
-		//		elopacketout(elocodes_e1, ELO_SEQ, 1);
+		//elopacketout(elocodes_e1, ELO_SEQ, 1);
 	} else {
 
 		if (TS_TYPE == 1) single_t = FALSE;
@@ -600,7 +595,7 @@ void putc2(uint16_t c)
 
 void start_delay(void)
 {
-	wdtdelay(50000);
+	wdtdelay(100000);
 }
 
 uint16_t Test_Screen(void)
@@ -621,7 +616,7 @@ uint16_t Test_Screen(void)
 
 void main(void)
 {
-	uint16_t spinner = 0, eep_ptr;
+	uint16_t eep_ptr;
 	uint8_t scaled_char;
 	float rez_scale_h = 1.0, rez_parm_h, rez_scale_v = 1.0, rez_parm_v;
 	float rez_scale_h_ss = ELO_SS_H_SCALE, rez_scale_v_ss = ELO_SS_V_SCALE;
@@ -647,9 +642,6 @@ void main(void)
 	if (read_touch_eeprom(0, 512) == (uint8_t) 0x57) CORNER2 = TRUE;
 	ssreport.tohost = TRUE;
 
-	strcpypgm2ram(bootstr1, "Booting Program    ");
-	start_delay(); // wait for touch-screen to powerup and be ready
-	strcpypgm2ram(bootstr1, "Power up delay     ");
 	start_delay(); // wait for touch-screen to powerup and be ready
 
 	OpenTimer0(TIMER_INT_ON & T0_16BIT & T0_SOURCE_INT & T0_PS_1_1);
@@ -675,10 +667,10 @@ void main(void)
 		USART_BRGH_LOW, 64);
 
 	while (DataRdy1USART()) { // dump 1 rx data`
-		z = Read1USART();
+		Read1USART();
 	};
 	while (DataRdy2USART()) { // dump 2 rx data
-		z = Read2USART();
+		Read2USART();
 	};
 	/* Disable interrupt priority */
 	RCONbits.IPEN = 0;
@@ -692,7 +684,6 @@ void main(void)
 	INTCONbits.PEIE = 1; // enable all unmasked int
 
 	if (!DO_CAP) {
-		strcpypgm2ram(bootstr1, "Configure Screen   ");
 		start_delay();
 		setup_lcd(); // send lcd touch controller setup codes
 	}
@@ -731,27 +722,11 @@ void main(void)
 		}
 	}
 
-	if (Test_Screen()) {
-		if (TSTATUS) {
-			strcpypgm2ram(bootstr1, "Status:OK TS    ");
-		} else {
-			strcpypgm2ram(bootstr1, "Status:COM2 Data");
-		}
-	} else {
-		strcpypgm2ram(bootstr1, "Status:No Screen");
-	}
-
+	Test_Screen();
 
 	/* Loop forever */
 	while (TRUE) {
-
 		if (j++ >= (BLINK_RATE + speedup)) { // delay a bit ok
-			if (spinner++ > (uint16_t) 2) {
-				spinchr = '|';
-				spinner = 0;
-			} else {
-				spinchr = '-';
-			}
 			LATJbits.LATJ1 = 1;
 			LATJbits.LATJ2 = 1;
 			LATJbits.LATJ3 = 1;
@@ -816,7 +791,7 @@ void main(void)
 
 			if (CATCH) { // send the buffered touch report
 				Delay10KTCYx(75); // 75 ms
-				putc1(0xFE); // send position report header
+				putc1(0xFE); // send position report header to host
 				if (do_emu) {
 					ssreport.tohost = TRUE;
 					rez_parm_h = ((float) (ssreport.x_cord)) * rez_scale_h_ss;
@@ -835,9 +810,9 @@ void main(void)
 					rez_parm_v = ((float) (elobuf[1])) * rez_scale_v;
 					scaled_char = ((uint16_t) (rez_parm_v));
 					putc1(scaled_char); // send v scaled touch coord
-					i = 0;
+					c_idx = 0;
 				}
-				putc1(0xFF); // send end of report
+				putc1(0xFF); // send end of report to host
 				touch_count++;
 				CATCH = FALSE;
 				CATCH46 = FALSE;
@@ -880,16 +855,14 @@ void main(void)
 
 		if (NEEDSETUP) setup_lcd(); // send lcdsetup codes to screen
 
-		/*	check for port errors	*/
-		if (RCSTA1bits.OERR == (uint8_t) 1) {
+		/*	check for port errors and clear if needed	*/
+		if (RCSTA1bits.OERR) {
 			LATJ = 0xFF; // all leds off with error
-			LATE != (uint16_t) 0x02; // overrun clear error and reenable receiver 1
 			RCSTA1bits.CREN = 0;
 			RCSTA1bits.CREN = 1;
 		}
-		if (RCSTA2bits.OERR == (uint8_t) 1) {
+		if (RCSTA2bits.OERR) {
 			LATJ = 0xFF; // all leds off with error
-			LATE != (uint8_t) 0x08; // overrun clear error and reenable receiver 2
 			RCSTA2bits.CREN = 0;
 			RCSTA2bits.CREN = 1;
 		}
