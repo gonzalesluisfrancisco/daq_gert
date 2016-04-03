@@ -55,7 +55,7 @@
  * TODO: Refactor sample put get code to reduce the amount of build up/down time
  * 
 Driver: "experimental" daq_gert in progress ... 
- * for 4.1+ kernels with device-tree enabled
+ * for 4.5+ kernels with device-tree enabled
  * see README.md for install instructions
  * 
 Description: GERTBOARD daq_gert
@@ -73,7 +73,7 @@ WiringPI
 
 Devices: [] GERTBOARD (daq_gert)
 Status: inprogress (DIO 95%) (AI 95%) AO (95%) (My code cleanup 95%)
-Updated: Sept 2015 12:07:20 +0000
+Updated: Feb 2016 12:07:20 +0000
 
 The DAQ-GERT appears in Comedi as a  digital I/O subdevice (0) with
 17 or 21 or 30 channels, 
@@ -151,6 +151,7 @@ by the module option variable daqgert_conf in the /etc/modprobe.d directory
  * (the current interrupt driven kernel driver is limited to a 12 to 64 byte FIFO and no DMA) HUNK_LEN data samples
  * into the Comedi read buffer with a special mix_mode for sampling both ADC devices in an alt sequence for
  * programs like xoscope at full speed (48828 ns per conversion over a 10 second period). 
+ * comedi analog output testing command: ./ao_waveform -v -c 0 -f /dev/comedi0_subd2 -n1
  * The transfer array is currently static but can easily be made into
  * a config size parameter runtime value if needed with kmalloc for the required space
 
@@ -181,6 +182,7 @@ by the module option variable daqgert_conf in the /etc/modprobe.d directory
 #include <linux/timer.h> 
 #include <linux/list.h>  
 #include "comedi_8254.h"  
+#include <mach/platform.h> /* for GPIO_BASE and ST_BASE */
 
 /* Error Return Values */
 #define ADS1220_NO_ERROR           0
@@ -1082,6 +1084,9 @@ static int32_t piBoardRev(struct comedi_device *dev)
 		case 1:
 			boardRev = 3;
 			break;
+		case 2:
+			boardRev = 3;
+			break;
 		default:
 			boardRev = -1;
 		}
@@ -1100,7 +1105,7 @@ static int32_t piBoardRev(struct comedi_device *dev)
 		}
 	}
 
-	dev_info(dev->class_dev, "driver gpio board rev %u\n",
+	dev_info(dev->class_dev, "driver gpio board rev %i\n",
 		boardRev);
 	dio_conf = boardRev; /* set module param */
 
@@ -2701,6 +2706,34 @@ ai_read_exit:
 	return ret ? ret : insn->n;
 }
 
+/*
+ * does nothing yet
+ */
+static int32_t daqgert_ai_insn_config(struct comedi_device *dev,
+				      struct comedi_subdevice *s,
+				      struct comedi_insn *insn, unsigned int *data)
+{
+	struct daqgert_private *devpriv = dev->private;
+	int result = -EINVAL;
+
+	if (insn->n < 1)
+		return result;
+
+	result = insn->n;
+
+	/* data[0] : channels was set in relevant bits.
+	   data[1] : delay
+	 */
+
+
+	/*  Enable ADC interrupt */
+
+
+	if (data[1] > 0) devpriv->ai_count = devpriv->ai_count;
+
+	return result;
+}
+
 /* 
  * write to the DAC via SPI and read the last value back DON't LOCK 
  */
@@ -3095,6 +3128,7 @@ static int32_t daqgert_auto_attach(struct comedi_device *dev,
 			s->range_table = &range_ads1220_ai;
 			s->n_chan = thisboard->n_aichan_ads1220;
 			s->len_chanlist = 1;
+			s->insn_config = daqgert_ai_insn_config;
 			if (devpriv->smp) {
 				s->subdev_flags = SDF_READABLE | SDF_DIFF | SDF_GROUND
 					| SDF_CMD_READ | SDF_COMMON;
@@ -3479,7 +3513,7 @@ module_exit(daqgert_exit);
 
 MODULE_AUTHOR("Fred Brooks <spam@sma2.rain.com>");
 MODULE_DESCRIPTION("RPi DIO/AI/AO Driver");
-MODULE_VERSION("4.1.6");
+MODULE_VERSION("4.6.0");
 MODULE_LICENSE("GPL");
 MODULE_ALIAS("spi:spigert");
 
